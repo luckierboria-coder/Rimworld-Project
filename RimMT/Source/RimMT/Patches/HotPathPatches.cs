@@ -15,11 +15,16 @@ namespace RimMT
     {
         public static void TickPrefix(ref long __state)
         {
-            __state = Stopwatch.GetTimestamp();
+            // Butter++ can split one logical DoSingleTick across multiple rendered frames and
+            // replays foreign DoSingleTick prefixes/postfixes itself. Do not start a wall-clock
+            // sample here in that mode; TickManagerUpdate slices are measured instead.
+            __state = RuntimeCompatibility.ButterPlusPlusActive ? 0L : Stopwatch.GetTimestamp();
         }
 
         public static void TickPostfix(long __state)
         {
+            if (__state == 0L)
+                return;
             HotPathProfiler.End("TickManager.DoSingleTick", __state);
             AdaptiveLoadBalancer.RecordTick(__state);
         }
