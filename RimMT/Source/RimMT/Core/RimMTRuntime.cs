@@ -10,12 +10,14 @@ namespace RimMT
         private static bool compatibilityChecked;
         private static JobScheduler scheduler;
         private static long mainThreadFrames;
-        private static long butterMidTickDrainDeferrals;
+        private static long butterLogicalTickDrainDeferrals;
+        private static long butterProbeFailureDrainDeferrals;
 
         internal static JobScheduler Scheduler { get { return scheduler; } }
         internal static bool Initialized { get { return initialized; } }
         internal static long MainThreadFrames { get { return Interlocked.Read(ref mainThreadFrames); } }
-        internal static long ButterMidTickDrainDeferrals { get { return Interlocked.Read(ref butterMidTickDrainDeferrals); } }
+        internal static long ButterLogicalTickDrainDeferrals { get { return Interlocked.Read(ref butterLogicalTickDrainDeferrals); } }
+        internal static long ButterProbeFailureDrainDeferrals { get { return Interlocked.Read(ref butterProbeFailureDrainDeferrals); } }
 
         internal static void Initialize()
         {
@@ -64,26 +66,33 @@ namespace RimMT
             Interlocked.Increment(ref mainThreadFrames);
 
             bool logicalTickBoundary = true;
+            bool butterProbeReadable = true;
             if (RuntimeCompatibility.ButterPlusPlusActive)
             {
-                if (!RuntimeCompatibility.ButterMidTickProbeAvailable)
+                bool logicalTickInProgress;
+                butterProbeReadable = RuntimeCompatibility.TryGetButterLogicalTickInProgress(out logicalTickInProgress);
+                if (!butterProbeReadable)
                 {
                     logicalTickBoundary = false;
+                    Interlocked.Increment(ref butterProbeFailureDrainDeferrals);
                 }
-                else if (RuntimeCompatibility.IsButterMidTick())
+                else if (logicalTickInProgress)
                 {
                     logicalTickBoundary = false;
-                    Interlocked.Increment(ref butterMidTickDrainDeferrals);
+                    Interlocked.Increment(ref butterLogicalTickDrainDeferrals);
                 }
             }
 
             if (logicalTickBoundary && FeatureGate.IsEnabled("runtime.dispatcher"))
                 MainThreadDispatcher.Drain(256);
 
-            // Compatibility scanning and the first runtime report must also happen at a logical
-            // tick boundary. Butter++ may return from TickManagerUpdate several times while one
-            // DoSingleTick is still incomplete.
-            if (!compatibilityChecked && logicalTickBoundary && Current.ProgramState == ProgramState.Playing)
+            // Normal case: scan/report at the first complete logical tick. If Butter++ is loaded
+            // but its manager-level probe cannot be read, do the diagnostic scan anyway so the
+            // dispatcher is explicitly suppressed and the failure is visible instead of silently
+            // leaving queued callbacks stranded forever. The scan/report only inspect/log state;
+            // they do not commit gameplay mutations.
+            bool mayDiagnoseProbeFailure = RuntimeCompatibility.ButterPlusPlusActive && !butterProbeReadable;
+            if (!compatibilityChecked && Current.ProgramState == ProgramState.Playing && (logicalTickBoundary || mayDiagnoseProbeFailure))
             {
                 compatibilityChecked = true;
                 CompatibilityGuard.RunBaselineScan();
