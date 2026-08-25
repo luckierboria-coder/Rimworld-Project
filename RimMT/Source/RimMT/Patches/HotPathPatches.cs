@@ -7,6 +7,7 @@ namespace RimMT
     {
         internal long Started;
         internal int RequestId;
+        internal bool IsTraverseParms;
     }
 
     internal static class HotPathPatches
@@ -25,13 +26,17 @@ namespace RimMT
         public static void PathPrefix(PathFinder __instance, object[] __args, ref PathPatchState __state)
         {
             __state.Started = FeatureGate.IsEnabled("diagnostics.hotPaths") ? HotPathProfiler.Begin() : 0L;
+            __state.IsTraverseParms = __args != null && __args.Length > 2 && __args[2] is TraverseParms;
             __state.RequestId = PathSnapshotWorker.TrySchedule(__instance, __args);
         }
 
         public static void PathPostfix(PawnPath __result, PathPatchState __state)
         {
             if (__state.Started != 0L)
+            {
                 HotPathProfiler.End("PathFinder.FindPath", __state.Started);
+                HotPathProfiler.End(__state.IsTraverseParms ? "PathFinder.FindPath[traverseParms]" : "PathFinder.FindPath[pawn]", __state.Started);
+            }
             if (__state.RequestId != 0)
                 PathSnapshotWorker.RecordVanilla(__state.RequestId, __result);
         }
