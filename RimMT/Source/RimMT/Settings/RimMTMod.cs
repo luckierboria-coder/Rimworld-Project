@@ -35,7 +35,7 @@ namespace RimMT
             listing.Label("RimMT_ReachTtl".Translate(Settings.ReachNoCacheTtl));
             Settings.ReachNoCacheTtl = (int)listing.Slider(Settings.ReachNoCacheTtl, 5f, 60f);
             listing.GapLine();
-            if (listing.ButtonText("RimMT_LogReport".Translate())) RimMTDiagnostics.LogStartupReport();
+            if (listing.ButtonText("RimMT_LogReport".Translate())) RimMTDiagnostics.LogRuntimeReport();
             if (listing.ButtonText("RimMT_RunSelfTest".Translate())) RimMTDiagnostics.RunWorkerSelfTest();
             listing.End();
             RimMTRuntime.ApplySettings(Settings);
