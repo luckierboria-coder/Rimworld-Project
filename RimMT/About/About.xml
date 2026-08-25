@@ -6,5 +6,5 @@
   <supportedVersions><li>1.5</li></supportedVersions>
   <modDependencies><li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li></modDependencies>
   <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>RimMT V0.4 Playtest adds adaptive burst scheduling and direct profiling of Tick, PathFinder and JobGiver hotspots on top of the V0.3 compatibility-first runtime. Reachability miss caching is now topology-aware. Path/Job state mutation, ReservationManager and whole Pawn ticking remain on the main thread until the worker path engine is validated.</description>
+  <description>RimMT V0.4.1 Playtest fixes PathGrid overload resolution and isolates patch installation failures per module, so one incompatible probe no longer disables the whole runtime. Adaptive burst scheduling and Tick/PathFinder/JobGiver profiling remain active. Path/Job state mutation, ReservationManager and whole Pawn ticking remain on the main thread until worker-side snapshot engines are validated.</description>
 </ModMetaData>
