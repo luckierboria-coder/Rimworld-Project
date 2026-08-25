@@ -2,16 +2,31 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using System.Threading;
 using Verse;
 
 namespace RimMT
 {
     public static class RimMTDiagnostics
     {
+        private static long reportSerial;
+
         internal static void LogStartupReport()
         {
+            LogReport("startup");
+        }
+
+        public static void LogRuntimeReport()
+        {
+            LogReport("runtime");
+        }
+
+        private static void LogReport(string kind)
+        {
+            long serial = Interlocked.Increment(ref reportSerial);
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("[RimMT] Compatibility / performance report");
+            sb.AppendLine("[RimMT] Compatibility / performance report #" + serial + " [" + kind + "]");
+            sb.AppendLine("ProgramState: " + Current.ProgramState + ", mainThreadFrames=" + RimMTRuntime.MainThreadFrames);
 
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("Workers: " + (scheduler == null ? 0 : scheduler.WorkerCount));
@@ -27,6 +42,7 @@ namespace RimMT
                     ", highWater=" + scheduler.HighWaterPending);
             }
 
+            sb.AppendLine(MainThreadDispatcher.Summary());
             sb.AppendLine("Policy: fail-closed / whitelist-only / vanilla commit");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
                 ", EMA tick ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
@@ -50,6 +66,8 @@ namespace RimMT
             sb.AppendLine(PathSnapshotWorker.Summary());
             sb.AppendLine(HotPathProfiler.Summary("TickManager.DoSingleTick"));
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath"));
+            sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath[pawn]"));
+            sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath[traverseParms]"));
             sb.AppendLine(HotPathProfiler.Summary("JobGiver_Work.TryIssueJobPackage"));
             foreach (string line in CompatibilityGuard.Report)
                 sb.AppendLine(" * " + line);
@@ -84,15 +102,15 @@ namespace RimMT
                 delegate
                 {
                     stopwatch.Stop();
-                    JobScheduler scheduler = RimMTRuntime.Scheduler;
-                    Log.Message("[RimMT] Worker self-test passed: workers=" + scheduler.WorkerCount +
+                    JobScheduler currentScheduler = RimMTRuntime.Scheduler;
+                    Log.Message("[RimMT] Worker self-test passed: workers=" + currentScheduler.WorkerCount +
                         ", elapsedMs=" + stopwatch.ElapsedMilliseconds +
                         ", checksum=" + total +
-                        ", enqueued=" + scheduler.Enqueued +
-                        ", completed=" + scheduler.Completed +
-                        ", failures=" + scheduler.Failures +
-                        ", peakActive=" + scheduler.PeakActiveWorkers +
-                        ", highWater=" + scheduler.HighWaterPending);
+                        ", enqueued=" + currentScheduler.Enqueued +
+                        ", completed=" + currentScheduler.Completed +
+                        ", failures=" + currentScheduler.Failures +
+                        ", peakActive=" + currentScheduler.PeakActiveWorkers +
+                        ", highWater=" + currentScheduler.HighWaterPending);
                 },
                 JobPriority.High);
 
