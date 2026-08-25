@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Reflection;
 using HarmonyLib;
 using Verse;
@@ -21,7 +22,7 @@ namespace RimMT
                 TryPatchDispatcher(harmony);
                 RimMTPatches.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.3.2 playtest initialized. Path result copy bug is fixed; legality/endpoints/cost/node/geometry parity telemetry is enabled; AdaptiveTPS coexistence remains supported; vanilla PawnPath remains authoritative.");
+                Log.Message("[RimMT] V0.4.4 playtest initialized. Butter++ logical-tick-aware dispatcher coexistence is enabled; AdaptiveTPS coexistence remains supported; path workers remain immutable-snapshot/vanilla-authoritative while production cost parity is tightened.");
             }
             catch (Exception ex)
             {
@@ -42,8 +43,14 @@ namespace RimMT
                 }
 
                 CompatibilityGuard.RegisterTarget("runtime.dispatcher", update);
-                harmony.Patch(update, postfix: new HarmonyMethod(typeof(RimMTBootstrap), nameof(TickManagerUpdatePostfix)));
-                Log.Message("[RimMT] runtime.dispatcher postfix installed on TickManager.TickManagerUpdate; known AdaptiveTPS transpiler is allowed to coexist.");
+
+                HarmonyMethod prefix = new HarmonyMethod(typeof(RimMTBootstrap), nameof(TickManagerUpdatePrefix));
+                prefix.priority = Priority.First;
+                HarmonyMethod postfix = new HarmonyMethod(typeof(RimMTBootstrap), nameof(TickManagerUpdatePostfix));
+                postfix.priority = Priority.Last;
+                harmony.Patch(update, prefix: prefix, postfix: postfix);
+
+                Log.Message("[RimMT] runtime.dispatcher bracket installed on TickManager.TickManagerUpdate; known AdaptiveTPS pacing transpiler and Butter++ split-tick owner are handled explicitly.");
             }
             catch (Exception ex)
             {
@@ -52,8 +59,25 @@ namespace RimMT
             }
         }
 
-        public static void TickManagerUpdatePostfix()
+        public static void TickManagerUpdatePrefix(ref long __state)
         {
+            __state = 0L;
+            if (!RuntimeCompatibility.ButterPlusPlusActive)
+                return;
+            if (FeatureGate.IsEnabled("runtime.adaptiveBurst") || FeatureGate.IsEnabled("diagnostics.hotPaths"))
+                __state = Stopwatch.GetTimestamp();
+        }
+
+        public static void TickManagerUpdatePostfix(long __state)
+        {
+            if (__state != 0L && RuntimeCompatibility.ButterPlusPlusActive)
+            {
+                if (FeatureGate.IsEnabled("diagnostics.hotPaths"))
+                    HotPathProfiler.End("TickManager.TickManagerUpdate[ButterSlice]", __state);
+                if (FeatureGate.IsEnabled("runtime.adaptiveBurst"))
+                    AdaptiveLoadBalancer.RecordButterFrameSlice(__state);
+            }
+
             RimMTRuntime.OnMainThreadFrame();
         }
     }
