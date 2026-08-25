@@ -21,7 +21,7 @@ namespace RimMT
                 TryPatchDispatcher(harmony);
                 RimMTPatches.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.3.1 playtest initialized. AdaptiveTPS TickManagerUpdate transpiler coexistence is supported; PathFinder ingress/rejection diagnostics are enabled; vanilla PawnPath remains authoritative.");
+                Log.Message("[RimMT] V0.4.3.2 playtest initialized. Path result copy bug is fixed; legality/endpoints/cost/node/geometry parity telemetry is enabled; AdaptiveTPS coexistence remains supported; vanilla PawnPath remains authoritative.");
             }
             catch (Exception ex)
             {
