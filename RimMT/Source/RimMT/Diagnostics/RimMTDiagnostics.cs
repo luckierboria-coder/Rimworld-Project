@@ -27,6 +27,7 @@ namespace RimMT
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("[RimMT] Compatibility / performance report #" + serial + " [" + kind + "]");
             sb.AppendLine("ProgramState: " + Current.ProgramState + ", mainThreadFrames=" + RimMTRuntime.MainThreadFrames);
+            sb.AppendLine(RuntimeCompatibility.Summary());
 
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("Workers: " + (scheduler == null ? 0 : scheduler.WorkerCount));
@@ -43,11 +44,16 @@ namespace RimMT
             }
 
             sb.AppendLine(MainThreadDispatcher.Summary());
+            if (RuntimeCompatibility.ButterPlusPlusActive)
+                sb.AppendLine("Butter++ dispatcher barrier: midTickDrainDeferrals=" + RimMTRuntime.ButterMidTickDrainDeferrals + ", probe=" + RuntimeCompatibility.ButterProbeDescription);
+
             sb.AppendLine("Policy: fail-closed / whitelist-only / vanilla commit");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
-                ", EMA tick ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
-                ", P95 tick ms=" + AdaptiveLoadBalancer.Percentile95().ToString("F3") +
-                ", spikes=" + AdaptiveLoadBalancer.SpikeCount);
+                ", sampleSource=" + AdaptiveLoadBalancer.SampleSource +
+                ", EMA ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
+                ", P95 ms=" + AdaptiveLoadBalancer.Percentile95().ToString("F3") +
+                ", spikes=" + AdaptiveLoadBalancer.SpikeCount +
+                ", butterFrameSamples=" + AdaptiveLoadBalancer.ButterFrameSamples);
 
             Dictionary<string,FeatureGate.FeatureState> states = FeatureGate.Snapshot();
             foreach (KeyValuePair<string,FeatureGate.FeatureState> pair in states)
@@ -65,6 +71,8 @@ namespace RimMT
             sb.AppendLine("Reach NO cache: hits=" + ReachabilityNoCache.Hits + ", stores=" + ReachabilityNoCache.Stores + ", topologyGen=" + ReachabilityNoCache.TopologyGeneration);
             sb.AppendLine(PathSnapshotWorker.Summary());
             sb.AppendLine(HotPathProfiler.Summary("TickManager.DoSingleTick"));
+            if (RuntimeCompatibility.ButterPlusPlusActive)
+                sb.AppendLine(HotPathProfiler.Summary("TickManager.TickManagerUpdate[ButterSlice]"));
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath"));
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath[pawn]"));
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath[traverseParms]"));
