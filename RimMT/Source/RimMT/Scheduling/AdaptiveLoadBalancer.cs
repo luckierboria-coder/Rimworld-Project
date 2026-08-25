@@ -15,15 +15,40 @@ namespace RimMT
         private static int count;
         private static double emaMs;
         private static long spikes;
+        private static long butterFrameSamples;
         private static int pressureValue = (int)LoadPressure.Normal;
 
         internal static LoadPressure Pressure { get { return (LoadPressure)Volatile.Read(ref pressureValue); } }
         internal static bool AllowBackground { get { LoadPressure p = Pressure; return p == LoadPressure.Low || p == LoadPressure.Normal; } }
         internal static double EmaTickMs { get { lock (Sync) return emaMs; } }
         internal static long SpikeCount { get { return Interlocked.Read(ref spikes); } }
+        internal static long ButterFrameSamples { get { return Interlocked.Read(ref butterFrameSamples); } }
+        internal static string SampleSource { get { return RuntimeCompatibility.ButterPlusPlusActive ? "Butter++ TickManagerUpdate slice" : "DoSingleTick"; } }
 
         internal static void RecordTick(long startTimestamp)
         {
+            // Butter++ may hold one logical DoSingleTick open across several rendered frames and
+            // manually replay other mods' DoSingleTick prefixes/postfixes. Measuring that wall time
+            // would include inter-frame time and poison RimMT's pressure model. In Butter++ mode,
+            // TickManagerUpdate frame slices are sampled instead.
+            if (RuntimeCompatibility.ButterPlusPlusActive)
+                return;
+            RecordSample(startTimestamp);
+        }
+
+        internal static void RecordButterFrameSlice(long startTimestamp)
+        {
+            if (!RuntimeCompatibility.ButterPlusPlusActive || startTimestamp == 0L)
+                return;
+            Interlocked.Increment(ref butterFrameSamples);
+            RecordSample(startTimestamp);
+        }
+
+        private static void RecordSample(long startTimestamp)
+        {
+            if (startTimestamp == 0L)
+                return;
+
             long end = Stopwatch.GetTimestamp();
             double ms = (end - startTimestamp) * 1000.0 / Stopwatch.Frequency;
             lock (Sync)
