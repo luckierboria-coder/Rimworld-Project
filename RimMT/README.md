@@ -1,36 +1,61 @@
 # RimMT
 
-Compatibility-first multithreading framework for RimWorld 1.5.
+Compatibility-first performance and multithreading runtime for **RimWorld 1.5.4063**.
 
-## V0.2 Foundation
+## V0.3 Playtest
 
-This first development milestone intentionally does **not** parallelize `Pawn.Tick`, `Thing.Tick`, job assignment, reservations, or mutable RimWorld map state.
+This is the first installable playtest build. It combines a real persistent worker pool with conservative main-thread optimizations, while deliberately avoiding invasive simulation threading that is likely to break large mod lists.
 
-Implemented infrastructure:
+### Enabled by default
 
-- bounded persistent worker pool (1-8 workers, leaves one logical CPU for the main thread)
-- high / normal / background queues
-- bounded worker-to-main-thread dispatcher
-- explicit main-thread / worker-thread guards
-- per-feature enable/suppress gates
-- Harmony conflict inspection for future parallel modules
-- fail-closed behavior and vanilla fallback contract
-- per-feature circuit breaker after repeated worker exceptions
-- startup compatibility report
+- **Text metric cache** — caches repeated `Text.CalcHeight` / `Text.CalcSize` results.
+- **Visible Thing overlay cache** — while the camera is stationary, avoids rescanning every overlay-capable Thing every rendered frame; actual drawing remains on the main thread.
+- **Worker runtime** — 1-8 persistent background workers, bounded queues, priority scheduling, atomic `ParallelFor`, and bounded main-thread callbacks.
+- **Compatibility scan** — any foreign Harmony prefix/postfix/transpiler/finalizer on an optimized target suppresses that RimMT feature and restores the vanilla path.
+- **Circuit breakers / fail-closed behavior** — a failing worker feature is isolated instead of repeatedly damaging the game loop.
 
-## Design rules
+### Experimental and OFF by default
 
-1. Correctness and save safety outrank TPS.
-2. Parallel modules are whitelist-only.
-3. Workers should consume immutable snapshots or pure data, not live `Pawn`, `Thing`, `Map`, reservation, region, or Unity state.
-4. Before a module patches a vanilla hot path, inspect foreign Harmony prefixes/transpilers/finalizers. Unknown mutation means the module is disabled.
-5. Worker failures disable only the affected feature for the current session.
-6. RimMT must not require persistent save data; removing the mod should leave saves usable.
+- **Short-lived unreachable-result cache** — caches only `false` reachability results for cell targets for 5-60 game ticks. It can briefly delay recognition of a newly opened route, so it is opt-in.
+
+### Intentionally NOT parallelized
+
+- `Pawn.Tick`
+- `Thing.Tick`
+- `ReservationManager`
+- job assignment
+- mutable map state
+- faction ticks
+
+These systems remain on the vanilla main thread until a specific implementation can preserve behavior under heavy Harmony/mod interaction.
+
+## Large mod-list policy
+
+RimMT is whitelist-only. If another mod patches a target RimMT wants to optimize, RimMT disables its own feature rather than attempting to win patch order. If another RimThreaded implementation is detected, gameplay optimizations are disabled entirely while diagnostics remain available.
+
+RimMT does not write required state into saves. Removing it should leave the save usable.
+
+## Settings
+
+Open **Options → Mod settings → RimMT**.
+
+You can toggle the two safe caches, opt into the reachability miss cache, print a compatibility report, and run a deterministic worker-thread self-test. The self-test uses the actual RimMT worker scheduler and returns its completion callback to the main thread.
+
+## Install
+
+Install Harmony, then extract the release so the game sees:
+
+```
+RimWorld/Mods/RimMT/About/About.xml
+RimWorld/Mods/RimMT/1.5/Assemblies/RimMT.dll
+```
+
+Load Harmony before RimMT.
 
 ## Build
 
-Set `RimWorldDir` to the RimWorld installation root and build `Source/RimMT/RimMT.csproj` for .NET Framework 4.7.2. Harmony is expected at `Mods/Harmony/Current/Assemblies/0Harmony.dll`.
+The repository uses `Krafs.Rimworld.Ref 1.5.4063` and `Lib.Harmony` compile references, so CI does not require redistributing RimWorld assemblies. GitHub Actions produces `RimMT_1.5_Playtest.zip`.
 
-## Next milestone
+## Testing requested
 
-V0.3 will add benchmarks and the first low-risk, measurable parallel workload(s), selected only after RimWorld 1.5 call-path review and compatibility checks. Candidates include read-only world calculations and UI/alert scanning; `Pawn.Tick` remains out of scope until there is evidence a safe staged implementation is worthwhile.
+For a large mod list, first launch an existing colony with the experimental reachability cache left OFF. Check the RimMT compatibility report, run the worker self-test once, then play normally and watch for new red errors, UI overlay anomalies, or TPS regressions. If a feature conflicts with another Harmony patch, it should report itself as OFF and use vanilla behavior.
