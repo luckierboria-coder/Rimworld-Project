@@ -11,8 +11,8 @@
   <RimMT_OverlayCacheDesc>镜头不移动时避免每帧扫描全图所有可显示浮层的物体。实际绘制仍只在主线程执行。</RimMT_OverlayCacheDesc>
   <RimMT_OverlayRefresh>浮层缓存刷新间隔：{0} 帧</RimMT_OverlayRefresh>
   <RimMT_Experimental>实验性功能</RimMT_Experimental>
-  <RimMT_PathSnapshotWorker>Path 快照 Worker 验证（V0.4.3.1）</RimMT_PathSnapshotWorker>
-  <RimMT_PathSnapshotWorkerDesc>主线程复制不可变 PathGrid 快照，由 RimMT Worker 使用独立 A* 计算，再与原版路径几何结果对比。V0.4.3.1 增加详细入口/拒绝原因统计，并以高优先级观察被其他寻路 Mod 修改后的调用链。原版 PawnPath 仍为最终结果。</RimMT_PathSnapshotWorkerDesc>
+  <RimMT_PathSnapshotWorker>Path 快照一致性验证（V0.4.3.2）</RimMT_PathSnapshotWorker>
+  <RimMT_PathSnapshotWorkerDesc>主线程复制不可变 PathGrid 快照，由 RimMT Worker 使用独立 A* 计算。V0.4.3.2 修复路径重建结果按值传递导致 NodeCount/PathHash 丢失的问题，并统计可达性一致、路径合法性、起终点、快照成本差、节点差与几何分歧。原版 PawnPath 仍为最终结果。</RimMT_PathSnapshotWorkerDesc>
   <RimMT_ReachNoCache>拓扑感知的“不可达”结果缓存</RimMT_ReachNoCache>
   <RimMT_ReachNoCacheDesc>只复用最近的“不可达”格子目标结果；寻路网格拓扑变化时立即让旧缓存失效。</RimMT_ReachNoCacheDesc>
   <RimMT_ReachTtl>不可达缓存有效期：{0} 游戏 Tick</RimMT_ReachTtl>
