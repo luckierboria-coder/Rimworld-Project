@@ -22,7 +22,7 @@ namespace RimMT
                 TryPatchDispatcher(harmony);
                 RimMTPatches.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.4 playtest initialized. Butter++ logical-tick-aware dispatcher coexistence is enabled; AdaptiveTPS coexistence remains supported; path workers remain immutable-snapshot/vanilla-authoritative while production cost parity is tightened.");
+                Log.Message("[RimMT] V0.4.4.1 playtest initialized. Butter++ manager-level logical-tick probe uses TickManagerPatch._midTickStarted; dispatcher commits remain fail-closed and path workers remain immutable-snapshot/vanilla-authoritative.");
             }
             catch (Exception ex)
             {
@@ -50,7 +50,7 @@ namespace RimMT
                 postfix.priority = Priority.Last;
                 harmony.Patch(update, prefix: prefix, postfix: postfix);
 
-                Log.Message("[RimMT] runtime.dispatcher bracket installed on TickManager.TickManagerUpdate; known AdaptiveTPS pacing transpiler and Butter++ split-tick owner are handled explicitly.");
+                Log.Message("[RimMT] runtime.dispatcher bracket installed on TickManager.TickManagerUpdate; Butter++ commits use TickManagerPatch._midTickStarted as the logical-tick boundary.");
             }
             catch (Exception ex)
             {
