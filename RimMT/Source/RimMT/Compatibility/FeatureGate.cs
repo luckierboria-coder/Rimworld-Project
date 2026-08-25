@@ -16,6 +16,20 @@ namespace RimMT
             }
         }
 
+        public static void SetEnabled(string id, bool enabled)
+        {
+            lock (Sync)
+            {
+                FeatureState state;
+                if (!States.TryGetValue(id, out state))
+                {
+                    state = new FeatureState(enabled, string.Empty);
+                    States.Add(id, state);
+                }
+                state.Enabled = enabled;
+            }
+        }
+
         public static bool IsEnabled(string id)
         {
             lock (Sync)
@@ -36,7 +50,7 @@ namespace RimMT
                     States.Add(id, state);
                 }
                 state.Suppressed = true;
-                state.Reason = reason;
+                state.Reason = reason ?? string.Empty;
             }
         }
 

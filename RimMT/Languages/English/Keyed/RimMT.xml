@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <RimMT_SettingsIntro>Compatibility-first optimizations. Risky simulation threading stays disabled unless explicitly implemented and validated.</RimMT_SettingsIntro>
+  <RimMT_TextCache>Cache text measurements</RimMT_TextCache>
+  <RimMT_TextCacheDesc>Caches repeated UI text size/height calculations. Low risk; automatically disabled if another mod patches the same methods.</RimMT_TextCacheDesc>
+  <RimMT_OverlayCache>Cache visible Thing overlays</RimMT_OverlayCache>
+  <RimMT_OverlayCacheDesc>Avoids scanning every overlay-capable Thing every rendered frame while the camera is stationary. Draw calls remain on the main thread.</RimMT_OverlayCacheDesc>
+  <RimMT_OverlayRefresh>Overlay cache refresh: {0} frames</RimMT_OverlayRefresh>
+  <RimMT_Experimental>Experimental</RimMT_Experimental>
+  <RimMT_ReachNoCache>Short-lived unreachable-result cache</RimMT_ReachNoCache>
+  <RimMT_ReachNoCacheDesc>Experimental and OFF by default. Reuses only recent false reachability results for cell targets. Can delay recognition of a newly opened route by a few ticks.</RimMT_ReachNoCacheDesc>
+  <RimMT_ReachTtl>Unreachable cache TTL: {0} game ticks</RimMT_ReachTtl>
+  <RimMT_LogReport>Log compatibility report</RimMT_LogReport>
+  <RimMT_RunSelfTest>Run worker-thread self-test</RimMT_RunSelfTest>
+</LanguageData>

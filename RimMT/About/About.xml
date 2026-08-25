@@ -6,5 +6,15 @@
   <supportedVersions>
     <li>1.5</li>
   </supportedVersions>
-  <description>Compatibility-first multithreading framework for RimWorld 1.5. V0.2 foundation provides a bounded worker scheduler, main-thread dispatch, Harmony conflict detection, circuit breakers, diagnostics, and safe fallback infrastructure. It does not parallelize Pawn.Tick or ReservationManager.</description>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+  </loadAfter>
+  <description>Compatibility-first performance and multithreading runtime for RimWorld 1.5. Includes a bounded worker pool, safe main-thread dispatch, Harmony conflict detection, circuit breakers, text/UI scan caches and optional short-lived reachability miss caching. Invasive Pawn/Thing/Reservation parallel ticking stays disabled.</description>
 </ModMetaData>

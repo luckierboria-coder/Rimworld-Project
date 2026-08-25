@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <RimMT_SettingsIntro>兼容性优先的性能优化。高风险的游戏模拟多线程不会默认启用，只有经过单独验证后才会加入。</RimMT_SettingsIntro>
+  <RimMT_TextCache>缓存文字尺寸计算</RimMT_TextCache>
+  <RimMT_TextCacheDesc>缓存重复的 UI 文字高度/尺寸计算。风险低；若检测到其他 Mod 修改同一方法会自动禁用。</RimMT_TextCacheDesc>
+  <RimMT_OverlayCache>缓存当前视野的物体浮层</RimMT_OverlayCache>
+  <RimMT_OverlayCacheDesc>镜头不移动时避免每帧扫描全图所有可显示浮层的物体。实际绘制仍只在主线程执行。</RimMT_OverlayCacheDesc>
+  <RimMT_OverlayRefresh>浮层缓存刷新间隔：{0} 帧</RimMT_OverlayRefresh>
+  <RimMT_Experimental>实验性功能</RimMT_Experimental>
+  <RimMT_ReachNoCache>短期“不可达”结果缓存</RimMT_ReachNoCache>
+  <RimMT_ReachNoCacheDesc>实验性，默认关闭。只复用最近的“不可达”格子目标结果；道路刚被打开时可能延迟数 Tick 才重新识别。</RimMT_ReachNoCacheDesc>
+  <RimMT_ReachTtl>不可达缓存有效期：{0} 游戏 Tick</RimMT_ReachTtl>
+  <RimMT_LogReport>输出兼容性报告到日志</RimMT_LogReport>
+  <RimMT_RunSelfTest>运行多线程 Worker 自检</RimMT_RunSelfTest>
+</LanguageData>

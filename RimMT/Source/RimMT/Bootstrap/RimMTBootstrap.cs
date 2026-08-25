@@ -18,13 +18,19 @@ namespace RimMT
 
                 Harmony harmony = new Harmony(HarmonyId);
                 var update = AccessTools.Method(typeof(TickManager), "TickManagerUpdate");
-                var postfix = new HarmonyMethod(typeof(RimMTBootstrap), nameof(TickManagerUpdatePostfix));
                 if (update != null)
-                    harmony.Patch(update, postfix: postfix);
+                {
+                    CompatibilityGuard.RegisterTarget("runtime.dispatcher", update);
+                    harmony.Patch(update, postfix: new HarmonyMethod(typeof(RimMTBootstrap), nameof(TickManagerUpdatePostfix)));
+                }
                 else
+                {
+                    FeatureGate.Suppress("runtime.dispatcher", "TickManagerUpdate was not found");
                     Log.Warning("[RimMT] TickManagerUpdate was not found; main-thread dispatcher will not drain automatically.");
+                }
 
-                Log.Message("[RimMT] V0.2 foundation initialized. No Pawn/Thing/Reservation parallel ticking is enabled.");
+                RimMTPatches.Apply(harmony);
+                Log.Message("[RimMT] V0.3 playtest initialized. Compatibility-first optimizations are active; invasive Pawn/Thing/Reservation parallel ticking remains disabled.");
             }
             catch (Exception ex)
             {
