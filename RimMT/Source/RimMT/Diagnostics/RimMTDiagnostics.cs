@@ -45,7 +45,20 @@ namespace RimMT
 
             sb.AppendLine(MainThreadDispatcher.Summary());
             if (RuntimeCompatibility.ButterPlusPlusActive)
-                sb.AppendLine("Butter++ dispatcher barrier: midTickDrainDeferrals=" + RimMTRuntime.ButterMidTickDrainDeferrals + ", probe=" + RuntimeCompatibility.ButterProbeDescription);
+            {
+                bool managerInProgress;
+                bool managerReadable = RuntimeCompatibility.TryGetButterLogicalTickInProgress(out managerInProgress);
+                bool tickListMidTick;
+                bool tickListReadable = RuntimeCompatibility.TryGetButterTickListMidTick(out tickListMidTick);
+                sb.AppendLine("Butter++ dispatcher barrier: logicalTickDrainDeferrals=" + RimMTRuntime.ButterLogicalTickDrainDeferrals +
+                    ", probeFailureDrainDeferrals=" + RimMTRuntime.ButterProbeFailureDrainDeferrals +
+                    ", managerProbeReadable=" + managerReadable +
+                    ", managerInProgress=" + managerInProgress +
+                    ", probe=" + RuntimeCompatibility.ButterProbeDescription +
+                    ", tickListProbeReadable=" + tickListReadable +
+                    ", tickListMidTick=" + tickListMidTick +
+                    ", tickListProbe=" + RuntimeCompatibility.ButterTickListProbeDescription);
+            }
 
             sb.AppendLine("Policy: fail-closed / whitelist-only / vanilla commit");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
