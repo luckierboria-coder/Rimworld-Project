@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <description>Compatibility-first multithreading framework for RimWorld 1.5. V0.2 foundation provides a bounded worker scheduler, main-thread dispatch, Harmony conflict detection, circuit breakers, diagnostics, and safe fallback infrastructure. It does not parallelize Pawn.Tick or ReservationManager.</description>
+</ModMetaData>
