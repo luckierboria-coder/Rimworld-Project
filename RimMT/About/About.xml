@@ -3,18 +3,8 @@
   <name>RimMT</name>
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt</packageId>
-  <supportedVersions>
-    <li>1.5</li>
-  </supportedVersions>
-  <modDependencies>
-    <li>
-      <packageId>brrainz.harmony</packageId>
-      <displayName>Harmony</displayName>
-      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
-    </li>
-  </modDependencies>
-  <loadAfter>
-    <li>brrainz.harmony</li>
-  </loadAfter>
-  <description>RimMT V0.3 Playtest is a compatibility-first performance and multithreading runtime for RimWorld 1.5. It includes a bounded worker pool, main-thread dispatch, automatic Harmony conflict fallback, circuit breakers, safe text/UI scan caches, and an optional short-lived reachability miss cache. Invasive Pawn/Thing/Reservation parallel ticking remains disabled for mod compatibility.</description>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies><li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li></modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT V0.4 Playtest adds adaptive burst scheduling and direct profiling of Tick, PathFinder and JobGiver hotspots on top of the V0.3 compatibility-first runtime. Reachability miss caching is now topology-aware. Path/Job state mutation, ReservationManager and whole Pawn ticking remain on the main thread until the worker path engine is validated.</description>
 </ModMetaData>

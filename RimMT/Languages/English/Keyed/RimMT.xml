@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LanguageData>
-  <RimMT_SettingsIntro>Compatibility-first optimizations. Risky simulation threading stays disabled unless explicitly implemented and validated.</RimMT_SettingsIntro>
+  <RimMT_SettingsIntro>Compatibility-first performance and load balancing for RimWorld 1.5.</RimMT_SettingsIntro>
+  <RimMT_AdaptiveBurst>Adaptive burst scheduling</RimMT_AdaptiveBurst>
+  <RimMT_AdaptiveBurstDesc>Detects tick spikes and temporarily defers background worker jobs so high-priority work gets the CPU first.</RimMT_AdaptiveBurstDesc>
+  <RimMT_HotPathDiagnostics>Profile PathFinder and JobGiver hot paths</RimMT_HotPathDiagnostics>
+  <RimMT_HotPathDiagnosticsDesc>Records call counts, average time, approximate P95 and maximum spikes for PathFinder and JobGiver. Used to guide later parallel offloading.</RimMT_HotPathDiagnosticsDesc>
   <RimMT_TextCache>Cache text measurements</RimMT_TextCache>
   <RimMT_TextCacheDesc>Caches repeated UI text size/height calculations. Low risk; automatically disabled if another mod patches the same methods.</RimMT_TextCacheDesc>
   <RimMT_OverlayCache>Cache visible Thing overlays</RimMT_OverlayCache>
   <RimMT_OverlayCacheDesc>Avoids scanning every overlay-capable Thing every rendered frame while the camera is stationary. Draw calls remain on the main thread.</RimMT_OverlayCacheDesc>
   <RimMT_OverlayRefresh>Overlay cache refresh: {0} frames</RimMT_OverlayRefresh>
   <RimMT_Experimental>Experimental</RimMT_Experimental>
-  <RimMT_ReachNoCache>Short-lived unreachable-result cache</RimMT_ReachNoCache>
-  <RimMT_ReachNoCacheDesc>Experimental and OFF by default. Reuses only recent false reachability results for cell targets. Can delay recognition of a newly opened route by a few ticks.</RimMT_ReachNoCacheDesc>
+  <RimMT_ReachNoCache>Topology-aware unreachable-result cache</RimMT_ReachNoCache>
+  <RimMT_ReachNoCacheDesc>Reuses only recent false reachability results for cell targets. V0.4 invalidates old entries immediately when the path grid topology changes.</RimMT_ReachNoCacheDesc>
   <RimMT_ReachTtl>Unreachable cache TTL: {0} game ticks</RimMT_ReachTtl>
-  <RimMT_LogReport>Log compatibility report</RimMT_LogReport>
+  <RimMT_LogReport>Log compatibility / performance report</RimMT_LogReport>
   <RimMT_RunSelfTest>Run worker-thread self-test</RimMT_RunSelfTest>
 </LanguageData>
