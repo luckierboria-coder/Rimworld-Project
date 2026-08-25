@@ -22,6 +22,8 @@ namespace RimMT
 
         private static int nextRequestId;
         private static int inFlight;
+        private static int paritySamplesLogged;
+
         private static long observedCalls;
         private static long pawnOverloadCalls;
         private static long traverseOverloadCalls;
@@ -36,6 +38,33 @@ namespace RimMT
         private static long snapshotBuilds;
         private static long nodesExpanded;
         private static long workerFailures;
+
+        private static long foundParity;
+        private static long foundMismatch;
+        private static long workerLegal;
+        private static long workerIllegal;
+        private static long vanillaSnapshotLegal;
+        private static long vanillaSnapshotIllegal;
+        private static long workerEndpointMatch;
+        private static long workerEndpointMismatch;
+        private static long vanillaEndpointMatch;
+        private static long vanillaEndpointMismatch;
+        private static long costComparable;
+        private static long sameSnapshotCost;
+        private static long workerCheaper;
+        private static long workerCostlier;
+        private static long costWithinOnePct;
+        private static long costWithinFivePct;
+        private static long totalAbsCostDelta;
+        private static long maxAbsCostDelta;
+        private static long totalAbsCostDeltaBps;
+        private static long maxAbsCostDeltaBps;
+        private static long nodeComparable;
+        private static long totalAbsNodeDelta;
+        private static long maxAbsNodeDelta;
+        private static long divergenceComparable;
+        private static long totalSharedPrefixFromStart;
+        private static long minSharedPrefixFromStart = long.MaxValue;
 
         private static long rejectedFeatureDisabled;
         private static long rejectedNotPlaying;
@@ -92,9 +121,7 @@ namespace RimMT
             if (!RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return RejectUnsupported(ref rejectedNotPlaying);
 
-            // The Pawn overload normally calls the TraverseParms overload. Schedule only the latter
-            // so one logical vanilla FindPath creates at most one worker task. If a foreign prefix
-            // short-circuits before that handoff, the split overload counters make it visible.
+            // The Pawn overload normally calls the TraverseParms overload. Schedule only the latter.
             if (!(args[2] is TraverseParms))
                 return 0;
 
@@ -216,7 +243,7 @@ namespace RimMT
 
             long acceptedCount = Interlocked.Increment(ref scheduled);
             if (acceptedCount == 1)
-                Log.Message("[RimMT] parallel.pathSnapshot accepted its first real worker task. Runtime path offload validation is now functional.");
+                Log.Message("[RimMT] parallel.pathSnapshot accepted its first real worker task. Runtime path offload validation is functional.");
             return requestId;
         }
 
@@ -235,17 +262,19 @@ namespace RimMT
             {
                 List<IntVec3> nodes = path.NodesReversed;
                 result.NodeCount = nodes == null ? 0 : nodes.Count;
-                int hash = 17;
-                if (nodes != null)
+                if (nodes != null && nodes.Count > 0)
                 {
+                    result.NodesReversed = new int[nodes.Count];
+                    int hash = 17;
                     for (int i = 0; i < nodes.Count; i++)
                     {
                         IntVec3 cell = nodes[i];
                         int index = cell.x + cell.z * request.Snapshot.Width;
+                        result.NodesReversed[i] = index;
                         unchecked { hash = hash * 31 + index; }
                     }
+                    result.PathHash = hash;
                 }
-                result.PathHash = hash;
             }
 
             lock (request.Sync)
@@ -261,6 +290,20 @@ namespace RimMT
             long done = Completed;
             long exact = Matched;
             double exactPct = done <= 0 ? 0.0 : exact * 100.0 / done;
+
+            long comparable = Interlocked.Read(ref costComparable);
+            double avgCostDelta = comparable <= 0 ? 0.0 : Interlocked.Read(ref totalAbsCostDelta) / (double)comparable;
+            double avgCostPct = comparable <= 0 ? 0.0 : Interlocked.Read(ref totalAbsCostDeltaBps) / (double)comparable / 100.0;
+            double maxCostPct = Interlocked.Read(ref maxAbsCostDeltaBps) / 100.0;
+
+            long nodeCount = Interlocked.Read(ref nodeComparable);
+            double avgNodeDelta = nodeCount <= 0 ? 0.0 : Interlocked.Read(ref totalAbsNodeDelta) / (double)nodeCount;
+
+            long divergenceCount = Interlocked.Read(ref divergenceComparable);
+            double avgSharedPrefix = divergenceCount <= 0 ? 0.0 : Interlocked.Read(ref totalSharedPrefixFromStart) / (double)divergenceCount;
+            long minShared = Interlocked.Read(ref minSharedPrefixFromStart);
+            if (minShared == long.MaxValue) minShared = 0;
+
             return "Path snapshot worker: scheduled=" + Scheduled +
                 ", completed=" + done +
                 ", inFlight=" + InFlight +
@@ -273,6 +316,32 @@ namespace RimMT
                 ", workerFailures=" + Interlocked.Read(ref workerFailures) +
                 ", snapshots=" + SnapshotBuilds +
                 ", nodesExpanded=" + NodesExpanded +
+                "\nPath parity: foundParity=" + Interlocked.Read(ref foundParity) +
+                ", foundMismatch=" + Interlocked.Read(ref foundMismatch) +
+                ", workerLegal=" + Interlocked.Read(ref workerLegal) +
+                ", workerIllegal=" + Interlocked.Read(ref workerIllegal) +
+                ", vanillaSnapshotLegal=" + Interlocked.Read(ref vanillaSnapshotLegal) +
+                ", vanillaSnapshotIllegal=" + Interlocked.Read(ref vanillaSnapshotIllegal) +
+                ", workerEndpointMatch=" + Interlocked.Read(ref workerEndpointMatch) +
+                ", workerEndpointMismatch=" + Interlocked.Read(ref workerEndpointMismatch) +
+                ", vanillaEndpointMatch=" + Interlocked.Read(ref vanillaEndpointMatch) +
+                ", vanillaEndpointMismatch=" + Interlocked.Read(ref vanillaEndpointMismatch) +
+                "\nPath cost parity: comparable=" + comparable +
+                ", sameCost=" + Interlocked.Read(ref sameSnapshotCost) +
+                ", workerCheaper=" + Interlocked.Read(ref workerCheaper) +
+                ", workerCostlier=" + Interlocked.Read(ref workerCostlier) +
+                ", within1pct=" + Interlocked.Read(ref costWithinOnePct) +
+                ", within5pct=" + Interlocked.Read(ref costWithinFivePct) +
+                ", avgAbsDelta=" + avgCostDelta.ToString("F1") +
+                ", maxAbsDelta=" + Interlocked.Read(ref maxAbsCostDelta) +
+                ", avgAbsDeltaPct=" + avgCostPct.ToString("F2") + "%" +
+                ", maxAbsDeltaPct=" + maxCostPct.ToString("F2") + "%" +
+                "\nPath geometry parity: nodeComparable=" + nodeCount +
+                ", avgAbsNodeDelta=" + avgNodeDelta.ToString("F2") +
+                ", maxAbsNodeDelta=" + Interlocked.Read(ref maxAbsNodeDelta) +
+                ", divergenceSamples=" + divergenceCount +
+                ", avgSharedPrefixFromStart=" + avgSharedPrefix.ToString("F2") +
+                ", minSharedPrefixFromStart=" + minShared +
                 "\nPath snapshot ingress: observed=" + Interlocked.Read(ref observedCalls) +
                 ", pawnOverload=" + Interlocked.Read(ref pawnOverloadCalls) +
                 ", traverseParmsOverload=" + Interlocked.Read(ref traverseOverloadCalls) +
@@ -384,6 +453,8 @@ namespace RimMT
             }
             else
             {
+                AnalyzeParity(request, worker, vanilla);
+
                 bool same = worker.Found == vanilla.Found;
                 if (same && worker.Found)
                     same = worker.NodeCount == vanilla.NodeCount && worker.PathHash == vanilla.PathHash;
@@ -394,12 +465,184 @@ namespace RimMT
                     Interlocked.Increment(ref mismatched);
             }
 
-            if (done == 8)
+            if (done == 8 || done == 32)
             {
                 MainThreadDispatcher.TryEnqueue(delegate
                 {
-                    Log.Message("[RimMT] parallel.pathSnapshot reached 8 completed paired validations. " + Summary());
+                    Log.Message("[RimMT] parallel.pathSnapshot reached " + done + " completed paired validations. " + Summary());
                 });
+            }
+        }
+
+        private static void AnalyzeParity(PathRequest request, WorkerResult worker, VanillaResult vanilla)
+        {
+            bool foundSame = worker.Found == vanilla.Found;
+            if (foundSame) Interlocked.Increment(ref foundParity);
+            else Interlocked.Increment(ref foundMismatch);
+
+            if (!worker.Found && !vanilla.Found)
+                return;
+
+            PathEvaluation workerEval = EvaluatePath(request.Snapshot, worker.NodesReversed, request.StartIndex, request.DestIndex);
+            if (worker.Found)
+            {
+                if (workerEval.Legal) Interlocked.Increment(ref workerLegal);
+                else Interlocked.Increment(ref workerIllegal);
+                if (workerEval.EndpointMatch) Interlocked.Increment(ref workerEndpointMatch);
+                else Interlocked.Increment(ref workerEndpointMismatch);
+            }
+
+            PathEvaluation vanillaEval = EvaluatePath(request.Snapshot, vanilla.NodesReversed, request.StartIndex, request.DestIndex);
+            if (vanilla.Found)
+            {
+                if (vanillaEval.Legal) Interlocked.Increment(ref vanillaSnapshotLegal);
+                else Interlocked.Increment(ref vanillaSnapshotIllegal);
+                if (vanillaEval.EndpointMatch) Interlocked.Increment(ref vanillaEndpointMatch);
+                else Interlocked.Increment(ref vanillaEndpointMismatch);
+            }
+
+            if (!worker.Found || !vanilla.Found)
+            {
+                LogParitySample(request.Id, worker, vanilla, workerEval, vanillaEval, -1);
+                return;
+            }
+
+            long nodeDelta = Math.Abs((long)worker.NodeCount - vanilla.NodeCount);
+            Interlocked.Increment(ref nodeComparable);
+            Interlocked.Add(ref totalAbsNodeDelta, nodeDelta);
+            UpdateMax(ref maxAbsNodeDelta, nodeDelta);
+
+            int sharedPrefix = SharedPrefixFromStart(worker.NodesReversed, vanilla.NodesReversed);
+            Interlocked.Increment(ref divergenceComparable);
+            Interlocked.Add(ref totalSharedPrefixFromStart, sharedPrefix);
+            UpdateMin(ref minSharedPrefixFromStart, sharedPrefix);
+
+            if (workerEval.Legal && vanillaEval.Legal && workerEval.EndpointMatch && vanillaEval.EndpointMatch)
+            {
+                long delta = (long)workerEval.Cost - vanillaEval.Cost;
+                long absDelta = Math.Abs(delta);
+                long denominator = Math.Max(1, vanillaEval.Cost);
+                long deltaBps = absDelta * 10000L / denominator;
+
+                Interlocked.Increment(ref costComparable);
+                Interlocked.Add(ref totalAbsCostDelta, absDelta);
+                Interlocked.Add(ref totalAbsCostDeltaBps, deltaBps);
+                UpdateMax(ref maxAbsCostDelta, absDelta);
+                UpdateMax(ref maxAbsCostDeltaBps, deltaBps);
+
+                if (delta == 0) Interlocked.Increment(ref sameSnapshotCost);
+                else if (delta < 0) Interlocked.Increment(ref workerCheaper);
+                else Interlocked.Increment(ref workerCostlier);
+
+                if (deltaBps <= 100) Interlocked.Increment(ref costWithinOnePct);
+                if (deltaBps <= 500) Interlocked.Increment(ref costWithinFivePct);
+            }
+
+            if (worker.PathHash != vanilla.PathHash || worker.NodeCount != vanilla.NodeCount)
+                LogParitySample(request.Id, worker, vanilla, workerEval, vanillaEval, sharedPrefix);
+        }
+
+        private static void LogParitySample(int requestId, WorkerResult worker, VanillaResult vanilla, PathEvaluation workerEval, PathEvaluation vanillaEval, int sharedPrefix)
+        {
+            int slot = Interlocked.Increment(ref paritySamplesLogged);
+            if (slot > 4)
+                return;
+
+            string message = "[RimMT] Path parity sample #" + slot +
+                ": request=" + requestId +
+                ", found(worker/vanilla)=" + worker.Found + "/" + vanilla.Found +
+                ", legal(worker/vanillaSnapshot)=" + workerEval.Legal + "/" + vanillaEval.Legal +
+                ", endpoints(worker/vanilla)=" + workerEval.EndpointMatch + "/" + vanillaEval.EndpointMatch +
+                ", cost(worker/vanillaSnapshot)=" + workerEval.Cost + "/" + vanillaEval.Cost +
+                ", nodes(worker/vanilla)=" + worker.NodeCount + "/" + vanilla.NodeCount +
+                ", sharedPrefixFromStart=" + sharedPrefix +
+                ". Vanilla remains authoritative.";
+            MainThreadDispatcher.TryEnqueue(delegate { Log.Message(message); });
+        }
+
+        private static PathEvaluation EvaluatePath(PathSnapshot snapshot, int[] nodesReversed, int startIndex, int destIndex)
+        {
+            PathEvaluation evaluation = new PathEvaluation();
+            if (nodesReversed == null || nodesReversed.Length == 0)
+                return evaluation;
+
+            evaluation.EndpointMatch = nodesReversed[0] == destIndex && nodesReversed[nodesReversed.Length - 1] == startIndex;
+            long cost = 0L;
+            for (int i = nodesReversed.Length - 1; i > 0; i--)
+            {
+                int from = nodesReversed[i];
+                int to = nodesReversed[i - 1];
+                if (from < 0 || from >= snapshot.Costs.Length || to < 0 || to >= snapshot.Costs.Length)
+                    return evaluation;
+                if (snapshot.Costs[to] >= PathGrid.ImpassableCost)
+                    return evaluation;
+
+                int fromX = from % snapshot.Width;
+                int fromZ = from / snapshot.Width;
+                int toX = to % snapshot.Width;
+                int toZ = to / snapshot.Width;
+                int dx = Math.Abs(toX - fromX);
+                int dz = Math.Abs(toZ - fromZ);
+                if (dx > 1 || dz > 1 || (dx == 0 && dz == 0))
+                    return evaluation;
+
+                bool diagonal = dx == 1 && dz == 1;
+                if (diagonal)
+                {
+                    int orthogonalA = toX + fromZ * snapshot.Width;
+                    int orthogonalB = fromX + toZ * snapshot.Width;
+                    if (snapshot.Costs[orthogonalA] >= PathGrid.ImpassableCost || snapshot.Costs[orthogonalB] >= PathGrid.ImpassableCost)
+                        return evaluation;
+                }
+
+                cost += (diagonal ? 18 : 13) + snapshot.Costs[to];
+                if (cost > int.MaxValue)
+                    return evaluation;
+            }
+
+            evaluation.Legal = true;
+            evaluation.Cost = (int)cost;
+            return evaluation;
+        }
+
+        private static int SharedPrefixFromStart(int[] worker, int[] vanilla)
+        {
+            if (worker == null || vanilla == null)
+                return 0;
+
+            int wi = worker.Length - 1;
+            int vi = vanilla.Length - 1;
+            int shared = 0;
+            while (wi >= 0 && vi >= 0 && worker[wi] == vanilla[vi])
+            {
+                shared++;
+                wi--;
+                vi--;
+            }
+            return shared;
+        }
+
+        private static void UpdateMax(ref long target, long value)
+        {
+            long current = Interlocked.Read(ref target);
+            while (value > current)
+            {
+                long observed = Interlocked.CompareExchange(ref target, value, current);
+                if (observed == current)
+                    return;
+                current = observed;
+            }
+        }
+
+        private static void UpdateMin(ref long target, long value)
+        {
+            long current = Interlocked.Read(ref target);
+            while (value < current)
+            {
+                long observed = Interlocked.CompareExchange(ref target, value, current);
+                if (observed == current)
+                    return;
+                current = observed;
             }
         }
 
@@ -414,6 +657,8 @@ namespace RimMT
             {
                 result.Found = true;
                 result.NodeCount = 1;
+                result.NodesReversed = new[] { startIndex };
+                result.PathCost = 0;
                 unchecked { result.PathHash = 17 * 31 + startIndex; }
                 return result;
             }
@@ -440,7 +685,8 @@ namespace RimMT
                 {
                     result.Found = true;
                     result.NodesExpanded = expanded;
-                    BuildResultPath(result, scratch, startIndex, destIndex);
+                    result.PathCost = current.G;
+                    BuildResultPath(ref result, scratch, startIndex, destIndex);
                     return result;
                 }
 
@@ -481,14 +727,12 @@ namespace RimMT
             return result;
         }
 
-        private static void BuildResultPath(WorkerResult result, PathScratch scratch, int startIndex, int destIndex)
+        private static void BuildResultPath(ref WorkerResult result, PathScratch scratch, int startIndex, int destIndex)
         {
             int count = 0;
-            int hash = 17;
             int cur = destIndex;
             while (cur >= 0 && count <= scratch.Capacity)
             {
-                unchecked { hash = hash * 31 + cur; }
                 count++;
                 if (cur == startIndex)
                     break;
@@ -500,11 +744,26 @@ namespace RimMT
                 result.Found = false;
                 result.NodeCount = 0;
                 result.PathHash = 0;
+                result.PathCost = 0;
+                result.NodesReversed = null;
                 return;
+            }
+
+            int[] nodes = new int[count];
+            int hash = 17;
+            cur = destIndex;
+            for (int i = 0; i < count; i++)
+            {
+                nodes[i] = cur;
+                unchecked { hash = hash * 31 + cur; }
+                if (cur == startIndex)
+                    break;
+                cur = scratch.GetParent(cur);
             }
 
             result.NodeCount = count;
             result.PathHash = hash;
+            result.NodesReversed = nodes;
         }
 
         private static int Heuristic(int index, int destIndex, int width)
@@ -569,6 +828,8 @@ namespace RimMT
             internal int NodeCount;
             internal int PathHash;
             internal int NodesExpanded;
+            internal int PathCost;
+            internal int[] NodesReversed;
         }
 
         private struct VanillaResult
@@ -576,6 +837,14 @@ namespace RimMT
             internal bool Found;
             internal int NodeCount;
             internal int PathHash;
+            internal int[] NodesReversed;
+        }
+
+        private struct PathEvaluation
+        {
+            internal bool Legal;
+            internal bool EndpointMatch;
+            internal int Cost;
         }
 
         private sealed class PathScratch
