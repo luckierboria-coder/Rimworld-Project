@@ -11,6 +11,7 @@ namespace RimMT
         private readonly ConcurrentQueue<WorkItem> normal = new ConcurrentQueue<WorkItem>();
         private readonly ConcurrentQueue<WorkItem> background = new ConcurrentQueue<WorkItem>();
         private readonly AutoResetEvent signal = new AutoResetEvent(false);
+        private readonly object enqueueSync = new object();
         private readonly Thread[] workers;
         private readonly int maxPending;
         private volatile bool running = true;
@@ -40,19 +41,11 @@ namespace RimMT
             if (!running || action == null || !FeatureGate.IsEnabled(featureId)) return false;
             if (CircuitBreaker.IsOpen(featureId)) return false;
 
-            int now = Interlocked.Increment(ref pending);
-            if (now > maxPending)
+            lock (enqueueSync)
             {
-                Interlocked.Decrement(ref pending);
-                return false;
-            }
-
-            WorkItem item = new WorkItem(featureId, action);
-            switch (priority)
-            {
-                case JobPriority.High: high.Enqueue(item); break;
-                case JobPriority.Background: background.Enqueue(item); break;
-                default: normal.Enqueue(item); break;
+                if (pending >= maxPending) return false;
+                Interlocked.Increment(ref pending);
+                EnqueueReserved(new WorkItem(featureId, action), priority);
             }
             signal.Set();
             return true;
@@ -68,41 +61,50 @@ namespace RimMT
             int count = toExclusive - fromInclusive;
             int batches = (count + batchSize - 1) / batchSize;
             int remaining = batches;
-            int accepted = 0;
             int allQueued = 0;
 
-            for (int start = fromInclusive; start < toExclusive; start += batchSize)
+            // All-or-nothing reservation. We never publish only part of a ParallelFor range,
+            // which keeps fallback deterministic and prevents duplicated side effects.
+            lock (enqueueSync)
             {
-                int s = start;
-                int e = Math.Min(start + batchSize, toExclusive);
-                bool queued = TryEnqueue(featureId, priority, () =>
+                if (!running || pending + batches > maxPending) return false;
+                if (!FeatureGate.IsEnabled(featureId) || CircuitBreaker.IsOpen(featureId)) return false;
+
+                Interlocked.Add(ref pending, batches);
+                for (int start = fromInclusive; start < toExclusive; start += batchSize)
                 {
-                    body(s, e);
-                    if (Interlocked.Decrement(ref remaining) == 0
-                        && Volatile.Read(ref allQueued) == 1
-                        && onComplete != null)
+                    int s = start;
+                    int e = Math.Min(start + batchSize, toExclusive);
+                    EnqueueReserved(new WorkItem(featureId, () =>
                     {
-                        MainThreadDispatcher.TryEnqueue(onComplete);
-                    }
-                });
-
-                if (!queued)
-                    break;
-                accepted++;
-            }
-
-            if (accepted == batches)
-            {
+                        body(s, e);
+                        if (Interlocked.Decrement(ref remaining) == 0
+                            && Volatile.Read(ref allQueued) == 1
+                            && onComplete != null)
+                        {
+                            MainThreadDispatcher.TryEnqueue(onComplete);
+                        }
+                    }), priority);
+                }
                 Volatile.Write(ref allQueued, 1);
-                if (Volatile.Read(ref remaining) == 0 && onComplete != null)
-                    MainThreadDispatcher.TryEnqueue(onComplete);
-                return true;
             }
 
-            // Fail closed. A parallel feature must only use this API for isolated/pure work.
-            // If every batch cannot be accepted, the caller must keep authoritative game state
-            // on its vanilla/main-thread path and ignore any speculative partial result.
-            return false;
+            // A very fast worker can complete before allQueued flips. Handle that race here.
+            if (Volatile.Read(ref remaining) == 0 && onComplete != null)
+                MainThreadDispatcher.TryEnqueue(onComplete);
+
+            signal.Set();
+            return true;
+        }
+
+        private void EnqueueReserved(WorkItem item, JobPriority priority)
+        {
+            switch (priority)
+            {
+                case JobPriority.High: high.Enqueue(item); break;
+                case JobPriority.Background: background.Enqueue(item); break;
+                default: normal.Enqueue(item); break;
+            }
         }
 
         private void WorkerLoop(int workerIndex)
