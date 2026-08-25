@@ -17,6 +17,7 @@ namespace RimMT
         private static long rejected;
         private static long failures;
         private static long drainCalls;
+        private static long butterMidTickDeferred;
 
         public static int Queued { get { return Volatile.Read(ref queued); } }
         public static int HighWater { get { return Volatile.Read(ref highWater); } }
@@ -26,6 +27,7 @@ namespace RimMT
         public static long Rejected { get { return Interlocked.Read(ref rejected); } }
         public static long Failures { get { return Interlocked.Read(ref failures); } }
         public static long DrainCalls { get { return Interlocked.Read(ref drainCalls); } }
+        public static long ButterMidTickDeferred { get { return Interlocked.Read(ref butterMidTickDeferred); } }
 
         public static bool TryEnqueue(Action action)
         {
@@ -33,9 +35,21 @@ namespace RimMT
 
             if (RimMTThreadGuard.IsMainThread)
             {
-                Interlocked.Increment(ref inlineExecuted);
-                Run(action);
-                return true;
+                bool deferForButter = RuntimeCompatibility.ButterPlusPlusActive &&
+                    (!RuntimeCompatibility.ButterMidTickProbeAvailable || RuntimeCompatibility.IsButterMidTick());
+                if (!deferForButter)
+                {
+                    Interlocked.Increment(ref inlineExecuted);
+                    Run(action);
+                    return true;
+                }
+
+                // Butter++ can return control to TickManagerUpdate while the logical DoSingleTick
+                // is only partially complete. A main-thread producer is therefore not automatically
+                // a safe commit point. Queue the callback and let RimMTRuntime drain it only after
+                // Butter++ reports !MidTick. This rule is intentionally generic so future Path/Job
+                // production commits inherit the same safety boundary without special cases.
+                Interlocked.Increment(ref butterMidTickDeferred);
             }
 
             int now = Interlocked.Increment(ref queued);
@@ -75,6 +89,7 @@ namespace RimMT
                 ", enqueued=" + Enqueued +
                 ", drained=" + Drained +
                 ", inline=" + InlineExecuted +
+                ", butterMidTickDeferred=" + ButterMidTickDeferred +
                 ", rejected=" + Rejected +
                 ", failures=" + Failures +
                 ", drainCalls=" + DrainCalls +
