@@ -11,11 +11,11 @@
   <RimMT_OverlayCacheDesc>Avoids scanning every overlay-capable Thing every rendered frame while the camera is stationary. Draw calls remain on the main thread.</RimMT_OverlayCacheDesc>
   <RimMT_OverlayRefresh>Overlay cache refresh: {0} frames</RimMT_OverlayRefresh>
   <RimMT_Experimental>Experimental</RimMT_Experimental>
-  <RimMT_PathSnapshotWorker>Path snapshot worker validation (V0.4.3)</RimMT_PathSnapshotWorker>
-  <RimMT_PathSnapshotWorkerDesc>Copies an immutable PathGrid snapshot on the main thread, runs an independent A* on RimMT workers, and compares it with vanilla path geometry. Vanilla remains authoritative in this playtest; no worker path is committed yet.</RimMT_PathSnapshotWorkerDesc>
+  <RimMT_PathSnapshotWorker>Path snapshot worker validation (V0.4.3.1)</RimMT_PathSnapshotWorker>
+  <RimMT_PathSnapshotWorkerDesc>Copies an immutable PathGrid snapshot on the main thread, runs an independent A* on RimMT workers, and compares it with vanilla path geometry. V0.4.3.1 adds detailed ingress/rejection telemetry and high-priority observation for modded path stacks. Vanilla remains authoritative.</RimMT_PathSnapshotWorkerDesc>
   <RimMT_ReachNoCache>Topology-aware unreachable-result cache</RimMT_ReachNoCache>
   <RimMT_ReachNoCacheDesc>Reuses only recent false reachability results for cell targets. Old entries are invalidated when the path grid topology changes.</RimMT_ReachNoCacheDesc>
   <RimMT_ReachTtl>Unreachable cache TTL: {0} game ticks</RimMT_ReachTtl>
-  <RimMT_LogReport>Log compatibility / performance report</RimMT_LogReport>
+  <RimMT_LogReport>Log current runtime compatibility / performance report</RimMT_LogReport>
   <RimMT_RunSelfTest>Run worker-thread self-test</RimMT_RunSelfTest>
 </LanguageData>
