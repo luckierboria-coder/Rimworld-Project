@@ -16,5 +16,5 @@
   <loadAfter>
     <li>brrainz.harmony</li>
   </loadAfter>
-  <description>Compatibility-first performance and multithreading runtime for RimWorld 1.5. Includes a bounded worker pool, safe main-thread dispatch, Harmony conflict detection, circuit breakers, text/UI scan caches and optional short-lived reachability miss caching. Invasive Pawn/Thing/Reservation parallel ticking stays disabled.</description>
+  <description>RimMT V0.3 Playtest is a compatibility-first performance and multithreading runtime for RimWorld 1.5. It includes a bounded worker pool, main-thread dispatch, automatic Harmony conflict fallback, circuit breakers, safe text/UI scan caches, and an optional short-lived reachability miss cache. Invasive Pawn/Thing/Reservation parallel ticking remains disabled for mod compatibility.</description>
 </ModMetaData>
