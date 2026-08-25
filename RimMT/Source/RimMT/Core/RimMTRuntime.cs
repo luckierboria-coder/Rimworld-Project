@@ -17,6 +17,8 @@ namespace RimMT
             FeatureGate.Register("runtime.adaptiveBurst",true,"Pressure-aware scheduler that defers background work during tick spikes");
             FeatureGate.Register("diagnostics.selfTest",true,"Pure CPU worker self-test");
             FeatureGate.Register("diagnostics.hotPaths",true,"PathFinder / JobGiver / tick hot-path profiler");
+            FeatureGate.Register("diagnostics.pathFinder",true,"PathFinder.FindPath overload probes");
+            FeatureGate.Register("diagnostics.jobGiver",true,"JobGiver_Work.TryIssueJobPackage probes");
             FeatureGate.Register("ui.textCache",true,"Text metric result cache");
             FeatureGate.Register("ui.overlayCache",true,"Visible Thing overlay scan cache");
             FeatureGate.Register("ai.reachNoCache",false,"Topology-aware short-lived negative reachability cache");
@@ -31,6 +33,8 @@ namespace RimMT
             if (!initialized || settings==null) return;
             FeatureGate.SetEnabled("runtime.adaptiveBurst",settings.AdaptiveBurst);
             FeatureGate.SetEnabled("diagnostics.hotPaths",settings.HotPathDiagnostics);
+            FeatureGate.SetEnabled("diagnostics.pathFinder",settings.HotPathDiagnostics);
+            FeatureGate.SetEnabled("diagnostics.jobGiver",settings.HotPathDiagnostics);
             FeatureGate.SetEnabled("ui.textCache",settings.TextCache);
             FeatureGate.SetEnabled("ui.overlayCache",settings.OverlayCache);
             FeatureGate.SetEnabled("ai.reachNoCache",settings.ReachNoCache);
