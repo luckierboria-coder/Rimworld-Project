@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using HarmonyLib;
 using Verse;
 using Verse.AI;
@@ -17,7 +19,9 @@ namespace RimMT
 
             SafeProbe(harmony, "diagnostics.tick", () => AccessTools.Method(typeof(TickManager), "DoSingleTick"), typeof(HotPathPatches), nameof(HotPathPatches.TickPrefix), nameof(HotPathPatches.TickPostfix));
 
-            int pathFinderTargets = PatchAllNamedProbe(harmony, "diagnostics.pathFinder", typeof(PathFinder), "FindPath", typeof(HotPathPatches), nameof(HotPathPatches.PathPrefix), nameof(HotPathPatches.PathPostfix), true);
+            // Path diagnostics run first so foreign prefixes that short-circuit vanilla FindPath
+            // cannot hide real path requests from RimMT telemetry.
+            int pathFinderTargets = PatchAllNamedProbe(harmony, "diagnostics.pathFinder", typeof(PathFinder), "FindPath", typeof(HotPathPatches), nameof(HotPathPatches.PathPrefix), nameof(HotPathPatches.PathPostfix), true, Priority.First);
             if (pathFinderTargets == 0)
             {
                 FeatureGate.Suppress("diagnostics.pathFinder", "no compatible PathFinder.FindPath overloads were patched");
@@ -91,7 +95,7 @@ namespace RimMT
             }
         }
 
-        private static int PatchAllNamedProbe(Harmony harmony, string label, Type targetType, string methodName, Type patchType, string prefixName, string postfixName, bool logSignatures)
+        private static int PatchAllNamedProbe(Harmony harmony, string label, Type targetType, string methodName, Type patchType, string prefixName, string postfixName, bool logSignatures, int prefixPriority = Priority.Normal)
         {
             if (targetType == null)
             {
@@ -124,8 +128,10 @@ namespace RimMT
 
                 try
                 {
-                    PatchProbe(harmony, method, patchType, prefixName, postfixName);
+                    PatchProbe(harmony, method, patchType, prefixName, postfixName, prefixPriority);
                     patched++;
+                    if (label == "diagnostics.pathFinder")
+                        Log.Message("[RimMT] diagnostics.pathFinder Harmony chain: " + method + " :: " + DescribeHarmonyChain(method));
                 }
                 catch (Exception ex)
                 {
@@ -141,14 +147,44 @@ namespace RimMT
             return patched;
         }
 
-        private static void PatchProbe(Harmony harmony, MethodBase target, Type patchType, string prefixName, string postfixName)
+        private static void PatchProbe(Harmony harmony, MethodBase target, Type patchType, string prefixName, string postfixName, int prefixPriority = Priority.Normal)
         {
             if (target == null)
                 return;
 
             HarmonyMethod prefix = string.IsNullOrEmpty(prefixName) ? null : new HarmonyMethod(patchType, prefixName);
+            if (prefix != null)
+                prefix.priority = prefixPriority;
             HarmonyMethod postfix = string.IsNullOrEmpty(postfixName) ? null : new HarmonyMethod(patchType, postfixName);
             harmony.Patch(target, prefix: prefix, postfix: postfix);
+        }
+
+        private static string DescribeHarmonyChain(MethodBase target)
+        {
+            Patches patches = Harmony.GetPatchInfo(target);
+            if (patches == null)
+                return "no Harmony patches";
+
+            StringBuilder sb = new StringBuilder();
+            AppendPatchGroup(sb, "PRE", patches.Prefixes);
+            AppendPatchGroup(sb, "POST", patches.Postfixes);
+            AppendPatchGroup(sb, "TRANS", patches.Transpilers);
+            AppendPatchGroup(sb, "FINAL", patches.Finalizers);
+            return sb.Length == 0 ? "no Harmony patches" : sb.ToString();
+        }
+
+        private static void AppendPatchGroup(StringBuilder sb, string label, IList<Patch> patches)
+        {
+            if (patches == null || patches.Count == 0)
+                return;
+            if (sb.Length > 0) sb.Append(" | ");
+            sb.Append(label).Append(": ");
+            for (int i = 0; i < patches.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                Patch patch = patches[i];
+                sb.Append(patch.owner).Append("@").Append(patch.priority);
+            }
         }
     }
 }
