@@ -23,7 +23,39 @@ jobs:
           [IO.File]::WriteAllBytes('VNPOE_CI_source.zip', [Convert]::FromBase64String($b64))
           New-Item -ItemType Directory -Force -Path 'work' | Out-Null
           Expand-Archive -Path 'VNPOE_CI_source.zip' -DestinationPath 'work' -Force
-          Get-ChildItem work
+
+      - name: Apply RimWorld 1.5 API compile fixes
+        shell: pwsh
+        run: |
+          $src = 'work/Source/VanillaNPCOutpostsExpanded'
+          function Replace-Text([string]$file, [string]$old, [string]$new) {
+            $p = Join-Path $src $file
+            $text = Get-Content $p -Raw
+            if (!$text.Contains($old)) { throw "Expected text not found in $file : $old" }
+            Set-Content -Path $p -Value ($text.Replace($old, $new)) -Encoding UTF8
+          }
+          function Add-RimWorld-Using([string]$file) {
+            $p = Join-Path $src $file
+            $text = Get-Content $p -Raw
+            if (!$text.Contains('using RimWorld;')) {
+              if ($text.Contains("using RimWorld.Planet;`r`n")) {
+                $text = $text.Replace("using RimWorld.Planet;`r`n", "using RimWorld;`r`nusing RimWorld.Planet;`r`n")
+              } elseif ($text.Contains("using RimWorld.Planet;`n")) {
+                $text = $text.Replace("using RimWorld.Planet;`n", "using RimWorld;`nusing RimWorld.Planet;`n")
+              } else {
+                $text = "using RimWorld;`r`n" + $text
+              }
+              Set-Content -Path $p -Value $text -Encoding UTF8
+            }
+          }
+          Add-RimWorld-Using 'NPCOutpostCatalog.cs'
+          Add-RimWorld-Using 'NPCOutpostPlacementUtility.cs'
+          Add-RimWorld-Using 'RuntimeMapGenerationUtility.cs'
+          Replace-Text 'NPCOutpostAttackUtility.cs' 'faction.TrySetRelationKind(Faction.OfPlayer, FactionRelationKind.Hostile, false, null, null);' "int goodwill = faction.GoodwillWith(Faction.OfPlayer);`r`n                faction.TryAffectGoodwillWith(Faction.OfPlayer, -100 - goodwill, false, false, null, null);"
+          Replace-Text 'MFIWarCompatibility.cs' 'List<Pawn> pawns = map.mapPawns.AllPawnsSpawned;' 'IReadOnlyList<Pawn> pawns = map.mapPawns.AllPawnsSpawned;'
+          Replace-Text 'NPCOutpost.cs' 'List<Pawn> pawns = Map.mapPawns.AllPawnsSpawned;' 'IReadOnlyList<Pawn> pawns = Map.mapPawns.AllPawnsSpawned;'
+          Replace-Text 'DefensiveOutpostInterceptionPatch.cs' '() => CameraJumper.TryJump(captured),' 'rect => CameraJumper.TryJump(captured),'
+          Replace-Text 'NPCOutpostMapPostProcessor.cs' 'lifetimeDays * GenDate.TicksPerDay' 'lifetimeDays * 60000'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
