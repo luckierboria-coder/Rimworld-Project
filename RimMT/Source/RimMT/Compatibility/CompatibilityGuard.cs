@@ -34,11 +34,13 @@ namespace RimMT
 
         internal static void RunBaselineScan()
         {
+            RuntimeCompatibility.Initialize();
             lock (Sync)
             {
                 ReportLines.Clear();
                 ReportLines.Add("Loaded mods: " + LoadedModManager.RunningModsListForReading.Count);
                 ReportLines.Add("Policy: whitelist-only, fail-closed, vanilla fallback.");
+                ReportLines.Add(RuntimeCompatibility.Summary());
             }
 
             if (AccessTools.TypeByName("RimThreaded.RimThreaded") != null || HasLoadedModName("RimThreaded"))
@@ -46,6 +48,28 @@ namespace RimMT
                 SuppressOptimizationSet("another RimThreaded implementation is loaded");
                 AddReportUnique("All RimMT gameplay optimizations disabled because RimThreaded was detected.");
                 return;
+            }
+
+            if (RuntimeCompatibility.ButterPlusPlusActive)
+            {
+                if (!RuntimeCompatibility.ButterMidTickProbeAvailable)
+                {
+                    FeatureGate.Suppress("runtime.dispatcher", "Butter++ tick splitting detected but logical-tick boundary probe is unavailable");
+                    AddReportUnique("runtime.dispatcher disabled because Butter++ was detected but its MidTick state could not be read safely.");
+                }
+                else
+                {
+                    AddReportUnique("Butter++ logical-tick boundary probe active via " + RuntimeCompatibility.ButterProbeDescription + ". Dispatcher callbacks are held while Butter++ is mid-tick.");
+                }
+
+                if (RuntimeCompatibility.AdaptiveTPSActive)
+                {
+                    FeatureGate.Suppress("runtime.adaptiveBurst", "Butter++ and AdaptiveTPS are both loaded; Butter++ declares AdaptiveTPS incompatible");
+                    AddReportUnique("WARNING: Butter++ and AdaptiveTPS are both loaded. Butter++ declares Blue.adaptiveTPS incompatible; RimMT adaptive burst is disabled for this combination.");
+                }
+
+                if (RuntimeCompatibility.DubsPerformanceAnalyzerActive)
+                    AddReportUnique("WARNING: Butter++ declares Dubs Performance Analyzer incompatible. Disable DPA when evaluating Butter++ runtime behavior.");
             }
 
             KeyValuePair<string, List<MethodBase>>[] snapshot;
@@ -95,7 +119,7 @@ namespace RimMT
                 if (string.IsNullOrEmpty(owner) || owner == RimMTBootstrap.HarmonyId)
                     continue;
 
-                if (IsAllowedCoexistence(featureId, target, owner, kind))
+                if (IsAllowedCoexistence(featureId, target, patch, kind))
                 {
                     string typeName = target.DeclaringType == null ? "<unknown>" : target.DeclaringType.FullName;
                     AddReportUnique(featureId + " coexisting with '" + owner + "' " + kind + " on " + typeName + "." + target.Name + ".");
@@ -107,19 +131,33 @@ namespace RimMT
             return null;
         }
 
-        private static bool IsAllowedCoexistence(string featureId, MethodBase target, string owner, string patchKind)
+        private static bool IsAllowedCoexistence(string featureId, MethodBase target, Patch patch, string patchKind)
         {
-            // Adaptive TPS changes TickManagerUpdate with a transpiler to adjust pacing/TPS.
-            // RimMT only adds a postfix that drains worker-to-main-thread callbacks after the update.
-            // Keep this exception deliberately narrow: exact RimMT feature, exact TickManager method,
-            // AdaptiveTPS owner, and transpiler only. Any other patch shape remains fail-closed.
             if (!string.Equals(featureId, "runtime.dispatcher", StringComparison.Ordinal))
                 return false;
             if (target == null || target.DeclaringType != typeof(TickManager) || target.Name != "TickManagerUpdate")
                 return false;
-            if (!string.Equals(patchKind, "transpiler", StringComparison.Ordinal))
-                return false;
-            return owner.IndexOf("adaptivetps", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            string owner = patch == null ? string.Empty : patch.owner;
+
+            // AdaptiveTPS changes pacing in TickManagerUpdate with a transpiler. RimMT only
+            // brackets/drains around the completed update and does not rewrite AdaptiveTPS IL.
+            if (string.Equals(patchKind, "transpiler", StringComparison.Ordinal) &&
+                !string.IsNullOrEmpty(owner) && owner.IndexOf("adaptivetps", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            // Butter++ deliberately owns TickManagerUpdate so it can split one logical game tick
+            // across several rendered frames. RimMT V0.4.4 understands that state machine and holds
+            // worker-to-main-thread commits until Butter++ reports !MidTick. Keep this exemption
+            // limited to Butter++ patches on this exact method; unrelated Butter++ targets remain
+            // subject to normal fail-closed compatibility checks.
+            if (RuntimeCompatibility.IsButterPatch(patch) &&
+                (string.Equals(patchKind, "prefix", StringComparison.Ordinal) ||
+                 string.Equals(patchKind, "postfix", StringComparison.Ordinal) ||
+                 string.Equals(patchKind, "finalizer", StringComparison.Ordinal)))
+                return true;
+
+            return false;
         }
 
         private static void SuppressOptimizationSet(string reason)
