@@ -30,7 +30,7 @@ namespace RimMT
                 }
 
                 RimMTPatches.Apply(harmony);
-                Log.Message("[RimMT] V0.3 playtest initialized. Compatibility-first optimizations are active; invasive Pawn/Thing/Reservation parallel ticking remains disabled.");
+                Log.Message("[RimMT] V0.4.1 playtest initialized. Adaptive burst profiling is active; unsafe Pawn/Thing/Reservation mutation remains on the main thread.");
             }
             catch (Exception ex)
             {
