@@ -16,7 +16,13 @@ namespace RimMT
             SafeFeaturePatch(harmony, "ai.reachNoCache", () => AccessTools.Method(typeof(Reachability), "CanReach", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) }), typeof(ReachabilityNoCache), nameof(ReachabilityNoCache.Prefix), nameof(ReachabilityNoCache.Postfix));
 
             SafeProbe(harmony, "diagnostics.tick", () => AccessTools.Method(typeof(TickManager), "DoSingleTick"), typeof(HotPathPatches), nameof(HotPathPatches.TickPrefix), nameof(HotPathPatches.TickPostfix));
-            SafeProbe(harmony, "diagnostics.pathFinder", () => AccessTools.Method(typeof(PathFinder), "FindPath", new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) }), typeof(HotPathPatches), nameof(HotPathPatches.PathPrefix), nameof(HotPathPatches.PathPostfix));
+
+            int pathFinderTargets = PatchAllNamedProbe(harmony, "diagnostics.pathFinder", typeof(PathFinder), "FindPath", typeof(HotPathPatches), nameof(HotPathPatches.PathPrefix), nameof(HotPathPatches.PathPostfix), true);
+            if (pathFinderTargets == 0)
+            {
+                FeatureGate.Suppress("diagnostics.pathFinder", "no compatible PathFinder.FindPath overloads were patched");
+                Log.Warning("[RimMT] diagnostics.pathFinder disabled: no compatible PathFinder.FindPath overloads were patched.");
+            }
 
             Type jobGiverWork = null;
             try
@@ -27,13 +33,17 @@ namespace RimMT
             {
                 Log.Warning("[RimMT] diagnostics.jobGiver type lookup failed; JobGiver profiling disabled. " + ex.GetType().Name + ": " + ex.Message);
             }
-            PatchAllNamedProbe(harmony, "diagnostics.jobGiver", null, jobGiverWork, "TryIssueJobPackage", typeof(HotPathPatches), nameof(HotPathPatches.JobGiverPrefix), nameof(HotPathPatches.JobGiverPostfix));
 
-            // RimWorld 1.5 has more than one RecalculatePerceivedPathCostAt overload in some builds/modded runtimes.
-            // Enumerating declared methods avoids AccessTools.Method(name)-only AmbiguousMatchException and keeps this probe additive.
+            int jobGiverTargets = PatchAllNamedProbe(harmony, "diagnostics.jobGiver", jobGiverWork, "TryIssueJobPackage", typeof(HotPathPatches), nameof(HotPathPatches.JobGiverPrefix), nameof(HotPathPatches.JobGiverPostfix), true);
+            if (jobGiverTargets == 0)
+            {
+                FeatureGate.Suppress("diagnostics.jobGiver", "no compatible JobGiver_Work.TryIssueJobPackage overloads were patched");
+                Log.Warning("[RimMT] diagnostics.jobGiver disabled: no compatible TryIssueJobPackage overloads were patched.");
+            }
+
             int topologyTargets = 0;
-            topologyTargets += PatchAllNamedProbe(harmony, "ai.pathTopology", "ai.pathTopology", typeof(PathGrid), "RecalculatePerceivedPathCostAt", typeof(PathGridInvalidation), null, nameof(PathGridInvalidation.Postfix));
-            topologyTargets += PatchAllNamedProbe(harmony, "ai.pathTopology", "ai.pathTopology", typeof(PathGrid), "RecalculateAllPerceivedPathCosts", typeof(PathGridInvalidation), null, nameof(PathGridInvalidation.Postfix));
+            topologyTargets += PatchAllNamedProbe(harmony, "ai.pathTopology", typeof(PathGrid), "RecalculatePerceivedPathCostAt", typeof(PathGridInvalidation), null, nameof(PathGridInvalidation.Postfix), true);
+            topologyTargets += PatchAllNamedProbe(harmony, "ai.pathTopology", typeof(PathGrid), "RecalculateAllPerceivedPathCosts", typeof(PathGridInvalidation), null, nameof(PathGridInvalidation.Postfix), true);
             if (topologyTargets == 0)
             {
                 FeatureGate.Suppress("ai.pathTopology", "no compatible PathGrid invalidation targets were patched");
@@ -81,12 +91,10 @@ namespace RimMT
             }
         }
 
-        private static int PatchAllNamedProbe(Harmony harmony, string label, string featureId, Type targetType, string methodName, Type patchType, string prefixName, string postfixName)
+        private static int PatchAllNamedProbe(Harmony harmony, string label, Type targetType, string methodName, Type patchType, string prefixName, string postfixName, bool logSignatures)
         {
             if (targetType == null)
             {
-                if (!string.IsNullOrEmpty(featureId))
-                    FeatureGate.Suppress(featureId, "target type was not found");
                 Log.Warning("[RimMT] " + label + " target type not found; probe disabled.");
                 return 0;
             }
@@ -98,8 +106,6 @@ namespace RimMT
             }
             catch (Exception ex)
             {
-                if (!string.IsNullOrEmpty(featureId))
-                    FeatureGate.Suppress(featureId, "target enumeration failed: " + ex.GetType().Name);
                 Log.Warning("[RimMT] " + label + " target enumeration failed; core runtime remains active. " + ex.GetType().Name + ": " + ex.Message);
                 return 0;
             }
@@ -113,6 +119,9 @@ namespace RimMT
                     continue;
 
                 found++;
+                if (logSignatures)
+                    Log.Message("[RimMT] " + label + " target overload: " + method);
+
                 try
                 {
                     PatchProbe(harmony, method, patchType, prefixName, postfixName);
