@@ -6,30 +6,50 @@ Compatibility-first performance and multithreading runtime for **RimWorld 1.5.40
 
 RimMT exists to raise real gameplay TPS by moving CPU-heavy work away from the main thread **as far as compatibility allows**. The preferred pattern is immutable main-thread snapshot -> worker computation across spare cores -> main-thread validation/commit. Unknown or unsafe live-state mutation remains fail-closed with vanilla fallback.
 
-## V0.4.3.2 Playtest
+## V0.4.4 Playtest
 
-V0.4.3.2 is a path-parity validation build. Vanilla `PawnPath` remains authoritative; worker paths are still shadow-only.
+V0.4.4 moves the validated worker architecture closer to production use while adding explicit Butter++ coexistence. Vanilla `PawnPath` is still authoritative in this build; RimMT will not skip vanilla pathfinding until remaining dynamic path-cost components have been validated.
 
-### New in V0.4.3.2
+### New in V0.4.4
 
-- **Critical path reconstruction fix** — `WorkerResult` is a struct; the previous `BuildResultPath(result, ...)` call passed it by value, so reconstructed `NodeCount` / `PathHash` were written to a copy. V0.4.3.2 uses `ref` and retains the reconstructed worker path.
-- **Found-state parity** — reports whether worker and vanilla agree on found/unfound.
-- **Path legality checks** — validates adjacency, impassable cells and diagonal corner blocking against the immutable snapshot.
-- **Endpoint checks** — validates start and destination representation for both worker and vanilla paths.
-- **Snapshot-relative cost parity** — compares both paths using the same captured PathGrid costs and reports same-cost / worker-cheaper / worker-costlier counts plus 1% and 5% bands.
-- **Node and geometry divergence** — reports node-count delta and shared prefix from the start instead of treating any different geometry as automatically wrong.
-- **Bounded mismatch samples** — logs up to four parity samples with found/legal/endpoint/cost/node/prefix details.
-- **Milestone reports** — automatic summaries at 8 and 32 paired validations.
-- **AdaptiveTPS coexistence retained** — `blue.adaptivetps` is an optional load-after target and its known `TickManagerUpdate` transpiler remains explicitly allowed beside RimMT's dispatcher postfix.
+- **Butter++ coexistence layer** — detects `olli.butterplusplus` and its split-tick `ButterPlusPlus.TickManagerPatch` runtime.
+- **Logical-tick dispatcher barrier** — worker-to-main-thread callbacks are not drained while Butter++ reports `MidTick`. This prevents future worker results from committing in the middle of a logical game tick that Butter++ has split across rendered frames.
+- **Butter++ pressure sampling** — RimMT does not use `DoSingleTick` wall time when Butter++ is active because Butter++ can keep one logical tick open across multiple frames. Instead it samples CPU time spent in each `TickManagerUpdate` slice.
+- **AdaptiveTPS remains supported separately** — its known `TickManagerUpdate` pacing transpiler is still allowed beside RimMT. Butter++ itself declares AdaptiveTPS incompatible, so RimMT reports that external conflict instead of pretending the three-way combination is safe.
+- **Dubs Performance Analyzer warning with Butter++** — Butter++ declares DPA incompatible; RimMT reports the combination so Butter++ tests can be run without misleading profiler-side conflicts.
+- **Expanded immutable path cost snapshot** — worker A* now captures pawn cardinal/diagonal move ticks and terrain `extraDraftedPerceivedPathCost` / `extraNonDraftedPerceivedPathCost`, in addition to `PathGrid` costs.
+- **128-validation milestone** — longer sessions now emit another automatic parity summary after 128 paired path validations.
+
+### Path cost model status
+
+V0.4.4 worker costs include:
+
+- `PathGrid.pathGrid`
+- pawn `TicksPerMoveCardinal`
+- pawn `TicksPerMoveDiagonal`
+- drafted terrain extra path cost
+- non-drafted terrain extra path cost
+
+The following dynamic Vanilla costs are deliberately **not** treated as production-safe yet:
+
+- avoid grid
+- allowed-area penalty
+- pawn collision penalty
+- building / door cost
+- blueprint cost
+- lord walk-grid cost
+- custom `PathFinderCostTuning` (still rejected by the worker eligibility gate)
+
+This is intentional. RimMT prioritizes compatibility over prematurely replacing Vanilla `FindPath` with a route that is legal but behaviorally different.
 
 ### Enabled by default
 
 - **Worker runtime** — 1-8 persistent background workers with bounded queues and priority scheduling.
-- **Main-thread dispatcher** — worker callbacks are committed only on the main thread.
-- **Adaptive burst scheduling** — background work yields during severe tick pressure.
+- **Main-thread dispatcher** — worker callbacks are committed only on the main thread and, with Butter++, only at a logical-tick boundary.
+- **Adaptive burst scheduling** — background work yields during severe pressure. Uses `DoSingleTick` samples normally and Butter++ `TickManagerUpdate` slice samples in Butter++ mode.
 - **Text metric cache** — caches repeated `Text.CalcHeight` / `Text.CalcSize` results.
 - **PathFinder / JobGiver diagnostics** — call counts and timing telemetry.
-- **Path snapshot worker validation** — supported long `OnCell` paths capture an immutable `PathGrid` snapshot on the main thread and run independent A* work on RimMT workers.
+- **Path snapshot worker validation** — supported long `OnCell` paths capture immutable data on the main thread and run independent A* work on RimMT workers.
 
 ### Experimental and OFF by default
 
@@ -46,26 +66,41 @@ V0.4.3.2 is a path-parity validation build. Vanilla `PawnPath` remains authorita
 
 Worker code receives immutable snapshots/primitives only. Main-thread state remains authoritative and every module has vanilla fallback behavior.
 
-## Large mod-list policy
+## Compatibility policy
 
-RimMT is whitelist-only and fail-closed. Unknown Harmony conflicts suppress only the affected RimMT feature. The AdaptiveTPS exception applies only to its known `TickManagerUpdate` transpiler because RimMT's dispatcher is a frame-end postfix with a separate responsibility.
+RimMT is whitelist-only and fail-closed. Unknown Harmony conflicts suppress only the affected RimMT feature.
+
+Supported pacing configurations for V0.4.4:
+
+- RimMT alone
+- RimMT + AdaptiveTPS
+- RimMT + Butter++
+
+Not claimed safe:
+
+- Butter++ + AdaptiveTPS — Butter++ declares `Blue.adaptiveTPS` incompatible.
+- Butter++ + Dubs Performance Analyzer — Butter++ declares both DPA package IDs incompatible.
 
 If another RimThreaded implementation is detected, gameplay optimizations are disabled entirely while diagnostics remain available.
 
 RimMT does not write required state into saves. Removing it should leave the save usable.
 
-## Testing V0.4.3.2
+## Testing V0.4.4
 
-AdaptiveTPS may be enabled.
+For the **Butter++ compatibility test**, enable Butter++ and RimMT, but disable AdaptiveTPS and Dubs Performance Analyzer so Butter++ is not being tested in combinations it explicitly declares incompatible.
+
+For the **AdaptiveTPS compatibility test**, enable AdaptiveTPS and RimMT with Butter++ disabled.
 
 After loading an existing colony and playing normally, open **Options -> Mod settings -> RimMT** and click **Log current runtime compatibility / performance report**. Useful lines include:
 
 ```text
-Compatibility / performance report #[N] [runtime]
-ProgramState: Playing, mainThreadFrames=...
+Runtime compatibility: Butter++=..., AdaptiveTPS=..., DubsPerformanceAnalyzer=...
+Butter++ dispatcher barrier: midTickDrainDeferrals=..., probe=...
+Load pressure: ..., sampleSource=..., butterFrameSamples=...
 runtime.dispatcher: ACTIVE
 Dispatcher: queued=..., enqueued=..., drained=...
 Path snapshot worker: scheduled=..., completed=..., exactGeometry=..., workerFailures=...
+Path cost model V0.4.4: ...
 Path parity: foundParity=..., foundMismatch=..., workerLegal=..., workerIllegal=...
 Path cost parity: comparable=..., sameCost=..., workerCheaper=..., workerCostlier=..., within1pct=..., within5pct=...
 Path geometry parity: avgAbsNodeDelta=..., avgSharedPrefixFromStart=...
@@ -73,7 +108,7 @@ Path snapshot ingress: observed=..., pawnOverload=..., traverseParmsOverload=...
 Path snapshot rejects: shortDistance=..., targetThing=..., endMode=..., ...
 ```
 
-Exact geometry is now diagnostic only. A different route is not automatically wrong if found state, legality, endpoints and cost remain valid.
+For Butter++ specifically, a healthy report should show `MidTickProbe=True`, a rising `midTickDrainDeferrals` count during split ticks, and `sampleSource=Butter++ TickManagerUpdate slice`.
 
 ## Install
 
@@ -84,7 +119,7 @@ RimWorld/Mods/RimMT/About/About.xml
 RimWorld/Mods/RimMT/1.5/Assemblies/RimMT.dll
 ```
 
-Load Harmony before RimMT. AdaptiveTPS can remain enabled.
+Load Harmony before RimMT. When Butter++ is used, place RimMT before Butter++ so Butter++ can remain low in the mod list as its author recommends.
 
 ## Build
 
