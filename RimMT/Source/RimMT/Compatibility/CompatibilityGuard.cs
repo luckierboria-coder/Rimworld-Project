@@ -52,14 +52,16 @@ namespace RimMT
 
             if (RuntimeCompatibility.ButterPlusPlusActive)
             {
-                if (!RuntimeCompatibility.ButterMidTickProbeAvailable)
+                if (!RuntimeCompatibility.ButterLogicalTickProbeAvailable)
                 {
-                    FeatureGate.Suppress("runtime.dispatcher", "Butter++ tick splitting detected but logical-tick boundary probe is unavailable");
-                    AddReportUnique("runtime.dispatcher disabled because Butter++ was detected but its MidTick state could not be read safely.");
+                    FeatureGate.Suppress("runtime.dispatcher", "Butter++ tick splitting detected but TickManagerPatch._midTickStarted cannot be read safely");
+                    AddReportUnique("runtime.dispatcher disabled because Butter++ was detected but its manager-level logical-tick state could not be read safely.");
                 }
                 else
                 {
-                    AddReportUnique("Butter++ logical-tick boundary probe active via " + RuntimeCompatibility.ButterProbeDescription + ". Dispatcher callbacks are held while Butter++ is mid-tick.");
+                    AddReportUnique("Butter++ logical-tick boundary probe active via " + RuntimeCompatibility.ButterProbeDescription + ". Dispatcher callbacks are held while the manager-level logical tick is incomplete.");
+                    if (RuntimeCompatibility.ButterTickListProbeAvailable)
+                        AddReportUnique("Butter++ TickList diagnostic probe also available via " + RuntimeCompatibility.ButterTickListProbeDescription + "; it is diagnostic only and does not define the manager-level commit boundary.");
                 }
 
                 if (RuntimeCompatibility.AdaptiveTPSActive)
@@ -146,11 +148,9 @@ namespace RimMT
                 !string.IsNullOrEmpty(owner) && owner.IndexOf("adaptivetps", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
 
-            // Butter++ deliberately owns TickManagerUpdate so it can split one logical game tick
-            // across several rendered frames. RimMT V0.4.4 understands that state machine and holds
-            // worker-to-main-thread commits until Butter++ reports !MidTick. Keep this exemption
-            // limited to Butter++ patches on this exact method; unrelated Butter++ targets remain
-            // subject to normal fail-closed compatibility checks.
+            // Butter++ owns TickManagerUpdate to split a logical tick across rendered frames.
+            // V0.4.4.1 reads TickManagerPatch._midTickStarted, the actual manager-level state in
+            // the supplied Butter++ 1.5 assembly, and only commits when that state is false.
             if (RuntimeCompatibility.IsButterPatch(patch) &&
                 (string.Equals(patchKind, "prefix", StringComparison.Ordinal) ||
                  string.Equals(patchKind, "postfix", StringComparison.Ordinal) ||
