@@ -16,15 +16,26 @@ namespace RimMT
         private static bool butterPlusPlusActive;
         private static bool adaptiveTpsActive;
         private static bool dubsPerformanceAnalyzerActive;
-        private static MethodInfo butterMidTickGetter;
-        private static FieldInfo butterMidTickField;
-        private static string butterProbeDescription = "not initialized";
+
+        // Butter++ 1.5 keeps the manager-level split-tick state here. This is the state
+        // RimMT must use to decide whether a worker result may be committed safely.
+        private static FieldInfo butterLogicalTickField;
+        private static string butterLogicalTickProbeDescription = "not initialized";
+
+        // TickListPatch.MidTick is useful diagnostic information, but it is NOT the
+        // TickManager-level logical-tick boundary. V0.4.4 incorrectly looked for this
+        // state on TickManagerPatch and could therefore defer the dispatcher forever.
+        private static MethodInfo butterTickListMidTickGetter;
+        private static FieldInfo butterTickListMidTickField;
+        private static string butterTickListProbeDescription = "not initialized";
 
         internal static bool ButterPlusPlusActive { get { EnsureInitialized(); return butterPlusPlusActive; } }
         internal static bool AdaptiveTPSActive { get { EnsureInitialized(); return adaptiveTpsActive; } }
         internal static bool DubsPerformanceAnalyzerActive { get { EnsureInitialized(); return dubsPerformanceAnalyzerActive; } }
-        internal static bool ButterMidTickProbeAvailable { get { EnsureInitialized(); return butterMidTickGetter != null || butterMidTickField != null; } }
-        internal static string ButterProbeDescription { get { EnsureInitialized(); return butterProbeDescription; } }
+        internal static bool ButterLogicalTickProbeAvailable { get { EnsureInitialized(); return butterLogicalTickField != null; } }
+        internal static bool ButterTickListProbeAvailable { get { EnsureInitialized(); return butterTickListMidTickGetter != null || butterTickListMidTickField != null; } }
+        internal static string ButterProbeDescription { get { EnsureInitialized(); return butterLogicalTickProbeDescription; } }
+        internal static string ButterTickListProbeDescription { get { EnsureInitialized(); return butterTickListProbeDescription; } }
 
         internal static void Initialize()
         {
@@ -38,65 +49,129 @@ namespace RimMT
 
             if (!butterPlusPlusActive)
             {
-                butterProbeDescription = "Butter++ not loaded";
+                butterLogicalTickProbeDescription = "Butter++ not loaded";
+                butterTickListProbeDescription = "Butter++ not loaded";
                 return;
             }
 
+            ProbeButterLogicalTickState();
+            ProbeButterTickListState();
+        }
+
+        private static void ProbeButterLogicalTickState()
+        {
             Type tickManagerPatch = AccessTools.TypeByName("ButterPlusPlus.TickManagerPatch");
             if (tickManagerPatch == null)
             {
-                butterProbeDescription = "Butter++ package loaded but TickManagerPatch type was not found";
+                butterLogicalTickProbeDescription = "Butter++ package loaded but TickManagerPatch type was not found";
                 return;
             }
 
             try
             {
-                PropertyInfo midTickProperty = AccessTools.Property(tickManagerPatch, "MidTick");
+                FieldInfo field = AccessTools.Field(tickManagerPatch, "_midTickStarted");
+                if (field != null && field.FieldType == typeof(bool) && field.IsStatic)
+                {
+                    butterLogicalTickField = field;
+                    butterLogicalTickProbeDescription = "ButterPlusPlus.TickManagerPatch._midTickStarted";
+                    return;
+                }
+
+                butterLogicalTickProbeDescription = "Butter++ detected but TickManagerPatch._midTickStarted was not found as a static bool";
+            }
+            catch (Exception ex)
+            {
+                butterLogicalTickProbeDescription = "Butter++ logical-tick probe failed: " + ex.GetType().Name + ": " + ex.Message;
+            }
+        }
+
+        private static void ProbeButterTickListState()
+        {
+            Type tickListPatch = AccessTools.TypeByName("ButterPlusPlus.TickListPatch");
+            if (tickListPatch == null)
+            {
+                butterTickListProbeDescription = "TickListPatch type was not found";
+                return;
+            }
+
+            try
+            {
+                PropertyInfo midTickProperty = AccessTools.Property(tickListPatch, "MidTick");
                 if (midTickProperty != null && midTickProperty.PropertyType == typeof(bool))
                 {
                     MethodInfo getter = midTickProperty.GetGetMethod(true);
                     if (getter != null && getter.IsStatic)
                     {
-                        butterMidTickGetter = getter;
-                        butterProbeDescription = "ButterPlusPlus.TickManagerPatch.MidTick";
+                        butterTickListMidTickGetter = getter;
+                        butterTickListProbeDescription = "ButterPlusPlus.TickListPatch.MidTick";
                         return;
                     }
                 }
 
-                FieldInfo midTickField = AccessTools.Field(tickManagerPatch, "_midTick");
-                if (midTickField != null && midTickField.FieldType == typeof(bool) && midTickField.IsStatic)
+                FieldInfo field = AccessTools.Field(tickListPatch, "_midTick");
+                if (field != null && field.FieldType == typeof(bool) && field.IsStatic)
                 {
-                    butterMidTickField = midTickField;
-                    butterProbeDescription = "ButterPlusPlus.TickManagerPatch._midTick";
+                    butterTickListMidTickField = field;
+                    butterTickListProbeDescription = "ButterPlusPlus.TickListPatch._midTick";
                     return;
                 }
 
-                butterProbeDescription = "Butter++ detected but no compatible MidTick property/field was found";
+                butterTickListProbeDescription = "TickListPatch detected but no compatible MidTick property/field was found";
             }
             catch (Exception ex)
             {
-                butterProbeDescription = "Butter++ MidTick probe failed: " + ex.GetType().Name + ": " + ex.Message;
+                butterTickListProbeDescription = "Butter++ TickList diagnostic probe failed: " + ex.GetType().Name + ": " + ex.Message;
             }
         }
 
-        internal static bool IsButterMidTick()
+        internal static bool TryGetButterLogicalTickInProgress(out bool inProgress)
         {
             EnsureInitialized();
+            inProgress = false;
             if (!butterPlusPlusActive)
+                return true;
+            if (butterLogicalTickField == null)
                 return false;
 
             try
             {
-                if (butterMidTickGetter != null)
-                    return (bool)butterMidTickGetter.Invoke(null, null);
-                if (butterMidTickField != null)
-                    return (bool)butterMidTickField.GetValue(null);
+                inProgress = (bool)butterLogicalTickField.GetValue(null);
+                return true;
             }
             catch (Exception ex)
             {
-                butterMidTickGetter = null;
-                butterMidTickField = null;
-                butterProbeDescription = "Butter++ MidTick runtime read failed: " + ex.GetType().Name + ": " + ex.Message;
+                butterLogicalTickField = null;
+                butterLogicalTickProbeDescription = "Butter++ logical-tick runtime read failed: " + ex.GetType().Name + ": " + ex.Message;
+                inProgress = true;
+                return false;
+            }
+        }
+
+        internal static bool TryGetButterTickListMidTick(out bool midTick)
+        {
+            EnsureInitialized();
+            midTick = false;
+            if (!butterPlusPlusActive)
+                return true;
+
+            try
+            {
+                if (butterTickListMidTickGetter != null)
+                {
+                    midTick = (bool)butterTickListMidTickGetter.Invoke(null, null);
+                    return true;
+                }
+                if (butterTickListMidTickField != null)
+                {
+                    midTick = (bool)butterTickListMidTickField.GetValue(null);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                butterTickListMidTickGetter = null;
+                butterTickListMidTickField = null;
+                butterTickListProbeDescription = "Butter++ TickList runtime read failed: " + ex.GetType().Name + ": " + ex.Message;
             }
             return false;
         }
@@ -119,7 +194,8 @@ namespace RimMT
         {
             EnsureInitialized();
             return "Runtime compatibility: Butter++=" + butterPlusPlusActive +
-                (butterPlusPlusActive ? " (MidTickProbe=" + ButterMidTickProbeAvailable + ", source=" + butterProbeDescription + ")" : string.Empty) +
+                (butterPlusPlusActive ? " (LogicalTickProbe=" + ButterLogicalTickProbeAvailable + ", source=" + butterLogicalTickProbeDescription +
+                    ", TickListProbe=" + ButterTickListProbeAvailable + ", tickListSource=" + butterTickListProbeDescription + ")" : string.Empty) +
                 ", AdaptiveTPS=" + adaptiveTpsActive +
                 ", DubsPerformanceAnalyzer=" + dubsPerformanceAnalyzerActive;
         }
