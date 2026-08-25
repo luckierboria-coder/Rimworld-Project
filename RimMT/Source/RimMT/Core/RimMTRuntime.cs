@@ -20,6 +20,7 @@ namespace RimMT
             FeatureGate.Register("ui.textCache",true,"Text metric result cache");
             FeatureGate.Register("ui.overlayCache",true,"Visible Thing overlay scan cache");
             FeatureGate.Register("ai.reachNoCache",false,"Topology-aware short-lived negative reachability cache");
+            FeatureGate.Register("ai.pathTopology",true,"PathGrid topology invalidation hooks for reachability generations");
             FeatureGate.Register("parallel.pawnTick",false,"Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations",false,"Unsafe by default; not implemented");
             FeatureGate.Register("parallel.thingTick",false,"Whitelist module not implemented");
