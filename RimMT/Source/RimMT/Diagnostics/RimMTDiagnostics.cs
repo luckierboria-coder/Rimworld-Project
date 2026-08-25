@@ -47,6 +47,7 @@ namespace RimMT
             sb.AppendLine("Text cache: hits=" + TextMetricCache.Hits + ", misses=" + TextMetricCache.Misses);
             sb.AppendLine("Overlay cache: sourceScans=" + ThingOverlayCache.SourceScans + ", cachedFrames=" + ThingOverlayCache.CachedFrames);
             sb.AppendLine("Reach NO cache: hits=" + ReachabilityNoCache.Hits + ", stores=" + ReachabilityNoCache.Stores + ", topologyGen=" + ReachabilityNoCache.TopologyGeneration);
+            sb.AppendLine(PathSnapshotWorker.Summary());
             sb.AppendLine(HotPathProfiler.Summary("TickManager.DoSingleTick"));
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath"));
             sb.AppendLine(HotPathProfiler.Summary("JobGiver_Work.TryIssueJobPackage"));
