@@ -22,6 +22,10 @@ namespace RimMT
 
         private static int nextRequestId;
         private static int inFlight;
+        private static long observedCalls;
+        private static long pawnOverloadCalls;
+        private static long traverseOverloadCalls;
+        private static long otherOverloadCalls;
         private static long scheduled;
         private static long completed;
         private static long matched;
@@ -31,6 +35,24 @@ namespace RimMT
         private static long throttled;
         private static long snapshotBuilds;
         private static long nodesExpanded;
+        private static long workerFailures;
+
+        private static long rejectedFeatureDisabled;
+        private static long rejectedNotPlaying;
+        private static long rejectedBadArgs;
+        private static long rejectedInvalidTarget;
+        private static long rejectedTargetThing;
+        private static long rejectedEndMode;
+        private static long rejectedCustomTuning;
+        private static long rejectedBashDoors;
+        private static long rejectedBashFences;
+        private static long rejectedTraverseMode;
+        private static long rejectedInvalidMap;
+        private static long rejectedShortDistance;
+        private static long rejectedNoScheduler;
+        private static long rejectedSnapshot;
+        private static long rejectedTrackedLimit;
+        private static long rejectedScheduler;
 
         internal static long Scheduled { get { return Interlocked.Read(ref scheduled); } }
         internal static long Completed { get { return Interlocked.Read(ref completed); } }
@@ -45,16 +67,34 @@ namespace RimMT
 
         internal static int TrySchedule(PathFinder finder, object[] args)
         {
-            if (!FeatureGate.IsEnabled("parallel.pathSnapshot") || finder == null || args == null || args.Length < 4)
-                return 0;
-            if (!RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+            Interlocked.Increment(ref observedCalls);
+            if (args != null && args.Length > 2)
             {
-                Interlocked.Increment(ref unsupported);
-                return 0;
+                if (args[2] is TraverseParms)
+                    Interlocked.Increment(ref traverseOverloadCalls);
+                else if (args[2] is Pawn)
+                    Interlocked.Increment(ref pawnOverloadCalls);
+                else
+                    Interlocked.Increment(ref otherOverloadCalls);
+            }
+            else
+            {
+                Interlocked.Increment(ref otherOverloadCalls);
             }
 
-            // The Pawn overload immediately calls the TraverseParms overload. Schedule only the latter
-            // so one logical FindPath request creates at most one worker task.
+            if (!FeatureGate.IsEnabled("parallel.pathSnapshot"))
+            {
+                Interlocked.Increment(ref rejectedFeatureDisabled);
+                return 0;
+            }
+            if (finder == null || args == null || args.Length < 4)
+                return RejectUnsupported(ref rejectedBadArgs);
+            if (!RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return RejectUnsupported(ref rejectedNotPlaying);
+
+            // The Pawn overload normally calls the TraverseParms overload. Schedule only the latter
+            // so one logical vanilla FindPath creates at most one worker task. If a foreign prefix
+            // short-circuits before that handoff, the split overload counters make it visible.
             if (!(args[2] is TraverseParms))
                 return 0;
 
@@ -71,44 +111,44 @@ namespace RimMT
             }
             catch
             {
-                Interlocked.Increment(ref unsupported);
-                return 0;
+                return RejectUnsupported(ref rejectedBadArgs);
             }
 
-            if (!start.IsValid || !dest.IsValid || dest.HasThing || endMode != PathEndMode.OnCell)
-            {
-                Interlocked.Increment(ref unsupported);
-                return 0;
-            }
+            if (!start.IsValid || !dest.IsValid)
+                return RejectUnsupported(ref rejectedInvalidTarget);
+            if (dest.HasThing)
+                return RejectUnsupported(ref rejectedTargetThing);
+            if (endMode != PathEndMode.OnCell)
+                return RejectUnsupported(ref rejectedEndMode);
             if (args.Length >= 5 && args[4] != null)
-            {
-                Interlocked.Increment(ref unsupported);
-                return 0;
-            }
-            if (traverseParms.canBashDoors || traverseParms.canBashFences ||
-                (traverseParms.mode != TraverseMode.ByPawn && traverseParms.mode != TraverseMode.NoPassClosedDoors))
-            {
-                Interlocked.Increment(ref unsupported);
-                return 0;
-            }
+                return RejectUnsupported(ref rejectedCustomTuning);
+            if (traverseParms.canBashDoors)
+                return RejectUnsupported(ref rejectedBashDoors);
+            if (traverseParms.canBashFences)
+                return RejectUnsupported(ref rejectedBashFences);
+            if (traverseParms.mode != TraverseMode.ByPawn && traverseParms.mode != TraverseMode.NoPassClosedDoors)
+                return RejectUnsupported(ref rejectedTraverseMode);
 
             Map map = traverseParms.pawn == null ? null : traverseParms.pawn.Map;
             if (map == null && PathFinderMapField != null)
                 map = PathFinderMapField.GetValue(finder) as Map;
             if (map == null || map.Disposed || !start.InBounds(map) || !dest.Cell.InBounds(map))
-            {
-                Interlocked.Increment(ref unsupported);
-                return 0;
-            }
+                return RejectUnsupported(ref rejectedInvalidMap);
 
             int dx = Math.Abs(start.x - dest.Cell.x);
             int dz = Math.Abs(start.z - dest.Cell.z);
             if (Math.Max(dx, dz) < MinPathDistance)
+            {
+                Interlocked.Increment(ref rejectedShortDistance);
                 return 0;
+            }
 
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             if (scheduler == null)
+            {
+                Interlocked.Increment(ref rejectedNoScheduler);
                 return 0;
+            }
 
             int limit = Math.Max(2, scheduler.WorkerCount * 2);
             int nowInFlight = Interlocked.Increment(ref inFlight);
@@ -127,6 +167,7 @@ namespace RimMT
             catch (Exception ex)
             {
                 Interlocked.Decrement(ref inFlight);
+                Interlocked.Increment(ref rejectedSnapshot);
                 Interlocked.Increment(ref unsupported);
                 CircuitBreaker.RecordFailure("parallel.pathSnapshot", ex);
                 Log.Warning("[RimMT] parallel.pathSnapshot snapshot capture failed; vanilla pathing continues. " + ex.GetType().Name + ": " + ex.Message);
@@ -136,14 +177,14 @@ namespace RimMT
             if (snapshot == null)
             {
                 Interlocked.Decrement(ref inFlight);
-                Interlocked.Increment(ref unsupported);
-                return 0;
+                return RejectUnsupported(ref rejectedSnapshot);
             }
 
             if (Requests.Count >= MaxTrackedRequests)
             {
                 Interlocked.Decrement(ref inFlight);
                 Interlocked.Increment(ref throttled);
+                Interlocked.Increment(ref rejectedTrackedLimit);
                 return 0;
             }
 
@@ -169,10 +210,13 @@ namespace RimMT
                 Requests.TryRemove(requestId, out ignored);
                 Interlocked.Decrement(ref inFlight);
                 Interlocked.Increment(ref throttled);
+                Interlocked.Increment(ref rejectedScheduler);
                 return 0;
             }
 
-            Interlocked.Increment(ref scheduled);
+            long acceptedCount = Interlocked.Increment(ref scheduled);
+            if (acceptedCount == 1)
+                Log.Message("[RimMT] parallel.pathSnapshot accepted its first real worker task. Runtime path offload validation is now functional.");
             return requestId;
         }
 
@@ -226,8 +270,36 @@ namespace RimMT
                 ", stale=" + Stale +
                 ", unsupported=" + Unsupported +
                 ", throttled=" + Throttled +
+                ", workerFailures=" + Interlocked.Read(ref workerFailures) +
                 ", snapshots=" + SnapshotBuilds +
-                ", nodesExpanded=" + NodesExpanded;
+                ", nodesExpanded=" + NodesExpanded +
+                "\nPath snapshot ingress: observed=" + Interlocked.Read(ref observedCalls) +
+                ", pawnOverload=" + Interlocked.Read(ref pawnOverloadCalls) +
+                ", traverseParmsOverload=" + Interlocked.Read(ref traverseOverloadCalls) +
+                ", otherOverload=" + Interlocked.Read(ref otherOverloadCalls) +
+                "\nPath snapshot rejects: featureDisabled=" + Interlocked.Read(ref rejectedFeatureDisabled) +
+                ", notPlaying=" + Interlocked.Read(ref rejectedNotPlaying) +
+                ", badArgs=" + Interlocked.Read(ref rejectedBadArgs) +
+                ", invalidTarget=" + Interlocked.Read(ref rejectedInvalidTarget) +
+                ", targetThing=" + Interlocked.Read(ref rejectedTargetThing) +
+                ", endMode=" + Interlocked.Read(ref rejectedEndMode) +
+                ", customTuning=" + Interlocked.Read(ref rejectedCustomTuning) +
+                ", bashDoors=" + Interlocked.Read(ref rejectedBashDoors) +
+                ", bashFences=" + Interlocked.Read(ref rejectedBashFences) +
+                ", traverseMode=" + Interlocked.Read(ref rejectedTraverseMode) +
+                ", invalidMap=" + Interlocked.Read(ref rejectedInvalidMap) +
+                ", shortDistance=" + Interlocked.Read(ref rejectedShortDistance) +
+                ", noScheduler=" + Interlocked.Read(ref rejectedNoScheduler) +
+                ", snapshot=" + Interlocked.Read(ref rejectedSnapshot) +
+                ", trackedLimit=" + Interlocked.Read(ref rejectedTrackedLimit) +
+                ", schedulerRejected=" + Interlocked.Read(ref rejectedScheduler);
+        }
+
+        private static int RejectUnsupported(ref long counter)
+        {
+            Interlocked.Increment(ref counter);
+            Interlocked.Increment(ref unsupported);
+            return 0;
         }
 
         private static PathSnapshot GetSnapshot(Map map, TraverseParms traverseParms)
@@ -256,18 +328,31 @@ namespace RimMT
 
         private static void RunWorker(PathRequest request)
         {
-            WorkerResult result = FindPath(request.Snapshot, request.StartIndex, request.DestIndex, Scratch.Value);
-            Interlocked.Add(ref nodesExpanded, result.NodesExpanded);
-
-            if (ReachabilityNoCache.TopologyGeneration != request.Snapshot.Generation)
-                result.Stale = true;
-
-            lock (request.Sync)
+            try
             {
-                request.Worker = result;
-                request.HasWorker = true;
+                WorkerResult result = FindPath(request.Snapshot, request.StartIndex, request.DestIndex, Scratch.Value);
+                Interlocked.Add(ref nodesExpanded, result.NodesExpanded);
+
+                if (ReachabilityNoCache.TopologyGeneration != request.Snapshot.Generation)
+                    result.Stale = true;
+
+                lock (request.Sync)
+                {
+                    request.Worker = result;
+                    request.HasWorker = true;
+                }
+                TryFinalize(request);
             }
-            TryFinalize(request);
+            catch (Exception ex)
+            {
+                PathRequest removed;
+                if (Requests.TryRemove(request.Id, out removed))
+                    Interlocked.Decrement(ref inFlight);
+                Interlocked.Increment(ref workerFailures);
+                CircuitBreaker.RecordFailure("parallel.pathSnapshot", ex);
+                string message = "[RimMT] parallel.pathSnapshot worker failed; request was discarded and vanilla remains authoritative. " + ex.GetType().Name + ": " + ex.Message;
+                MainThreadDispatcher.TryEnqueue(delegate { Log.Warning(message); });
+            }
         }
 
         private static void TryFinalize(PathRequest request)
@@ -283,7 +368,7 @@ namespace RimMT
                 return;
 
             Interlocked.Decrement(ref inFlight);
-            Interlocked.Increment(ref completed);
+            long done = Interlocked.Increment(ref completed);
 
             WorkerResult worker;
             VanillaResult vanilla;
@@ -296,17 +381,26 @@ namespace RimMT
             if (worker.Stale)
             {
                 Interlocked.Increment(ref stale);
-                return;
+            }
+            else
+            {
+                bool same = worker.Found == vanilla.Found;
+                if (same && worker.Found)
+                    same = worker.NodeCount == vanilla.NodeCount && worker.PathHash == vanilla.PathHash;
+
+                if (same)
+                    Interlocked.Increment(ref matched);
+                else
+                    Interlocked.Increment(ref mismatched);
             }
 
-            bool same = worker.Found == vanilla.Found;
-            if (same && worker.Found)
-                same = worker.NodeCount == vanilla.NodeCount && worker.PathHash == vanilla.PathHash;
-
-            if (same)
-                Interlocked.Increment(ref matched);
-            else
-                Interlocked.Increment(ref mismatched);
+            if (done == 8)
+            {
+                MainThreadDispatcher.TryEnqueue(delegate
+                {
+                    Log.Message("[RimMT] parallel.pathSnapshot reached 8 completed paired validations. " + Summary());
+                });
+            }
         }
 
         private static WorkerResult FindPath(PathSnapshot snapshot, int startIndex, int destIndex, PathScratch scratch)
