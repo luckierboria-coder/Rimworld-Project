@@ -11,8 +11,8 @@
   <RimMT_OverlayCacheDesc>Avoids scanning every overlay-capable Thing every rendered frame while the camera is stationary. Draw calls remain on the main thread.</RimMT_OverlayCacheDesc>
   <RimMT_OverlayRefresh>Overlay cache refresh: {0} frames</RimMT_OverlayRefresh>
   <RimMT_Experimental>Experimental</RimMT_Experimental>
-  <RimMT_PathSnapshotWorker>Path snapshot parity validation (V0.4.3.2)</RimMT_PathSnapshotWorker>
-  <RimMT_PathSnapshotWorkerDesc>Copies an immutable PathGrid snapshot on the main thread and runs independent worker A*. V0.4.3.2 fixes path reconstruction result copying and validates found-state parity, path legality, endpoints, snapshot-relative cost, node-count delta and geometry divergence. Vanilla PawnPath remains authoritative.</RimMT_PathSnapshotWorkerDesc>
+  <RimMT_PathSnapshotWorker>Path snapshot parity validation (V0.4.4.1)</RimMT_PathSnapshotWorker>
+  <RimMT_PathSnapshotWorkerDesc>Copies immutable path-grid and terrain-cost data on the main thread and runs independent worker A*. V0.4.4.1 retains float pawn move ticks with Vanilla-compatible rounding and Butter++ logical-tick-safe main-thread commits. Vanilla PawnPath remains authoritative.</RimMT_PathSnapshotWorkerDesc>
   <RimMT_ReachNoCache>Topology-aware unreachable-result cache</RimMT_ReachNoCache>
   <RimMT_ReachNoCacheDesc>Reuses only recent false reachability results for cell targets. Old entries are invalidated when the path grid topology changes.</RimMT_ReachNoCacheDesc>
   <RimMT_ReachTtl>Unreachable cache TTL: {0} game ticks</RimMT_ReachTtl>
