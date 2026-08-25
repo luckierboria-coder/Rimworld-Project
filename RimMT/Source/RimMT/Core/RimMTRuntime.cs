@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Verse;
 
 namespace RimMT
@@ -8,9 +9,11 @@ namespace RimMT
         private static bool initialized;
         private static bool compatibilityChecked;
         private static JobScheduler scheduler;
+        private static long mainThreadFrames;
 
         internal static JobScheduler Scheduler { get { return scheduler; } }
         internal static bool Initialized { get { return initialized; } }
+        internal static long MainThreadFrames { get { return Interlocked.Read(ref mainThreadFrames); } }
 
         internal static void Initialize()
         {
@@ -20,7 +23,7 @@ namespace RimMT
             scheduler = new JobScheduler(workers, 100000);
 
             FeatureGate.Register("runtime.scheduler", true, "Core bounded worker scheduler");
-            FeatureGate.Register("runtime.dispatcher", true, "Worker-to-main-thread dispatcher");
+            FeatureGate.Register("runtime.dispatcher", true, "Worker-to-main-thread dispatcher; AdaptiveTPS TickManagerUpdate transpiler coexistence supported");
             FeatureGate.Register("runtime.adaptiveBurst", true, "Pressure-aware scheduler that defers background work during tick spikes");
             FeatureGate.Register("diagnostics.selfTest", true, "Pure CPU worker self-test");
             FeatureGate.Register("diagnostics.hotPaths", true, "PathFinder / JobGiver / tick hot-path profiler");
@@ -54,6 +57,7 @@ namespace RimMT
         internal static void OnMainThreadFrame()
         {
             if (!initialized) return;
+            Interlocked.Increment(ref mainThreadFrames);
             MainThreadDispatcher.Drain(256);
             if (!compatibilityChecked && Current.ProgramState == ProgramState.Playing)
             {
