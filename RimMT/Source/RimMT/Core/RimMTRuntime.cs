@@ -33,7 +33,7 @@ namespace RimMT
             FeatureGate.Register("ui.overlayCache", true, "Visible Thing overlay scan cache");
             FeatureGate.Register("ai.reachNoCache", false, "Topology-aware short-lived negative reachability cache");
             FeatureGate.Register("ai.pathTopology", true, "PathGrid topology invalidation hooks for reachability generations");
-            FeatureGate.Register("parallel.pathSnapshot", true, "Worker-side immutable path snapshot A* validation; vanilla path remains authoritative");
+            FeatureGate.Register("parallel.pathSnapshot", true, "Worker-side immutable path A* parity validation: found state, legality, endpoints, cost, node count and geometry; vanilla authoritative");
             FeatureGate.Register("parallel.jobScan", false, "JobGiver candidate snapshot scan; not implemented yet");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
