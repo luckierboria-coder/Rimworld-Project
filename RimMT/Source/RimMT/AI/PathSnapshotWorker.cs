@@ -222,8 +222,11 @@ namespace RimMT
             if (requestId == 0)
                 requestId = Interlocked.Increment(ref nextRequestId);
 
-            int moveCardinal = pawn == null ? 13 : Math.Max(1, pawn.TicksPerMoveCardinal);
-            int moveDiagonal = pawn == null ? 18 : Math.Max(1, pawn.TicksPerMoveDiagonal);
+            // RimWorld 1.5 changed pawn movement ticks to float. Vanilla keeps those values as
+            // float while composing the per-cell step and only rounds after adding knownCost.
+            // Preserve that exact ordering instead of truncating the pawn speed before worker A*.
+            float moveCardinal = pawn == null ? 13f : Math.Max(1f, pawn.TicksPerMoveCardinal);
+            float moveDiagonal = pawn == null ? 18f : Math.Max(1f, pawn.TicksPerMoveDiagonal);
             bool drafted = pawn != null && pawn.Drafted;
 
             PathRequest request = new PathRequest(
@@ -253,7 +256,7 @@ namespace RimMT
 
             long acceptedCount = Interlocked.Increment(ref scheduled);
             if (acceptedCount == 1)
-                Log.Message("[RimMT] parallel.pathSnapshot accepted its first real worker task. V0.4.4 cost model includes pawn move ticks and drafted/non-drafted terrain extras; vanilla remains authoritative.");
+                Log.Message("[RimMT] parallel.pathSnapshot accepted its first real worker task. V0.4.4 cost model includes float pawn move ticks with Vanilla-compatible rounding plus drafted/non-drafted terrain extras; vanilla remains authoritative.");
             return requestId;
         }
 
@@ -327,7 +330,7 @@ namespace RimMT
                 ", snapshots=" + SnapshotBuilds +
                 ", terrainCostSnapshots=" + Interlocked.Read(ref terrainCostSnapshots) +
                 ", nodesExpanded=" + NodesExpanded +
-                "\nPath cost model V0.4.4: pathGrid + pawnMoveTicks + draftedTerrainExtra; dynamic avoid/allowedArea/pawnCollision/building/blueprint/lord costs remain vanilla-only" +
+                "\nPath cost model V0.4.4: pathGrid + float pawnMoveTicks/Vanilla rounding + draftedTerrainExtra; dynamic avoid/allowedArea/pawnCollision/building/blueprint/lord costs remain vanilla-only" +
                 "\nPath parity: foundParity=" + Interlocked.Read(ref foundParity) +
                 ", foundMismatch=" + Interlocked.Read(ref foundMismatch) +
                 ", workerLegal=" + Interlocked.Read(ref workerLegal) +
@@ -577,7 +580,7 @@ namespace RimMT
 
             string message = "[RimMT] Path parity sample #" + slot +
                 ": request=" + request.Id +
-                ", moveTicks=" + request.MoveCardinal + "/" + request.MoveDiagonal +
+                ", moveTicks=" + request.MoveCardinal.ToString("F2") + "/" + request.MoveDiagonal.ToString("F2") +
                 ", drafted=" + request.Drafted +
                 ", found(worker/vanilla)=" + worker.Found + "/" + vanilla.Found +
                 ", legal(worker/vanillaSnapshot)=" + workerEval.Legal + "/" + vanillaEval.Legal +
@@ -597,7 +600,7 @@ namespace RimMT
                 return evaluation;
 
             evaluation.EndpointMatch = nodesReversed[0] == request.DestIndex && nodesReversed[nodesReversed.Length - 1] == request.StartIndex;
-            long cost = 0L;
+            int cost = 0;
             for (int i = nodesReversed.Length - 1; i > 0; i--)
             {
                 int from = nodesReversed[i];
@@ -625,13 +628,13 @@ namespace RimMT
                         return evaluation;
                 }
 
-                cost += StepCost(request, to, diagonal);
-                if (cost > int.MaxValue)
+                cost = RoundToIntEven(cost + StepCost(request, to, diagonal));
+                if (cost < 0)
                     return evaluation;
             }
 
             evaluation.Legal = true;
-            evaluation.Cost = (int)cost;
+            evaluation.Cost = cost;
             return evaluation;
         }
 
@@ -745,8 +748,8 @@ namespace RimMT
                             continue;
                     }
 
-                    int step = StepCost(request, next, diagonal);
-                    int newG = current.G + step;
+                    float step = StepCost(request, next, diagonal);
+                    int newG = RoundToIntEven(current.G + step);
                     if (!scratch.HasG(next) || newG < scratch.GetG(next))
                     {
                         scratch.SetG(next, newG, cur);
@@ -760,7 +763,7 @@ namespace RimMT
             return result;
         }
 
-        private static int StepCost(PathRequest request, int index, bool diagonal)
+        private static float StepCost(PathRequest request, int index, bool diagonal)
         {
             PathSnapshot snapshot = request.Snapshot;
             int terrainExtra = request.Drafted ? snapshot.DraftedTerrainExtra[index] : snapshot.NonDraftedTerrainExtra[index];
@@ -816,8 +819,17 @@ namespace RimMT
             int dz = Math.Abs(z - destIndex / width);
             int diagonal = Math.Min(dx, dz);
             int straight = Math.Max(dx, dz) - diagonal;
-            int safeDiagonal = Math.Min(request.MoveDiagonal, request.MoveCardinal * 2);
-            return diagonal * safeDiagonal + straight * request.MoveCardinal;
+            int cardinalCost = RoundToIntEven(request.MoveCardinal);
+            int diagonalCost = RoundToIntEven(request.MoveDiagonal);
+            int safeDiagonal = Math.Min(diagonalCost, cardinalCost * 2);
+            return diagonal * safeDiagonal + straight * cardinalCost;
+        }
+
+        // Unity's Mathf.RoundToInt uses nearest-integer rounding with .5 ties to even. Worker
+        // threads must not call Unity APIs, so mirror the same rule with System.Math.
+        private static int RoundToIntEven(float value)
+        {
+            return (int)Math.Round((double)value, MidpointRounding.ToEven);
         }
 
         private static readonly int[] Dx = { 0, 1, 0, -1, 1, 1, -1, -1 };
@@ -863,15 +875,15 @@ namespace RimMT
             internal readonly PathSnapshot Snapshot;
             internal readonly int StartIndex;
             internal readonly int DestIndex;
-            internal readonly int MoveCardinal;
-            internal readonly int MoveDiagonal;
+            internal readonly float MoveCardinal;
+            internal readonly float MoveDiagonal;
             internal readonly bool Drafted;
             internal bool HasWorker;
             internal bool HasVanilla;
             internal WorkerResult Worker;
             internal VanillaResult Vanilla;
 
-            internal PathRequest(int id, int mapId, PathSnapshot snapshot, int startIndex, int destIndex, int moveCardinal, int moveDiagonal, bool drafted)
+            internal PathRequest(int id, int mapId, PathSnapshot snapshot, int startIndex, int destIndex, float moveCardinal, float moveDiagonal, bool drafted)
             {
                 Id = id;
                 MapId = mapId;
