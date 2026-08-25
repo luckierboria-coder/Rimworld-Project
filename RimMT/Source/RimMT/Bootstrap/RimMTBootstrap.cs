@@ -21,7 +21,7 @@ namespace RimMT
                 TryPatchDispatcher(harmony);
                 RimMTPatches.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.3 playtest initialized. Worker-side immutable PathGrid A* validation is active; vanilla PawnPath remains authoritative while geometry/staleness telemetry is collected.");
+                Log.Message("[RimMT] V0.4.3.1 playtest initialized. AdaptiveTPS TickManagerUpdate transpiler coexistence is supported; PathFinder ingress/rejection diagnostics are enabled; vanilla PawnPath remains authoritative.");
             }
             catch (Exception ex)
             {
@@ -43,6 +43,7 @@ namespace RimMT
 
                 CompatibilityGuard.RegisterTarget("runtime.dispatcher", update);
                 harmony.Patch(update, postfix: new HarmonyMethod(typeof(RimMTBootstrap), nameof(TickManagerUpdatePostfix)));
+                Log.Message("[RimMT] runtime.dispatcher postfix installed on TickManager.TickManagerUpdate; known AdaptiveTPS transpiler is allowed to coexist.");
             }
             catch (Exception ex)
             {
