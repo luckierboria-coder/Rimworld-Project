@@ -2,19 +2,25 @@
 
 Compatibility-first performance and multithreading runtime for **RimWorld 1.5.4063**.
 
-## V0.4.3.1 Playtest
+## Design goal
 
-V0.4.3.1 is a compatibility/diagnostic follow-up to the first worker-side path A* build. Vanilla `PawnPath` is still authoritative; the worker path remains shadow validation only.
+RimMT exists to raise real gameplay TPS by moving CPU-heavy work away from the main thread **as far as compatibility allows**. The preferred pattern is immutable main-thread snapshot -> worker computation across spare cores -> main-thread validation/commit. Unknown or unsafe live-state mutation remains fail-closed with vanilla fallback.
 
-### New in V0.4.3.1
+## V0.4.3.2 Playtest
 
-- **AdaptiveTPS coexistence** — RimMT now explicitly allows the known `blue.adaptivetps` `TickManager.TickManagerUpdate` transpiler to coexist with RimMT's dispatcher postfix. The exception is intentionally narrow; unknown patch shapes remain fail-closed.
-- **Dispatcher telemetry** — runtime reports show queued/enqueued/drained callbacks, failures, drain calls and queue high-water.
-- **Runtime vs startup reports** — the automatic first-frame report is marked `[startup]`; the settings button now emits a fresh `[runtime]` report with main-thread frame count.
-- **PathFinder ingress diagnostics** — Pawn and `TraverseParms` overloads are counted separately, and eligibility rejection reasons are reported individually.
-- **High-priority path observation** — RimMT's PathFinder diagnostic prefix runs at Harmony `Priority.First` so later foreign prefixes cannot hide requests by short-circuiting vanilla pathing.
-- **Harmony-chain logging** — both `PathFinder.FindPath` overloads print their active prefix/postfix/transpiler/finalizer owners and priorities at startup.
-- **Worker failure cleanup** — a worker exception removes the tracked request and decrements in-flight state instead of leaking the request.
+V0.4.3.2 is a path-parity validation build. Vanilla `PawnPath` remains authoritative; worker paths are still shadow-only.
+
+### New in V0.4.3.2
+
+- **Critical path reconstruction fix** — `WorkerResult` is a struct; the previous `BuildResultPath(result, ...)` call passed it by value, so reconstructed `NodeCount` / `PathHash` were written to a copy. V0.4.3.2 uses `ref` and retains the reconstructed worker path.
+- **Found-state parity** — reports whether worker and vanilla agree on found/unfound.
+- **Path legality checks** — validates adjacency, impassable cells and diagonal corner blocking against the immutable snapshot.
+- **Endpoint checks** — validates start and destination representation for both worker and vanilla paths.
+- **Snapshot-relative cost parity** — compares both paths using the same captured PathGrid costs and reports same-cost / worker-cheaper / worker-costlier counts plus 1% and 5% bands.
+- **Node and geometry divergence** — reports node-count delta and shared prefix from the start instead of treating any different geometry as automatically wrong.
+- **Bounded mismatch samples** — logs up to four parity samples with found/legal/endpoint/cost/node/prefix details.
+- **Milestone reports** — automatic summaries at 8 and 32 paired validations.
+- **AdaptiveTPS coexistence retained** — `blue.adaptivetps` is an optional load-after target and its known `TickManagerUpdate` transpiler remains explicitly allowed beside RimMT's dispatcher postfix.
 
 ### Enabled by default
 
@@ -29,7 +35,7 @@ V0.4.3.1 is a compatibility/diagnostic follow-up to the first worker-side path A
 
 - **Short-lived unreachable-result cache** — caches only recent `false` reachability results for cell targets and invalidates them when path topology changes.
 
-### Intentionally NOT parallelized
+### Intentionally NOT parallelized yet
 
 - `Pawn.Tick`
 - `Thing.Tick`
@@ -48,23 +54,26 @@ If another RimThreaded implementation is detected, gameplay optimizations are di
 
 RimMT does not write required state into saves. Removing it should leave the save usable.
 
-## Testing V0.4.3.1
+## Testing V0.4.3.2
 
-AdaptiveTPS may be enabled for this build.
+AdaptiveTPS may be enabled.
 
-After loading an existing colony and playing normally, open **Options → Mod settings → RimMT** and click **Log current runtime compatibility / performance report**. Useful lines include:
+After loading an existing colony and playing normally, open **Options -> Mod settings -> RimMT** and click **Log current runtime compatibility / performance report**. Useful lines include:
 
 ```text
 Compatibility / performance report #[N] [runtime]
 ProgramState: Playing, mainThreadFrames=...
 runtime.dispatcher: ACTIVE
 Dispatcher: queued=..., enqueued=..., drained=...
+Path snapshot worker: scheduled=..., completed=..., exactGeometry=..., workerFailures=...
+Path parity: foundParity=..., foundMismatch=..., workerLegal=..., workerIllegal=...
+Path cost parity: comparable=..., sameCost=..., workerCheaper=..., workerCostlier=..., within1pct=..., within5pct=...
+Path geometry parity: avgAbsNodeDelta=..., avgSharedPrefixFromStart=...
 Path snapshot ingress: observed=..., pawnOverload=..., traverseParmsOverload=...
 Path snapshot rejects: shortDistance=..., targetThing=..., endMode=..., ...
-Path snapshot worker: scheduled=..., completed=..., workerFailures=...
 ```
 
-If the first eligible path is accepted, RimMT also logs a one-time marker saying that runtime path offload validation is functional.
+Exact geometry is now diagnostic only. A different route is not automatically wrong if found state, legality, endpoints and cost remain valid.
 
 ## Install
 
@@ -75,7 +84,7 @@ RimWorld/Mods/RimMT/About/About.xml
 RimWorld/Mods/RimMT/1.5/Assemblies/RimMT.dll
 ```
 
-Load Harmony before RimMT.
+Load Harmony before RimMT. AdaptiveTPS can remain enabled.
 
 ## Build
 
