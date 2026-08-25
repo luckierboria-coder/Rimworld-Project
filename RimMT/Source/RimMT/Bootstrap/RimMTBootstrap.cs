@@ -21,7 +21,7 @@ namespace RimMT
                 TryPatchDispatcher(harmony);
                 RimMTPatches.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.2 playtest initialized. PathFinder overload discovery, adaptive burst profiling and worker telemetry are active; unsafe Pawn/Thing/Reservation mutation remains on the main thread.");
+                Log.Message("[RimMT] V0.4.3 playtest initialized. Worker-side immutable PathGrid A* validation is active; vanilla PawnPath remains authoritative while geometry/staleness telemetry is collected.");
             }
             catch (Exception ex)
             {
