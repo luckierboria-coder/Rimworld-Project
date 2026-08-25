@@ -5,6 +5,6 @@
   <packageId>allen.rimmt</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
   <modDependencies><li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li></modDependencies>
-  <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>RimMT V0.4.3.1 Playtest adds explicit AdaptiveTPS coexistence for its TickManagerUpdate transpiler while keeping unknown Harmony conflicts fail-closed. It also strengthens PathFinder diagnostics: RimMT observes both FindPath overloads at high Harmony priority, reports detailed eligibility rejection reasons, distinguishes startup from runtime reports, tracks dispatcher activity, and cleans up failed worker requests safely. Worker-side path A* remains validation-only and vanilla PawnPath remains authoritative.</description>
+  <loadAfter><li>brrainz.harmony</li><li>blue.adaptivetps</li></loadAfter>
+  <description>RimMT V0.4.3.2 Playtest fixes a worker path result copy bug that caused NodeCount and PathHash to be lost after A* reconstruction. It replaces geometry-only validation with multi-axis path parity telemetry: found-state parity, worker legality, endpoint correctness, snapshot-relative path cost delta, node-count delta and geometry divergence. AdaptiveTPS TickManagerUpdate transpiler coexistence remains explicitly supported. Worker paths remain shadow-only and vanilla PawnPath remains authoritative.</description>
 </ModMetaData>
