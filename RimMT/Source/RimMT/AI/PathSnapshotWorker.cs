@@ -36,6 +36,7 @@ namespace RimMT
         private static long unsupported;
         private static long throttled;
         private static long snapshotBuilds;
+        private static long terrainCostSnapshots;
         private static long nodesExpanded;
         private static long workerFailures;
 
@@ -121,7 +122,8 @@ namespace RimMT
             if (!RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return RejectUnsupported(ref rejectedNotPlaying);
 
-            // The Pawn overload normally calls the TraverseParms overload. Schedule only the latter.
+            // The Pawn overload normally delegates to the TraverseParms overload. Scheduling only
+            // the latter avoids duplicate snapshots and duplicate worker A* work.
             if (!(args[2] is TraverseParms))
                 return 0;
 
@@ -156,7 +158,8 @@ namespace RimMT
             if (traverseParms.mode != TraverseMode.ByPawn && traverseParms.mode != TraverseMode.NoPassClosedDoors)
                 return RejectUnsupported(ref rejectedTraverseMode);
 
-            Map map = traverseParms.pawn == null ? null : traverseParms.pawn.Map;
+            Pawn pawn = traverseParms.pawn;
+            Map map = pawn == null ? null : pawn.Map;
             if (map == null && PathFinderMapField != null)
                 map = PathFinderMapField.GetValue(finder) as Map;
             if (map == null || map.Disposed || !start.InBounds(map) || !dest.Cell.InBounds(map))
@@ -219,12 +222,19 @@ namespace RimMT
             if (requestId == 0)
                 requestId = Interlocked.Increment(ref nextRequestId);
 
+            int moveCardinal = pawn == null ? 13 : Math.Max(1, pawn.TicksPerMoveCardinal);
+            int moveDiagonal = pawn == null ? 18 : Math.Max(1, pawn.TicksPerMoveDiagonal);
+            bool drafted = pawn != null && pawn.Drafted;
+
             PathRequest request = new PathRequest(
                 requestId,
                 map.uniqueID,
                 snapshot,
                 start.x + start.z * snapshot.Width,
-                dest.Cell.x + dest.Cell.z * snapshot.Width);
+                dest.Cell.x + dest.Cell.z * snapshot.Width,
+                moveCardinal,
+                moveDiagonal,
+                drafted);
             Requests[requestId] = request;
 
             bool accepted = scheduler.TryEnqueue("parallel.pathSnapshot", JobPriority.Normal, delegate
@@ -243,7 +253,7 @@ namespace RimMT
 
             long acceptedCount = Interlocked.Increment(ref scheduled);
             if (acceptedCount == 1)
-                Log.Message("[RimMT] parallel.pathSnapshot accepted its first real worker task. Runtime path offload validation is functional.");
+                Log.Message("[RimMT] parallel.pathSnapshot accepted its first real worker task. V0.4.4 cost model includes pawn move ticks and drafted/non-drafted terrain extras; vanilla remains authoritative.");
             return requestId;
         }
 
@@ -315,7 +325,9 @@ namespace RimMT
                 ", throttled=" + Throttled +
                 ", workerFailures=" + Interlocked.Read(ref workerFailures) +
                 ", snapshots=" + SnapshotBuilds +
+                ", terrainCostSnapshots=" + Interlocked.Read(ref terrainCostSnapshots) +
                 ", nodesExpanded=" + NodesExpanded +
+                "\nPath cost model V0.4.4: pathGrid + pawnMoveTicks + draftedTerrainExtra; dynamic avoid/allowedArea/pawnCollision/building/blueprint/lord costs remain vanilla-only" +
                 "\nPath parity: foundParity=" + Interlocked.Read(ref foundParity) +
                 ", foundMismatch=" + Interlocked.Read(ref foundMismatch) +
                 ", workerLegal=" + Interlocked.Read(ref workerLegal) +
@@ -388,9 +400,24 @@ namespace RimMT
                 int[] source = context.pathGrid.pathGrid;
                 int[] costs = new int[source.Length];
                 Array.Copy(source, costs, source.Length);
-                PathSnapshot snapshot = new PathSnapshot(map.uniqueID, map.Size.x, map.Size.z, generation, costs);
+
+                TerrainDef[] topGrid = map.terrainGrid.topGrid;
+                int[] draftedExtra = new int[source.Length];
+                int[] nonDraftedExtra = new int[source.Length];
+                int terrainLength = topGrid == null ? 0 : Math.Min(topGrid.Length, source.Length);
+                for (int i = 0; i < terrainLength; i++)
+                {
+                    TerrainDef terrain = topGrid[i];
+                    if (terrain == null)
+                        continue;
+                    draftedExtra[i] = terrain.extraDraftedPerceivedPathCost;
+                    nonDraftedExtra[i] = terrain.extraNonDraftedPerceivedPathCost;
+                }
+
+                PathSnapshot snapshot = new PathSnapshot(map.uniqueID, map.Size.x, map.Size.z, generation, costs, draftedExtra, nonDraftedExtra);
                 Snapshots[key] = snapshot;
                 Interlocked.Increment(ref snapshotBuilds);
+                Interlocked.Increment(ref terrainCostSnapshots);
                 return snapshot;
             }
         }
@@ -399,7 +426,7 @@ namespace RimMT
         {
             try
             {
-                WorkerResult result = FindPath(request.Snapshot, request.StartIndex, request.DestIndex, Scratch.Value);
+                WorkerResult result = FindPath(request, Scratch.Value);
                 Interlocked.Add(ref nodesExpanded, result.NodesExpanded);
 
                 if (ReachabilityNoCache.TopologyGeneration != request.Snapshot.Generation)
@@ -465,7 +492,7 @@ namespace RimMT
                     Interlocked.Increment(ref mismatched);
             }
 
-            if (done == 8 || done == 32)
+            if (done == 8 || done == 32 || done == 128)
             {
                 MainThreadDispatcher.TryEnqueue(delegate
                 {
@@ -483,7 +510,7 @@ namespace RimMT
             if (!worker.Found && !vanilla.Found)
                 return;
 
-            PathEvaluation workerEval = EvaluatePath(request.Snapshot, worker.NodesReversed, request.StartIndex, request.DestIndex);
+            PathEvaluation workerEval = EvaluatePath(request, worker.NodesReversed);
             if (worker.Found)
             {
                 if (workerEval.Legal) Interlocked.Increment(ref workerLegal);
@@ -492,7 +519,7 @@ namespace RimMT
                 else Interlocked.Increment(ref workerEndpointMismatch);
             }
 
-            PathEvaluation vanillaEval = EvaluatePath(request.Snapshot, vanilla.NodesReversed, request.StartIndex, request.DestIndex);
+            PathEvaluation vanillaEval = EvaluatePath(request, vanilla.NodesReversed);
             if (vanilla.Found)
             {
                 if (vanillaEval.Legal) Interlocked.Increment(ref vanillaSnapshotLegal);
@@ -503,7 +530,7 @@ namespace RimMT
 
             if (!worker.Found || !vanilla.Found)
             {
-                LogParitySample(request.Id, worker, vanilla, workerEval, vanillaEval, -1);
+                LogParitySample(request, worker, vanilla, workerEval, vanillaEval, -1);
                 return;
             }
 
@@ -539,17 +566,19 @@ namespace RimMT
             }
 
             if (worker.PathHash != vanilla.PathHash || worker.NodeCount != vanilla.NodeCount)
-                LogParitySample(request.Id, worker, vanilla, workerEval, vanillaEval, sharedPrefix);
+                LogParitySample(request, worker, vanilla, workerEval, vanillaEval, sharedPrefix);
         }
 
-        private static void LogParitySample(int requestId, WorkerResult worker, VanillaResult vanilla, PathEvaluation workerEval, PathEvaluation vanillaEval, int sharedPrefix)
+        private static void LogParitySample(PathRequest request, WorkerResult worker, VanillaResult vanilla, PathEvaluation workerEval, PathEvaluation vanillaEval, int sharedPrefix)
         {
             int slot = Interlocked.Increment(ref paritySamplesLogged);
-            if (slot > 4)
+            if (slot > 6)
                 return;
 
             string message = "[RimMT] Path parity sample #" + slot +
-                ": request=" + requestId +
+                ": request=" + request.Id +
+                ", moveTicks=" + request.MoveCardinal + "/" + request.MoveDiagonal +
+                ", drafted=" + request.Drafted +
                 ", found(worker/vanilla)=" + worker.Found + "/" + vanilla.Found +
                 ", legal(worker/vanillaSnapshot)=" + workerEval.Legal + "/" + vanillaEval.Legal +
                 ", endpoints(worker/vanilla)=" + workerEval.EndpointMatch + "/" + vanillaEval.EndpointMatch +
@@ -560,13 +589,14 @@ namespace RimMT
             MainThreadDispatcher.TryEnqueue(delegate { Log.Message(message); });
         }
 
-        private static PathEvaluation EvaluatePath(PathSnapshot snapshot, int[] nodesReversed, int startIndex, int destIndex)
+        private static PathEvaluation EvaluatePath(PathRequest request, int[] nodesReversed)
         {
+            PathSnapshot snapshot = request.Snapshot;
             PathEvaluation evaluation = new PathEvaluation();
             if (nodesReversed == null || nodesReversed.Length == 0)
                 return evaluation;
 
-            evaluation.EndpointMatch = nodesReversed[0] == destIndex && nodesReversed[nodesReversed.Length - 1] == startIndex;
+            evaluation.EndpointMatch = nodesReversed[0] == request.DestIndex && nodesReversed[nodesReversed.Length - 1] == request.StartIndex;
             long cost = 0L;
             for (int i = nodesReversed.Length - 1; i > 0; i--)
             {
@@ -595,7 +625,7 @@ namespace RimMT
                         return evaluation;
                 }
 
-                cost += (diagonal ? 18 : 13) + snapshot.Costs[to];
+                cost += StepCost(request, to, diagonal);
                 if (cost > int.MaxValue)
                     return evaluation;
             }
@@ -646,8 +676,11 @@ namespace RimMT
             }
         }
 
-        private static WorkerResult FindPath(PathSnapshot snapshot, int startIndex, int destIndex, PathScratch scratch)
+        private static WorkerResult FindPath(PathRequest request, PathScratch scratch)
         {
+            PathSnapshot snapshot = request.Snapshot;
+            int startIndex = request.StartIndex;
+            int destIndex = request.DestIndex;
             WorkerResult result = new WorkerResult();
             if (startIndex < 0 || startIndex >= snapshot.Costs.Length || destIndex < 0 || destIndex >= snapshot.Costs.Length ||
                 snapshot.Costs[startIndex] >= PathGrid.ImpassableCost || snapshot.Costs[destIndex] >= PathGrid.ImpassableCost)
@@ -665,7 +698,7 @@ namespace RimMT
 
             scratch.Begin(snapshot.Costs.Length);
             scratch.SetG(startIndex, 0, -1);
-            scratch.Heap.Push(startIndex, Heuristic(startIndex, destIndex, snapshot.Width), 0);
+            scratch.Heap.Push(startIndex, Heuristic(request, startIndex), 0);
 
             int expanded = 0;
             int width = snapshot.Width;
@@ -712,12 +745,12 @@ namespace RimMT
                             continue;
                     }
 
-                    int step = (diagonal ? 18 : 13) + costs[next];
+                    int step = StepCost(request, next, diagonal);
                     int newG = current.G + step;
                     if (!scratch.HasG(next) || newG < scratch.GetG(next))
                     {
                         scratch.SetG(next, newG, cur);
-                        int priority = newG + Heuristic(next, destIndex, width);
+                        int priority = newG + Heuristic(request, next);
                         scratch.Heap.Push(next, priority, newG);
                     }
                 }
@@ -725,6 +758,13 @@ namespace RimMT
 
             result.NodesExpanded = expanded;
             return result;
+        }
+
+        private static int StepCost(PathRequest request, int index, bool diagonal)
+        {
+            PathSnapshot snapshot = request.Snapshot;
+            int terrainExtra = request.Drafted ? snapshot.DraftedTerrainExtra[index] : snapshot.NonDraftedTerrainExtra[index];
+            return (diagonal ? request.MoveDiagonal : request.MoveCardinal) + snapshot.Costs[index] + terrainExtra;
         }
 
         private static void BuildResultPath(ref WorkerResult result, PathScratch scratch, int startIndex, int destIndex)
@@ -766,15 +806,18 @@ namespace RimMT
             result.NodesReversed = nodes;
         }
 
-        private static int Heuristic(int index, int destIndex, int width)
+        private static int Heuristic(PathRequest request, int index)
         {
+            int width = request.Snapshot.Width;
+            int destIndex = request.DestIndex;
             int x = index % width;
             int z = index / width;
             int dx = Math.Abs(x - destIndex % width);
             int dz = Math.Abs(z - destIndex / width);
             int diagonal = Math.Min(dx, dz);
             int straight = Math.Max(dx, dz) - diagonal;
-            return diagonal * 18 + straight * 13;
+            int safeDiagonal = Math.Min(request.MoveDiagonal, request.MoveCardinal * 2);
+            return diagonal * safeDiagonal + straight * request.MoveCardinal;
         }
 
         private static readonly int[] Dx = { 0, 1, 0, -1, 1, 1, -1, -1 };
@@ -797,9 +840,18 @@ namespace RimMT
             internal readonly int Height;
             internal readonly int Generation;
             internal readonly int[] Costs;
-            internal PathSnapshot(int mapId, int width, int height, int generation, int[] costs)
+            internal readonly int[] DraftedTerrainExtra;
+            internal readonly int[] NonDraftedTerrainExtra;
+
+            internal PathSnapshot(int mapId, int width, int height, int generation, int[] costs, int[] draftedTerrainExtra, int[] nonDraftedTerrainExtra)
             {
-                MapId = mapId; Width = width; Height = height; Generation = generation; Costs = costs;
+                MapId = mapId;
+                Width = width;
+                Height = height;
+                Generation = generation;
+                Costs = costs;
+                DraftedTerrainExtra = draftedTerrainExtra;
+                NonDraftedTerrainExtra = nonDraftedTerrainExtra;
             }
         }
 
@@ -811,13 +863,24 @@ namespace RimMT
             internal readonly PathSnapshot Snapshot;
             internal readonly int StartIndex;
             internal readonly int DestIndex;
+            internal readonly int MoveCardinal;
+            internal readonly int MoveDiagonal;
+            internal readonly bool Drafted;
             internal bool HasWorker;
             internal bool HasVanilla;
             internal WorkerResult Worker;
             internal VanillaResult Vanilla;
-            internal PathRequest(int id, int mapId, PathSnapshot snapshot, int startIndex, int destIndex)
+
+            internal PathRequest(int id, int mapId, PathSnapshot snapshot, int startIndex, int destIndex, int moveCardinal, int moveDiagonal, bool drafted)
             {
-                Id = id; MapId = mapId; Snapshot = snapshot; StartIndex = startIndex; DestIndex = destIndex;
+                Id = id;
+                MapId = mapId;
+                Snapshot = snapshot;
+                StartIndex = startIndex;
+                DestIndex = destIndex;
+                MoveCardinal = moveCardinal;
+                MoveDiagonal = moveDiagonal;
+                Drafted = drafted;
             }
         }
 
@@ -885,7 +948,9 @@ namespace RimMT
             internal void Close(int index) { closed[index] = stamp; }
             internal void SetG(int index, int value, int parentIndex)
             {
-                seen[index] = stamp; g[index] = value; parent[index] = parentIndex;
+                seen[index] = stamp;
+                g[index] = value;
+                parent[index] = parentIndex;
             }
         }
 
