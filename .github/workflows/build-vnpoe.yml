@@ -1,0 +1,67 @@
+name: Build VNPOE RimWorld 1.5
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct source archive
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem 'ci/source.part*' | Sort-Object Name
+          if ($parts.Count -ne 6) { throw "Expected 6 source chunks, found $($parts.Count)" }
+          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes('VNPOE_CI_source.zip', [Convert]::FromBase64String($b64))
+          New-Item -ItemType Directory -Force -Path 'work' | Out-Null
+          Expand-Archive -Path 'VNPOE_CI_source.zip' -DestinationPath 'work' -Force
+          Get-ChildItem work
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        working-directory: work
+        run: dotnet restore Source/VanillaNPCOutpostsExpanded/VanillaNPCOutpostsExpanded.csproj
+
+      - name: Build Release
+        working-directory: work
+        run: dotnet build Source/VanillaNPCOutpostsExpanded/VanillaNPCOutpostsExpanded.csproj --configuration Release --no-restore
+
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dll = 'work/1.5/Assemblies/VanillaNPCOutpostsExpanded.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package playtest mod
+        shell: pwsh
+        run: |
+          $src = 'work'
+          $stage = 'build/VanillaNPCOutpostsExpanded'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "$src/About" $stage -Recurse
+          Copy-Item "$src/Languages" $stage -Recurse
+          Copy-Item "$src/1.5" $stage -Recurse
+          if (Test-Path "$src/1.5-VOEMO") { Copy-Item "$src/1.5-VOEMO" $stage -Recurse }
+          Copy-Item "$src/loadFolders.xml" $stage
+          if (Test-Path "$src/V1_STATUS.md") { Copy-Item "$src/V1_STATUS.md" $stage }
+          Compress-Archive -Path $stage -DestinationPath 'build/VanillaNPCOutpostsExpanded_Playtest.zip' -Force
+
+      - name: Upload playtest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VanillaNPCOutpostsExpanded-Playtest
+          path: build/VanillaNPCOutpostsExpanded_Playtest.zip
+          if-no-files-found: error
