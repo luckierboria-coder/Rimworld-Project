@@ -44,7 +44,7 @@ namespace RimMT
             if (AccessTools.TypeByName("RimThreaded.RimThreaded") != null || HasLoadedModName("RimThreaded"))
             {
                 SuppressOptimizationSet("another RimThreaded implementation is loaded");
-                AddReport("All RimMT gameplay optimizations disabled because RimThreaded was detected.");
+                AddReportUnique("All RimMT gameplay optimizations disabled because RimThreaded was detected.");
                 return;
             }
 
@@ -66,21 +66,60 @@ namespace RimMT
                 Patches patches = Harmony.GetPatchInfo(target);
                 if (patches == null) continue;
 
-                string owner = FirstForeignOwner(patches.Prefixes);
-                if (owner == null) owner = FirstForeignOwner(patches.Postfixes);
-                if (owner == null) owner = FirstForeignOwner(patches.Transpilers);
-                if (owner == null) owner = FirstForeignOwner(patches.Finalizers);
+                string patchKind;
+                string owner = FirstBlockingForeignOwner(featureId, target, patches.Prefixes, "prefix", out patchKind);
+                if (owner == null) owner = FirstBlockingForeignOwner(featureId, target, patches.Postfixes, "postfix", out patchKind);
+                if (owner == null) owner = FirstBlockingForeignOwner(featureId, target, patches.Transpilers, "transpiler", out patchKind);
+                if (owner == null) owner = FirstBlockingForeignOwner(featureId, target, patches.Finalizers, "finalizer", out patchKind);
 
                 if (owner != null)
                 {
                     string typeName = target.DeclaringType == null ? "<unknown>" : target.DeclaringType.FullName;
-                    string reason = "foreign Harmony patch by '" + owner + "' on " + typeName + "." + target.Name;
+                    string reason = "foreign Harmony " + patchKind + " by '" + owner + "' on " + typeName + "." + target.Name;
                     FeatureGate.Suppress(featureId, reason);
-                    AddReport(featureId + " disabled: " + reason);
+                    AddReportUnique(featureId + " disabled: " + reason);
                     return false;
                 }
             }
             return true;
+        }
+
+        private static string FirstBlockingForeignOwner(string featureId, MethodBase target, IList<Patch> patches, string kind, out string patchKind)
+        {
+            patchKind = kind;
+            if (patches == null) return null;
+            for (int i = 0; i < patches.Count; i++)
+            {
+                Patch patch = patches[i];
+                string owner = patch == null ? null : patch.owner;
+                if (string.IsNullOrEmpty(owner) || owner == RimMTBootstrap.HarmonyId)
+                    continue;
+
+                if (IsAllowedCoexistence(featureId, target, owner, kind))
+                {
+                    string typeName = target.DeclaringType == null ? "<unknown>" : target.DeclaringType.FullName;
+                    AddReportUnique(featureId + " coexisting with '" + owner + "' " + kind + " on " + typeName + "." + target.Name + ".");
+                    continue;
+                }
+
+                return owner;
+            }
+            return null;
+        }
+
+        private static bool IsAllowedCoexistence(string featureId, MethodBase target, string owner, string patchKind)
+        {
+            // Adaptive TPS changes TickManagerUpdate with a transpiler to adjust pacing/TPS.
+            // RimMT only adds a postfix that drains worker-to-main-thread callbacks after the update.
+            // Keep this exception deliberately narrow: exact RimMT feature, exact TickManager method,
+            // AdaptiveTPS owner, and transpiler only. Any other patch shape remains fail-closed.
+            if (!string.Equals(featureId, "runtime.dispatcher", StringComparison.Ordinal))
+                return false;
+            if (target == null || target.DeclaringType != typeof(TickManager) || target.Name != "TickManagerUpdate")
+                return false;
+            if (!string.Equals(patchKind, "transpiler", StringComparison.Ordinal))
+                return false;
+            return owner.IndexOf("adaptivetps", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static void SuppressOptimizationSet(string reason)
@@ -102,21 +141,14 @@ namespace RimMT
             return false;
         }
 
-        private static void AddReport(string line)
+        private static void AddReportUnique(string line)
         {
-            lock (Sync) ReportLines.Add(line);
-        }
-
-        private static string FirstForeignOwner(IList<Patch> patches)
-        {
-            if (patches == null) return null;
-            for (int i = 0; i < patches.Count; i++)
+            if (string.IsNullOrEmpty(line)) return;
+            lock (Sync)
             {
-                string owner = patches[i].owner;
-                if (!string.IsNullOrEmpty(owner) && owner != RimMTBootstrap.HarmonyId)
-                    return owner;
+                if (!ReportLines.Contains(line))
+                    ReportLines.Add(line);
             }
-            return null;
         }
     }
 }
