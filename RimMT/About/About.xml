@@ -6,5 +6,5 @@
   <supportedVersions><li>1.5</li></supportedVersions>
   <modDependencies><li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li></modDependencies>
   <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>RimMT V0.4.2 Playtest discovers and patches the actual PathFinder.FindPath overloads present at runtime instead of relying on a guessed signature. It logs matched PathFinder and JobGiver targets, adds worker queue/utilization telemetry, and isolates dispatcher patch failure from the rest of the runtime. Path/Job state mutation, ReservationManager and whole Pawn ticking remain on the main thread until worker-side snapshot engines are validated.</description>
+  <description>RimMT V0.4.3 Playtest introduces the first worker-side path computation stage. For supported long OnCell paths, the main thread captures an immutable PathGrid snapshot and RimMT workers run an independent A* with per-thread scratch state. Results are compared against vanilla PawnPath geometry and topology generation; vanilla remains authoritative in this validation build. This is designed to validate worker safety and compatibility before worker-computed paths are allowed to replace vanilla results.</description>
 </ModMetaData>
