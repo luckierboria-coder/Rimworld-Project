@@ -35,6 +35,21 @@ namespace RimMT
             listing.Label("RimMT_ReachTtl".Translate(Settings.ReachNoCacheTtl));
             Settings.ReachNoCacheTtl = (int)listing.Slider(Settings.ReachNoCacheTtl, 5f, 60f);
             listing.GapLine();
+
+            if (WorkGiverDetailPatches.CaptureActive)
+            {
+                listing.Label("RimMT_JobGiverCaptureActive".Translate(WorkGiverDetailPatches.PackagesRemaining));
+                if (listing.ButtonText("RimMT_StopJobGiverCapture".Translate()))
+                    WorkGiverDetailPatches.RequestStopCapture();
+            }
+            else
+            {
+                listing.Label("RimMT_JobGiverCaptureDesc".Translate());
+                if (listing.ButtonText("RimMT_StartJobGiverCapture".Translate()))
+                    WorkGiverDetailPatches.StartCapture();
+            }
+
+            listing.GapLine();
             if (listing.ButtonText("RimMT_LogReport".Translate())) RimMTDiagnostics.LogRuntimeReport();
             if (listing.ButtonText("RimMT_RunSelfTest".Translate())) RimMTDiagnostics.RunWorkerSelfTest();
             listing.End();
