@@ -24,6 +24,7 @@ namespace RimMT
         };
 
         private static readonly List<MethodBase> CandidateMethods = new List<MethodBase>();
+        private static readonly List<MethodBase> InfrastructureMethods = new List<MethodBase>();
         private static readonly object Sync = new object();
         private static Harmony harmony;
         private static MethodBase jobPackageTarget;
@@ -39,7 +40,7 @@ namespace RimMT
         {
             harmony = owner;
             FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
-            Log.Message("[RimMT] diagnostics.jobGiverDetail V0.4.5.2 is on-demand. No per-WorkGiver phase detours are resident during normal play; use Mod Settings to start a bounded capture.");
+            Log.Message("[RimMT] diagnostics.jobGiverDetail V0.4.8 is on-demand. Slow JobPackage traces now include bounded GenClosest, Reachability, RegionTraverser and scanner-enumeration timings; all temporary detours are removed after capture.");
         }
 
         internal static bool StartCapture()
@@ -59,6 +60,8 @@ namespace RimMT
                 patchFailures = 0;
                 MethodInfo prefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(Prefix));
                 MethodInfo postfixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(Postfix));
+                MethodInfo infraPrefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(InfrastructurePrefix));
+                MethodInfo infraPostfixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(InfrastructurePostfix));
                 MethodInfo packagePrefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(JobPackagePrefix));
                 MethodInfo packageFinalizerMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(JobPackageFinalizer));
 
@@ -75,29 +78,14 @@ namespace RimMT
                     return false;
                 }
 
-                for (int i = 0; i < CandidateMethods.Count; i++)
-                {
-                    MethodBase method = CandidateMethods[i];
-                    try
-                    {
-                        HarmonyMethod prefix = new HarmonyMethod(prefixMethod) { priority = Priority.First };
-                        HarmonyMethod postfix = new HarmonyMethod(postfixMethod) { priority = Priority.Last };
-                        harmony.Patch(method, prefix: prefix, postfix: postfix);
-                        patched++;
-                    }
-                    catch (Exception ex)
-                    {
-                        patchFailures++;
-                        if (patchFailures <= 5)
-                            Log.Warning("[RimMT] JobGiver detail capture skipped " + method + ": " + ex.GetType().Name + ": " + ex.Message);
-                    }
-                }
+                patched += PatchMethods(CandidateMethods, prefixMethod, postfixMethod, "WorkGiver phase");
+                patched += PatchMethods(InfrastructureMethods, infraPrefixMethod, infraPostfixMethod, "infrastructure");
 
                 Interlocked.Exchange(ref stopRequested, 0);
                 Interlocked.Exchange(ref active, 1);
                 FeatureGate.SetEnabled("diagnostics.jobGiverDetail", true);
                 WorkGiverProfiler.StartSession(CaptureJobPackages, patched, patchFailures);
-                Log.Message("[RimMT] JobGiver detail capture started for up to " + CaptureJobPackages + " outer TryIssueJobPackage calls; temporarily patched " + patched + "/" + CandidateMethods.Count + " WorkGiver phase methods. It will auto-unpatch when complete.");
+                Log.Message("[RimMT] JobGiver detail capture V0.4.8 started for up to " + CaptureJobPackages + " outer TryIssueJobPackage calls; temporarily patched " + CandidateMethods.Count + " WorkGiver phase candidates and " + InfrastructureMethods.Count + " infrastructure candidates. It will auto-unpatch when complete.");
                 return true;
             }
         }
@@ -118,6 +106,29 @@ namespace RimMT
             StopCaptureNow();
         }
 
+        private static int PatchMethods(List<MethodBase> methods, MethodInfo prefixMethod, MethodInfo postfixMethod, string kind)
+        {
+            int patched = 0;
+            for (int i = 0; i < methods.Count; i++)
+            {
+                MethodBase method = methods[i];
+                try
+                {
+                    HarmonyMethod prefix = new HarmonyMethod(prefixMethod) { priority = Priority.First };
+                    HarmonyMethod postfix = new HarmonyMethod(postfixMethod) { priority = Priority.Last };
+                    harmony.Patch(method, prefix: prefix, postfix: postfix);
+                    patched++;
+                }
+                catch (Exception ex)
+                {
+                    patchFailures++;
+                    if (patchFailures <= 8)
+                        Log.Warning("[RimMT] JobGiver detail capture skipped " + kind + " method " + method + ": " + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
+            return patched;
+        }
+
         private static void StopCaptureNow()
         {
             lock (Sync)
@@ -127,6 +138,8 @@ namespace RimMT
 
                 MethodInfo prefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(Prefix));
                 MethodInfo postfixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(Postfix));
+                MethodInfo infraPrefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(InfrastructurePrefix));
+                MethodInfo infraPostfixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(InfrastructurePostfix));
                 MethodInfo packagePrefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(JobPackagePrefix));
                 MethodInfo packageFinalizerMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(JobPackageFinalizer));
 
@@ -137,11 +150,8 @@ namespace RimMT
                         harmony.Unpatch(jobPackageTarget, packagePrefixMethod);
                         harmony.Unpatch(jobPackageTarget, packageFinalizerMethod);
                     }
-                    for (int i = 0; i < CandidateMethods.Count; i++)
-                    {
-                        harmony.Unpatch(CandidateMethods[i], prefixMethod);
-                        harmony.Unpatch(CandidateMethods[i], postfixMethod);
-                    }
+                    UnpatchMethods(CandidateMethods, prefixMethod, postfixMethod);
+                    UnpatchMethods(InfrastructureMethods, infraPrefixMethod, infraPostfixMethod);
                 }
                 catch (Exception ex)
                 {
@@ -150,7 +160,16 @@ namespace RimMT
 
                 WorkGiverProfiler.StopSession();
                 FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
-                Log.Message("[RimMT] JobGiver detail capture stopped and temporary WorkGiver detours were removed. " + WorkGiverProfiler.Summary(12));
+                Log.Message("[RimMT] JobGiver detail capture V0.4.8 stopped and temporary detours were removed. " + WorkGiverProfiler.Summary(12) + "\n" + JobGiverInfrastructureProfiler.Summary(12));
+            }
+        }
+
+        private static void UnpatchMethods(List<MethodBase> methods, MethodInfo prefix, MethodInfo postfix)
+        {
+            for (int i = 0; i < methods.Count; i++)
+            {
+                harmony.Unpatch(methods[i], prefix);
+                harmony.Unpatch(methods[i], postfix);
             }
         }
 
@@ -169,32 +188,8 @@ namespace RimMT
                     return false;
                 }
 
-                HashSet<MethodBase> unique = new HashSet<MethodBase>();
-                List<Type> allTypes = GenTypes.AllTypes;
-                for (int i = 0; i < allTypes.Count; i++)
-                {
-                    Type type = allTypes[i];
-                    if (type == null || !typeof(WorkGiver).IsAssignableFrom(type))
-                        continue;
-
-                    MethodInfo[] methods;
-                    try
-                    {
-                        methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-
-                    for (int m = 0; m < methods.Length; m++)
-                    {
-                        MethodInfo method = methods[m];
-                        if (method == null || method.IsAbstract || !TargetNames.Contains(method.Name) || !IsUsefulSignature(method) || !unique.Add(method))
-                            continue;
-                        CandidateMethods.Add(method);
-                    }
-                }
+                DiscoverWorkGiverMethods();
+                DiscoverInfrastructureMethods();
             }
             catch (Exception ex)
             {
@@ -205,9 +200,87 @@ namespace RimMT
             return CandidateMethods.Count > 0;
         }
 
-        public static void JobPackagePrefix(ref WorkGiverProfiler.JobPackageScope __state)
+        private static void DiscoverWorkGiverMethods()
         {
-            __state = WorkGiverProfiler.BeginJobPackage();
+            HashSet<MethodBase> unique = new HashSet<MethodBase>();
+            List<Type> allTypes = GenTypes.AllTypes;
+            for (int i = 0; i < allTypes.Count; i++)
+            {
+                Type type = allTypes[i];
+                if (type == null || !typeof(WorkGiver).IsAssignableFrom(type))
+                    continue;
+
+                MethodInfo[] methods;
+                try { methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly); }
+                catch { continue; }
+
+                for (int m = 0; m < methods.Length; m++)
+                {
+                    MethodInfo method = methods[m];
+                    if (method == null || method.IsAbstract || method.ContainsGenericParameters || !TargetNames.Contains(method.Name) || !IsUsefulSignature(method) || !unique.Add(method))
+                        continue;
+                    CandidateMethods.Add(method);
+                }
+            }
+        }
+
+        private static void DiscoverInfrastructureMethods()
+        {
+            HashSet<MethodBase> unique = new HashSet<MethodBase>();
+            AddNamedMethods(typeof(GenClosest), unique, delegate(MethodInfo m)
+            {
+                return m.Name.StartsWith("ClosestThing", StringComparison.Ordinal);
+            });
+            AddNamedMethods(typeof(Reachability), unique, delegate(MethodInfo m)
+            {
+                return m.Name == "CanReach";
+            });
+
+            Type regionTraverser = AccessTools.TypeByName("Verse.RegionTraverser");
+            if (regionTraverser != null)
+            {
+                AddNamedMethods(regionTraverser, unique, delegate(MethodInfo m)
+                {
+                    return m.Name == "BreadthFirstTraverse";
+                });
+            }
+
+            List<Type> allTypes = GenTypes.AllTypes;
+            for (int i = 0; i < allTypes.Count; i++)
+            {
+                Type type = allTypes[i];
+                if (type == null || !typeof(WorkGiver_Scanner).IsAssignableFrom(type))
+                    continue;
+                MethodInfo[] methods;
+                try { methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly); }
+                catch { continue; }
+                for (int m = 0; m < methods.Length; m++)
+                {
+                    MethodInfo method = methods[m];
+                    if (method == null || method.IsAbstract || method.ContainsGenericParameters)
+                        continue;
+                    if (method.Name != "get_PotentialWorkThingsGlobal" && method.Name != "get_PotentialWorkCellsGlobal")
+                        continue;
+                    if (unique.Add(method)) InfrastructureMethods.Add(method);
+                }
+            }
+        }
+
+        private static void AddNamedMethods(Type type, HashSet<MethodBase> unique, Predicate<MethodInfo> predicate)
+        {
+            MethodInfo[] methods = type.GetMethods(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+                if (method == null || method.IsAbstract || method.ContainsGenericParameters || !predicate(method))
+                    continue;
+                if (unique.Add(method)) InfrastructureMethods.Add(method);
+            }
+        }
+
+        public static void JobPackagePrefix(Pawn __0, ref WorkGiverProfiler.JobPackageScope __state)
+        {
+            __state = WorkGiverProfiler.BeginJobPackage(__0);
         }
 
         public static Exception JobPackageFinalizer(Exception __exception, WorkGiverProfiler.JobPackageScope __state)
@@ -224,6 +297,16 @@ namespace RimMT
         public static void Postfix(WorkGiver __instance, MethodBase __originalMethod, long __state)
         {
             WorkGiverProfiler.Record(__instance, __originalMethod, __state);
+        }
+
+        public static void InfrastructurePrefix(ref long __state)
+        {
+            __state = JobGiverInfrastructureProfiler.Begin();
+        }
+
+        public static void InfrastructurePostfix(MethodBase __originalMethod, long __state)
+        {
+            JobGiverInfrastructureProfiler.Record(__originalMethod, __state);
         }
 
         private static bool IsUsefulSignature(MethodInfo method)

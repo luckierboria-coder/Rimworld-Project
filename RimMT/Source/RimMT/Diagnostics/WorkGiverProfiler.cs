@@ -3,12 +3,16 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using RimWorld;
+using Verse;
 
 namespace RimMT
 {
     internal static class WorkGiverProfiler
     {
+        private const int MaxSlowTraces = 8;
+        private const int MaxPhasesPerSlowTrace = 10;
         private static readonly Dictionary<ProfileKey, Stat> Stats = new Dictionary<ProfileKey, Stat>();
+        private static readonly List<SlowTrace> SlowTraces = new List<SlowTrace>();
         private static readonly long Threshold16Ticks = Math.Max(1L, Stopwatch.Frequency * 16L / 1000L);
         private static readonly long Threshold64Ticks = Math.Max(1L, Stopwatch.Frequency * 64L / 1000L);
         private static readonly long Threshold128Ticks = Math.Max(1L, Stopwatch.Frequency * 128L / 1000L);
@@ -21,11 +25,10 @@ namespace RimMT
         private static int patchFailures;
         private static bool sessionActive;
 
-        [ThreadStatic]
-        private static int jobPackageDepth;
-
-        [ThreadStatic]
-        private static bool captureDetail;
+        [ThreadStatic] private static int jobPackageDepth;
+        [ThreadStatic] private static bool captureDetail;
+        [ThreadStatic] private static Dictionary<string, long> currentInclusivePhases;
+        [ThreadStatic] private static string currentPawn;
 
         internal struct JobPackageScope
         {
@@ -33,6 +36,8 @@ namespace RimMT
             internal bool Entered;
             internal bool Outermost;
         }
+
+        internal static bool DetailCaptureActive { get { return captureDetail && sessionActive; } }
 
         internal static int PackagesRemaining
         {
@@ -46,6 +51,8 @@ namespace RimMT
         internal static void StartSession(int packageTarget, int patched, int failures)
         {
             Stats.Clear();
+            SlowTraces.Clear();
+            JobGiverInfrastructureProfiler.Reset();
             totalSamples = 0;
             totalJobPackages = 0;
             slowJobPackages = 0;
@@ -54,6 +61,8 @@ namespace RimMT
             patchFailures = failures;
             jobPackageDepth = 0;
             captureDetail = false;
+            currentInclusivePhases = null;
+            currentPawn = null;
             sessionActive = true;
         }
 
@@ -62,9 +71,11 @@ namespace RimMT
             sessionActive = false;
             captureDetail = false;
             jobPackageDepth = 0;
+            currentInclusivePhases = null;
+            currentPawn = null;
         }
 
-        internal static JobPackageScope BeginJobPackage()
+        internal static JobPackageScope BeginJobPackage(Pawn pawn)
         {
             JobPackageScope state = default(JobPackageScope);
             if (!sessionActive || !RimMTThreadGuard.IsMainThread)
@@ -79,6 +90,8 @@ namespace RimMT
             state.Started = Stopwatch.GetTimestamp();
             totalJobPackages++;
             captureDetail = true;
+            currentInclusivePhases = new Dictionary<string, long>(StringComparer.Ordinal);
+            currentPawn = pawn == null ? "<null>" : pawn.ToString();
             return state;
         }
 
@@ -91,7 +104,10 @@ namespace RimMT
             {
                 long elapsed = Stopwatch.GetTimestamp() - state.Started;
                 if (elapsed >= Threshold64Ticks)
+                {
                     slowJobPackages++;
+                    SaveSlowTrace(elapsed);
+                }
             }
 
             if (jobPackageDepth > 0)
@@ -99,6 +115,8 @@ namespace RimMT
             if (jobPackageDepth == 0)
             {
                 captureDetail = false;
+                currentInclusivePhases = null;
+                currentPawn = null;
                 if (sessionActive && totalJobPackages >= targetJobPackages)
                     WorkGiverDetailPatches.RequestStopCapture();
             }
@@ -133,6 +151,18 @@ namespace RimMT
             if (elapsed >= Threshold64Ticks) stat.Over64Ms++;
             if (elapsed >= Threshold128Ticks) stat.Over128Ms++;
             totalSamples++;
+
+            string phase = key.DefName + "/" + key.WorkerTypeName + "." + key.Phase;
+            RecordInclusivePhase(phase, elapsed);
+        }
+
+        internal static void RecordInclusivePhase(string phase, long elapsedTicks)
+        {
+            if (!captureDetail || currentInclusivePhases == null || string.IsNullOrEmpty(phase) || elapsedTicks <= 0L)
+                return;
+            long existing;
+            currentInclusivePhases.TryGetValue(phase, out existing);
+            currentInclusivePhases[phase] = existing + elapsedTicks;
         }
 
         internal static string Summary(int topN)
@@ -152,14 +182,15 @@ namespace RimMT
             if (topN > entries.Count) topN = entries.Count;
 
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("JobGiver detail V0.4.5.2: active=").Append(sessionActive)
+            sb.Append("JobGiver detail V0.4.8: active=").Append(sessionActive)
                 .Append(", patchedMethods=").Append(patchedMethods)
                 .Append(", patchFailures=").Append(patchFailures)
                 .Append(", outerCalls=").Append(totalJobPackages)
                 .Append('/').Append(targetJobPackages)
                 .Append(", slowPackages>=64ms=").Append(slowJobPackages)
                 .Append(", phaseSamples=").Append(totalSamples)
-                .Append(", tracked=").Append(entries.Count);
+                .Append(", tracked=").Append(entries.Count)
+                .Append(", slowTracesKept=").Append(SlowTraces.Count);
 
             for (int i = 0; i < topN; i++)
             {
@@ -180,7 +211,42 @@ namespace RimMT
                     .Append(", >=64ms=").Append(stat.Over64Ms)
                     .Append(", >=128ms=").Append(stat.Over128Ms);
             }
+
+            for (int i = 0; i < SlowTraces.Count; i++)
+            {
+                SlowTrace trace = SlowTraces[i];
+                sb.Append("\n  SLOW#").Append(i + 1)
+                    .Append(": totalMs=").Append((trace.ElapsedTicks * 1000.0 / Stopwatch.Frequency).ToString("F3"))
+                    .Append(", pawn=").Append(trace.Pawn)
+                    .Append(", topInclusivePhases=");
+                for (int p = 0; p < trace.Phases.Count; p++)
+                {
+                    if (p > 0) sb.Append(" | ");
+                    PhaseEntry phase = trace.Phases[p];
+                    sb.Append(phase.Name).Append('=')
+                        .Append((phase.Ticks * 1000.0 / Stopwatch.Frequency).ToString("F3")).Append("ms");
+                }
+            }
             return sb.ToString();
+        }
+
+        private static void SaveSlowTrace(long elapsed)
+        {
+            List<PhaseEntry> phases = new List<PhaseEntry>();
+            if (currentInclusivePhases != null)
+            {
+                foreach (KeyValuePair<string, long> pair in currentInclusivePhases)
+                    phases.Add(new PhaseEntry(pair.Key, pair.Value));
+                phases.Sort(delegate(PhaseEntry a, PhaseEntry b) { return b.Ticks.CompareTo(a.Ticks); });
+                if (phases.Count > MaxPhasesPerSlowTrace)
+                    phases.RemoveRange(MaxPhasesPerSlowTrace, phases.Count - MaxPhasesPerSlowTrace);
+            }
+
+            SlowTrace trace = new SlowTrace(elapsed, currentPawn ?? "<unknown>", phases);
+            SlowTraces.Add(trace);
+            SlowTraces.Sort(delegate(SlowTrace a, SlowTrace b) { return b.ElapsedTicks.CompareTo(a.ElapsedTicks); });
+            if (SlowTraces.Count > MaxSlowTraces)
+                SlowTraces.RemoveRange(MaxSlowTraces, SlowTraces.Count - MaxSlowTraces);
         }
 
         private struct ProfileKey : IEquatable<ProfileKey>
@@ -236,6 +302,26 @@ namespace RimMT
             internal readonly ProfileKey Key;
             internal readonly Stat Stat;
             internal Entry(ProfileKey key, Stat stat) { Key = key; Stat = stat; }
+        }
+
+        private struct PhaseEntry
+        {
+            internal readonly string Name;
+            internal readonly long Ticks;
+            internal PhaseEntry(string name, long ticks) { Name = name; Ticks = ticks; }
+        }
+
+        private sealed class SlowTrace
+        {
+            internal readonly long ElapsedTicks;
+            internal readonly string Pawn;
+            internal readonly List<PhaseEntry> Phases;
+            internal SlowTrace(long elapsedTicks, string pawn, List<PhaseEntry> phases)
+            {
+                ElapsedTicks = elapsedTicks;
+                Pawn = pawn;
+                Phases = phases;
+            }
         }
     }
 }

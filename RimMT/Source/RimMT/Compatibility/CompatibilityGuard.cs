@@ -142,15 +142,10 @@ namespace RimMT
 
             string owner = patch == null ? string.Empty : patch.owner;
 
-            // AdaptiveTPS changes pacing in TickManagerUpdate with a transpiler. RimMT only
-            // brackets/drains around the completed update and does not rewrite AdaptiveTPS IL.
             if (string.Equals(patchKind, "transpiler", StringComparison.Ordinal) &&
                 !string.IsNullOrEmpty(owner) && owner.IndexOf("adaptivetps", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
 
-            // Butter++ owns TickManagerUpdate to split a logical tick across rendered frames.
-            // V0.4.4.1 reads TickManagerPatch._midTickStarted, the actual manager-level state in
-            // the supplied Butter++ 1.5 assembly, and only commits when that state is false.
             if (RuntimeCompatibility.IsButterPatch(patch) &&
                 (string.Equals(patchKind, "prefix", StringComparison.Ordinal) ||
                  string.Equals(patchKind, "postfix", StringComparison.Ordinal) ||
@@ -166,6 +161,8 @@ namespace RimMT
             FeatureGate.Suppress("ui.overlayCache", reason);
             FeatureGate.Suppress("ai.reachNoCache", reason);
             FeatureGate.Suppress("parallel.jobScan", reason);
+            FeatureGate.Suppress("parallel.haulGlobal", reason);
+            FeatureGate.Suppress("parallel.jobPartition", reason);
         }
 
         private static bool HasLoadedModName(string token)
