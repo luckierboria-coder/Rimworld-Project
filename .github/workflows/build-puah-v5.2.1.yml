@@ -1,0 +1,87 @@
+name: Build PUAH Hotfix 1.5 V5.2.1
+
+on:
+  push:
+    branches:
+      - feature/puah-v5.2.1-safe-performance
+    paths:
+      - 'PUAH-1.5-Queue-Hotfix/**'
+      - '.github/workflows/build-puah-v5.2.1.yml'
+      - 'ci/PUAH_Performance_Stub.cs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify preserved V5.1 safety DLL
+        run: |
+          echo 'f78825f2b06291341667b917339b2a91c183738aa5e66e93cf049a48cf57e6dc  PUAH-1.5-Queue-Hotfix/1.5/Assemblies/PUAHQueueHotfix.dll' | sha256sum -c -
+
+      - name: Install Mono and tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mono-devel unzip curl zip
+
+      - name: Download Harmony 2.0.4 build reference
+        run: |
+          rm -rf .ci-harmony
+          mkdir -p .ci-harmony
+          curl -fL 'https://www.nuget.org/api/v2/package/Lib.Harmony/2.0.4' -o .ci-harmony/harmony.nupkg
+          unzip -q .ci-harmony/harmony.nupkg -d .ci-harmony/pkg
+          HARMONY=$(find .ci-harmony/pkg -name 0Harmony.dll | head -n 1)
+          test -n "$HARMONY"
+          cp "$HARMONY" .ci-harmony/0Harmony.dll
+
+      - name: Build minimal compile stub
+        run: |
+          mkdir -p .ci-refs
+          mcs -sdk:4.5 -target:library -out:.ci-refs/Assembly-CSharp.dll ci/PUAH_Performance_Stub.cs
+
+      - name: Compile standalone V5.2.1 performance DLL
+        run: |
+          mcs -sdk:4.5 -langversion:5 -target:library -optimize+ \
+            -out:PUAH-1.5-Queue-Hotfix/1.5/Assemblies/PUAHPerformanceV52.dll \
+            -r:.ci-refs/Assembly-CSharp.dll \
+            -r:.ci-harmony/0Harmony.dll \
+            PUAH-1.5-Queue-Hotfix/Source/PerformanceV52.cs
+
+      - name: Verify performance DLL markers
+        run: |
+          test -s PUAH-1.5-Queue-Hotfix/1.5/Assemblies/PUAHPerformanceV52.dll
+          strings -el PUAH-1.5-Queue-Hotfix/1.5/Assemblies/PUAHPerformanceV52.dll | grep -F 'PUAH 1.5 Queue Hotfix V5.2.1'
+          strings -el PUAH-1.5-Queue-Hotfix/1.5/Assemblies/PUAHPerformanceV52.dll | grep -F 'JobOnThing is NOT transpiled'
+          ! strings -el PUAH-1.5-Queue-Hotfix/1.5/Assemblies/PUAHPerformanceV52.dll | grep -F 'Verse.AI.Job.def'
+
+      - name: Commit performance DLL to feature branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add PUAH-1.5-Queue-Hotfix/1.5/Assemblies/PUAHPerformanceV52.dll
+          if ! git diff --cached --quiet; then
+            git commit -m 'Build standalone PUAH V5.2.1 performance DLL [skip ci]'
+            git push
+          fi
+
+      - name: Package installable mod
+        run: |
+          rm -rf dist
+          mkdir -p dist/PUAH_1.5_QueueHotfix_V5.2.1
+          cp -R PUAH-1.5-Queue-Hotfix/About dist/PUAH_1.5_QueueHotfix_V5.2.1/
+          cp -R PUAH-1.5-Queue-Hotfix/1.5 dist/PUAH_1.5_QueueHotfix_V5.2.1/
+          cp PUAH-1.5-Queue-Hotfix/README.txt dist/PUAH_1.5_QueueHotfix_V5.2.1/
+          cd dist
+          zip -qr PUAH_1.5_QueueHotfix_V5.2.1.zip PUAH_1.5_QueueHotfix_V5.2.1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PUAH-1.5-Queue-Hotfix-V5.2.1
+          path: dist/PUAH_1.5_QueueHotfix_V5.2.1.zip
+          if-no-files-found: error
