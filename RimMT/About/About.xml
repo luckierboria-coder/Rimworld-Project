@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies><li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li></modDependencies>
+  <loadAfter><li>brrainz.harmony</li><li>blue.adaptivetps</li></loadAfter>
+  <loadBefore><li>olli.butterplusplus</li></loadBefore>
+  <description>RimMT V0.4.6 introduces the first production Work fast-path that can actually skip Vanilla main-thread search work. The initial strict whitelist targets non-prioritized Vanilla hauling searches: RimMT snapshots the current haulable list, builds a spatial index on a worker thread, then future eligible searches inspect only nearby buckets while retaining Vanilla reachability and WorkGiver validation on the main thread. When the fast-path hits, Vanilla's full haulable-list GenClosest pass is skipped. Unsupported call shapes, stale indexes, unknown Harmony patches, small candidate sets, or any ambiguous state immediately fall back to Vanilla. Clean Pathfinding remains compatible because V0.4.6 does not bypass or replace its PathFinder transpiler. V0.4.5.2's bounded Path shadow validation, on-demand JobGiver detail profiling, PathGrid invalidation deduplication, late-stale protection, and validated Butter++ logical-tick barrier are retained.</description>
+</ModMetaData>
