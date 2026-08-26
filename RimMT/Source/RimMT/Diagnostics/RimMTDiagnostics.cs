@@ -82,6 +82,7 @@ namespace RimMT
             sb.AppendLine("Text cache: hits=" + TextMetricCache.Hits + ", misses=" + TextMetricCache.Misses);
             sb.AppendLine("Overlay cache: sourceScans=" + ThingOverlayCache.SourceScans + ", cachedFrames=" + ThingOverlayCache.CachedFrames);
             sb.AppendLine("Reach NO cache: hits=" + ReachabilityNoCache.Hits + ", stores=" + ReachabilityNoCache.Stores + ", topologyGen=" + ReachabilityNoCache.TopologyGeneration);
+            sb.AppendLine(HaulWorkAccelerator.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
             sb.AppendLine(PathSnapshotWorker.Summary());
