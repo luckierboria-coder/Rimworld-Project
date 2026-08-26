@@ -49,6 +49,7 @@ namespace RimMT
 
         public static void JobGiverPrefix(ref long __state)
         {
+            WorkScanProduction.EnterJobGiver();
             __state = FeatureGate.IsEnabled("diagnostics.hotPaths") ? HotPathProfiler.Begin() : 0L;
         }
 
