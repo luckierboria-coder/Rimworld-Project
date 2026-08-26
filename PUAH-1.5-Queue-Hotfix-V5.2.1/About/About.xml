@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>PUAH 1.5 Queue Hotfix V5.2.1</name>
+  <author>Local hotfix</author>
+  <packageId>local.PUAH15.QueueHotfix</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>Mehni.PickUpAndHaul</packageId>
+      <displayName>Pick Up And Haul</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/1279012058</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>Mehni.PickUpAndHaul</li>
+  </loadAfter>
+  <description>RimWorld 1.5 Pick Up And Haul compatibility and performance hotfix.
+
+V5.2.1 preserves the verified V5.1 queue-repair / reservation-guard DLL unchanged, then adds a separate performance DLL that accelerates Pick Up And Haul's private FindClosestThing multi-haul search with an exact 16x16 spatial index. JobOnThing is not transpiled; PUAH's original Sort, RemoveAt, CanReach, validator, StoreUtility, reservation, capacity and job/queue semantics remain authoritative. If the performance layer cannot initialize, V5.1 safety behavior remains intact.
+
+RimWorld 1.5 Pick Up And Haul 兼容与性能修复。V5.2.1 原封不动保留已验证的 V5.1 队列修复 / reservation 防崩 DLL，并额外加载独立性能 DLL，仅优化 PUAH 自己的 FindClosestThing 多搬运候选搜索：使用精确 16x16 空间索引减少重复全表扫描。不会 transpile JobOnThing；PUAH 原有 Sort、RemoveAt、CanReach、validator、StoreUtility、reservation、容量与 Job/队列语义全部保留。性能层初始化失败时，V5.1 安全修复仍独立有效。</description>
+</ModMetaData>
