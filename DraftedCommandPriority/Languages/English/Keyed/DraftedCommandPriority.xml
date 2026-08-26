@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LanguageData>
-  <DCP_Intro>While a drafted player-controlled pawn is executing an explicit player-forced job, ordinary autonomous jobs cannot replace it.</DCP_Intro>
+  <DCP_Intro>While drafted, the player's command chain has absolute priority. Ordinary AI or melee auto attack may take over only after the player's command has actually finished.</DCP_Intro>
   <DCP_Enable>Enable strict drafted command priority</DCP_Enable>
-  <DCP_EnableDesc>When enabled, a drafted pawn's current player-forced job cannot be replaced by a non-player-forced StartJob request.</DCP_EnableDesc>
-  <DCP_MeleeAutoAttack>Melee pawn auto attack</DCP_MeleeAutoAttack>
-  <DCP_MeleeAutoAttackDesc>Drafted player-controlled pawns holding a melee weapon automatically attack a nearby hostile pawn when they have no player-forced order.</DCP_MeleeAutoAttackDesc>
+  <DCP_EnableDesc>When enabled, issuing a player command starts a command gate. Ordinary autonomous AI jobs cannot take over until the current player command chain has finished and no player-forced orders remain queued.</DCP_EnableDesc>
+  <DCP_MeleeAutoAttack>Enable melee auto attack feature</DCP_MeleeAutoAttack>
+  <DCP_MeleeAutoAttackDesc>Globally enables melee auto attack. In combat, each drafted melee pawn gets an individual Fire-at-will-style toggle. Auto melee starts only after player commands are finished and the pawn has returned to drafted idle.</DCP_MeleeAutoAttackDesc>
   <DCP_MeleeAutoAttackRadius>Melee auto attack radius: {0} cells</DCP_MeleeAutoAttackRadius>
   <DCP_MeleeAutoAttackRadiusDesc>Sets the maximum straight-line distance for automatic melee target acquisition. Range: 1-20 cells. Default: 4.</DCP_MeleeAutoAttackRadiusDesc>
+  <DCP_MeleeAutoAttackToggleLabel>Melee auto attack</DCP_MeleeAutoAttackToggleLabel>
+  <DCP_MeleeAutoAttackToggleDesc>Toggle melee auto attack for this pawn. It only operates while drafted idle with no active or queued player command. Uses the same hotkey as vanilla Fire at will.</DCP_MeleeAutoAttackToggleDesc>
   <DCP_LogBlocked>Log blocked autonomous jobs</DCP_LogBlocked>
-  <DCP_LogBlockedDesc>Developer diagnostic option. Logs each blocked StartJob request. Leave off during normal play.</DCP_LogBlockedDesc>
+  <DCP_LogBlockedDesc>Developer diagnostic option. Logs autonomous StartJob requests blocked while the player-command gate is active. Leave off during normal play.</DCP_LogBlockedDesc>
   <DCP_BlockedCount>Blocked autonomous job replacements this session: {0}</DCP_BlockedCount>
   <DCP_AutoAttackCount>Automatic melee attack jobs started this session: {0}</DCP_AutoAttackCount>
 </LanguageData>
