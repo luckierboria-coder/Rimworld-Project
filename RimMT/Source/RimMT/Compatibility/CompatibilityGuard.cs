@@ -166,6 +166,7 @@ namespace RimMT
             FeatureGate.Suppress("ui.overlayCache", reason);
             FeatureGate.Suppress("ai.reachNoCache", reason);
             FeatureGate.Suppress("parallel.jobScan", reason);
+            FeatureGate.Suppress("parallel.haulGlobal", reason);
         }
 
         private static bool HasLoadedModName(string token)
