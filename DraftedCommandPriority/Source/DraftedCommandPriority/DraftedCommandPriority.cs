@@ -37,7 +37,10 @@ namespace DraftedCommandPriority
             Settings = GetSettings<DcpSettings>();
         }
 
-        public override string SettingsCategory() => "Drafted Command Priority";
+        public override string SettingsCategory()
+        {
+            return "Drafted Command Priority";
+        }
 
         public override void DoSettingsWindowContents(Rect inRect)
         {
@@ -75,13 +78,13 @@ namespace DraftedCommandPriority
                 if (startJob == null)
                     Log.Error("[Drafted Command Priority] Pawn_JobTracker.StartJob not found; strict command guard will remain inert.");
                 else
-                    harmony.Patch(startJob, prefix: new HarmonyMethod(typeof(DraftedOrderGuard), nameof(DraftedOrderGuard.Prefix)));
+                    harmony.Patch(startJob, prefix: new HarmonyMethod(typeof(DraftedOrderGuard), "Prefix"));
 
                 MethodBase jobTrackerTick = AccessTools.Method(typeof(Pawn_JobTracker), "JobTrackerTick");
                 if (jobTrackerTick == null)
                     Log.Error("[Drafted Command Priority] Pawn_JobTracker.JobTrackerTick not found; melee auto attack will remain inert.");
                 else
-                    harmony.Patch(jobTrackerTick, postfix: new HarmonyMethod(typeof(MeleeAutoAttack), nameof(MeleeAutoAttack.Postfix)));
+                    harmony.Patch(jobTrackerTick, postfix: new HarmonyMethod(typeof(MeleeAutoAttack), "Postfix"));
 
                 Log.Message("[Drafted Command Priority] V0.1 active. Player-forced drafted jobs have strict priority; optional drafted melee auto attack is enabled by settings with a configurable 1-20 cell radius (default 4). Explicit player-forced jobs always suppress auto attack.");
             }
@@ -95,7 +98,10 @@ namespace DraftedCommandPriority
     internal static class DraftedOrderGuard
     {
         private static long blockedJobs;
-        internal static long BlockedJobs => Interlocked.Read(ref blockedJobs);
+        internal static long BlockedJobs
+        {
+            get { return Interlocked.Read(ref blockedJobs); }
+        }
 
         public static bool Prefix(Pawn_JobTracker __instance, Job newJob)
         {
@@ -135,7 +141,10 @@ namespace DraftedCommandPriority
     {
         private const int ScanIntervalTicks = 15;
         private static long autoAttackJobs;
-        internal static long AutoAttackJobs => Interlocked.Read(ref autoAttackJobs);
+        internal static long AutoAttackJobs
+        {
+            get { return Interlocked.Read(ref autoAttackJobs); }
+        }
 
         public static void Postfix(Pawn_JobTracker __instance)
         {
