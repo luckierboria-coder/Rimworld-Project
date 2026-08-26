@@ -29,6 +29,11 @@ namespace RimMT
             listing.Label("RimMT_OverlayRefresh".Translate(Settings.OverlayRefreshFrames));
             Settings.OverlayRefreshFrames = (int)listing.Slider(Settings.OverlayRefreshFrames, 5f, 120f);
             listing.GapLine();
+
+            listing.Label("RimMT_Production".Translate());
+            listing.CheckboxLabeled("RimMT_WorkScanAcceleration".Translate(), ref Settings.WorkScanAcceleration, "RimMT_WorkScanAccelerationDesc".Translate());
+            listing.GapLine();
+
             listing.Label("RimMT_Experimental".Translate());
             listing.CheckboxLabeled("RimMT_PathSnapshotWorker".Translate(), ref Settings.PathSnapshotWorker, "RimMT_PathSnapshotWorkerDesc".Translate());
             listing.CheckboxLabeled("RimMT_ReachNoCache".Translate(), ref Settings.ReachNoCache, "RimMT_ReachNoCacheDesc".Translate());
