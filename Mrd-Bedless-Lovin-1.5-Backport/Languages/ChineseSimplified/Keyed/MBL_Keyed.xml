@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<LanguageData>
+  <MBL_SettingsCategory>无床欢爱</MBL_SettingsCategory>
+  <MBL_InteractionChance>互动触发概率：{0}</MBL_InteractionChance>
+  <MBL_ActDuration>互动持续时间：{0} tick（约 {1} 秒）</MBL_ActDuration>
+  <MBL_DevPregnancyStarted>[Mrd Bedless Lovin 1.5] 已触发怀孕。</MBL_DevPregnancyStarted>
+</LanguageData>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Defs>
+  <JobDef>
+    <defName>InteracaoPrivada_Ato</defName>
+    <driverClass>LovinAnywhere.JobDriver_InteracaoPrivada</driverClass>
+    <reportString>Looking to have a date</reportString>
+    <allowOpportunisticPrefix>false</allowOpportunisticPrefix>
+    <joyKind>Social</joyKind>
+  </JobDef>
+
+  <JoyGiverDef>
+    <defName>FazerInteracaoPrivada</defName>
+    <giverClass>LovinAnywhere.JoyGiver_InteracaoPrivada</giverClass>
+    <baseChance>5.0</baseChance>
+    <joyKind>Social</joyKind>
+    <jobDef>InteracaoPrivada_Ato</jobDef>
+    <desireSit>false</desireSit>
+    <requiredCapacities>
+      <li>Manipulation</li>
+    </requiredCapacities>
+  </JoyGiverDef>
+
+  <ThingDef ParentName="BuildingBase">
+    <defName>InteracaoPrivada_Spot</defName>
+    <label>Romantic meeting point</label>
+    <description>A designated space for couples seeking privacy. It doesn't offer comfort, but it guarantees a fixed location away from shared barracks.</description>
+    <thingClass>Building</thingClass>
+    <category>Building</category>
+    <graphicData>
+      <texPath>spt</texPath>
+      <graphicClass>Graphic_Single</graphicClass>
+      <drawSize>(2,1)</drawSize>
+    </graphicData>
+    <altitudeLayer>FloorEmplacement</altitudeLayer>
+    <statBases>
+      <WorkToBuild>0</WorkToBuild>
+    </statBases>
+    <scatterableOnMapGen>false</scatterableOnMapGen>
+    <useHitPoints>false</useHitPoints>
+    <size>(2,1)</size>
+    <designationCategory>Misc</designationCategory>
+    <passability>Standable</passability>
+    <building>
+      <sowTag>SupportPlantsOnly</sowTag>
+      <canPlaceOverWall>false</canPlaceOverWall>
+    </building>
+  </ThingDef>
+</Defs>
