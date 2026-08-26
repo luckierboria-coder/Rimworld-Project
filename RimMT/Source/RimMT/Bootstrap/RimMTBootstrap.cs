@@ -24,8 +24,9 @@ namespace RimMT
                 PathGridInvalidation.ApplyBulkGuard(harmony);
                 PathSnapshotSafetyPatches.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
+                HaulWorkAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.5.2 playtest initialized. Normal play keeps detailed WorkGiver detours unpatched; Path shadow validation is bounded by CPU/node budgets, yields under high load, and stops after its finite validation quota. Butter++ logical-tick commits and Vanilla-authoritative gameplay remain unchanged.");
+                Log.Message("[RimMT] V0.4.6 playtest initialized. The first production Work fast-path accelerates whitelisted Vanilla hauling searches with a worker-built spatial index and main-thread revalidation; eligible hits skip Vanilla's full haulable-list GenClosest scan. Clean Pathfinding remains compatible because RimMT does not bypass its PathFinder transpiler. Path shadow validation stays bounded and Vanilla remains the fallback for every unsupported or stale request.");
             }
             catch (Exception ex)
             {
