@@ -3,7 +3,12 @@
   <DCP_Intro>当玩家可控制的殖民者处于征召状态并正在执行明确的玩家强制命令时，普通自动 AI 工作不能覆盖该命令。</DCP_Intro>
   <DCP_Enable>启用征召严格命令优先</DCP_Enable>
   <DCP_EnableDesc>开启后，征召殖民者当前的玩家强制 Job 不会被非玩家强制的 StartJob 请求替换。</DCP_EnableDesc>
+  <DCP_MeleeAutoAttack>近战殖民者自动攻击</DCP_MeleeAutoAttack>
+  <DCP_MeleeAutoAttackDesc>开启后，已征召且持有近战武器的玩家殖民者，在没有玩家强制命令时，会自动攻击设定距离内最近的敌对 Pawn。</DCP_MeleeAutoAttackDesc>
+  <DCP_MeleeAutoAttackRadius>近战自动攻击距离：{0} 格</DCP_MeleeAutoAttackRadius>
+  <DCP_MeleeAutoAttackRadiusDesc>决定自动近战索敌的最大直线距离。范围 1-20 格，默认 4 格。</DCP_MeleeAutoAttackRadiusDesc>
   <DCP_LogBlocked>记录被阻止的自动 Job</DCP_LogBlocked>
   <DCP_LogBlockedDesc>开发诊断选项。记录每次被阻止的 StartJob 请求。正常游玩建议关闭。</DCP_LogBlockedDesc>
   <DCP_BlockedCount>本次游戏会话已阻止的自动 Job 替换：{0}</DCP_BlockedCount>
+  <DCP_AutoAttackCount>本次游戏会话已启动的自动近战攻击：{0}</DCP_AutoAttackCount>
 </LanguageData>
