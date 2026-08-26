@@ -4,24 +4,32 @@ RimWorld 1.5 combat-control micro-mod.
 
 ## Strict drafted command priority
 
-When a player-controlled pawn is drafted and its current job has `playerForced=true`, ordinary incoming jobs with `playerForced=false` are rejected at `Pawn_JobTracker.StartJob`.
+A player-issued drafted command starts a command gate. While that command chain is still active, ordinary autonomous AI jobs are not allowed to take over.
 
-This is intended to stop autonomous reactions such as fire/flee/ordinary AI from stealing a command the player just issued.
+The gate is released only after the pawn has actually finished the player's command, has no queued player-forced orders, and has returned to true drafted idle / `Wait_Combat` (or has no current job). This prevents autonomous fire/flee/combat logic from interrupting a retreat or other explicit movement command halfway through.
 
-The guard ends automatically when the forced job ends or the pawn is undrafted. Downed pawns and pawns in a mental state are not locked by this patch. New explicit player orders are always allowed to replace the previous one.
+New explicit player orders always remain authoritative and refresh the gate. Undrafted, downed, or mental-state pawns are not locked.
+
+Priority is therefore:
+
+`player command > autonomous melee attack / ordinary drafted AI`
 
 ## Melee Pawn Auto Attack
 
-Optional setting for drafted player-controlled pawns holding a melee weapon.
+Optional feature for drafted player-controlled pawns holding a melee weapon.
 
-When no explicit `playerForced` order is active, the pawn periodically scans for the nearest hostile pawn inside the configured radius and starts `AttackMelee` automatically.
-
-- toggleable in Mod Settings
+- globally enabled/disabled in Mod Settings
+- each drafted melee pawn gets an individual Fire-at-will-style toggle gizmo
+- the gizmo uses the vanilla melee attack icon and the same hotkey slot as vanilla Fire at will
 - radius: 1-20 cells
 - default radius: 4 cells
 - scans once every 15 ticks per pawn, staggered by pawn id
 - cheap geometric scan first, then at most one reachability test for the selected target
-- never overrides an explicit player-forced order
+- auto attack may start only from true drafted idle / `Wait_Combat`
+- it never interrupts movement, rescue, hauling, attack, or any other already-running job
+- active or queued player commands always suppress auto attack
+
+The per-pawn toggle reuses the pawn's drafter `FireAtWill` state, so it behaves like vanilla Fire at will and resets on a fresh draft in the same way.
 
 ## Safety
 
@@ -31,6 +39,6 @@ When no explicit `playerForced` order is active, the pawn periodically scans for
 - No changes to RimMT/PUAH/Butter++.
 - Can be disabled instantly in Mod Settings.
 
-V0.1 is deliberately small so combat behavior can be validated before adding per-pawn gizmos or finer exception lists.
+V0.1 remains deliberately small so combat behavior can be validated before adding more combat AI policies.
 
 <!-- CI retrigger: 2026-08-26 -->
