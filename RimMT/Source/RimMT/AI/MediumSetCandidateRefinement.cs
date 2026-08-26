@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Threading;
 using HarmonyLib;
 using Verse;
+using Verse.AI;
 
 namespace RimMT
 {
