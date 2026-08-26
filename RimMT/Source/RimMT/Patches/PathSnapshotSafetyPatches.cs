@@ -48,8 +48,12 @@ namespace RimMT
             }
         }
 
-        public static void FinalizePrefix(object request)
+        // Use __args rather than naming the private nested PathRequest type in the Harmony signature.
+        // This keeps the safety probe resilient to access restrictions while still inspecting the
+        // exact object through cached reflection metadata.
+        public static void FinalizePrefix(object[] __args)
         {
+            object request = __args == null || __args.Length == 0 ? null : __args[0];
             if (request == null || !RimMTThreadGuard.IsMainThread)
                 return;
 
