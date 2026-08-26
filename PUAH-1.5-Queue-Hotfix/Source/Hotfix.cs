@@ -20,7 +20,7 @@ namespace PUAHQueueHotfix
 
                 if (driverType == null || workGiverType == null)
                 {
-                    Log.Error("[PUAH 1.5 Queue Hotfix V5.1] Pick Up And Haul types were not found; hotfix not applied.");
+                    Log.Error("[PUAH 1.5 Queue Hotfix V5.2] Pick Up And Haul types were not found; hotfix not applied.");
                     return;
                 }
 
@@ -29,7 +29,7 @@ namespace PUAHQueueHotfix
 
                 if (reserveMethod == null || jobOnThingMethod == null)
                 {
-                    Log.Error("[PUAH 1.5 Queue Hotfix V5.1] Expected PUAH methods were not found; hotfix not applied.");
+                    Log.Error("[PUAH 1.5 Queue Hotfix V5.2] Expected PUAH methods were not found; hotfix not applied.");
                     return;
                 }
 
@@ -39,11 +39,13 @@ namespace PUAHQueueHotfix
                 harmony.Patch(jobOnThingMethod,
                     postfix: new HarmonyMethod(typeof(JobCreationGuard).GetMethod("Postfix", BindingFlags.Public | BindingFlags.Static)));
 
-                Log.Message("[PUAH 1.5 Queue Hotfix V5.1] Applied HaulToInventory queue repair + reservation guards.");
+                PUAHPerformance.Apply(harmony, workGiverType, jobOnThingMethod);
+
+                Log.Message("[PUAH 1.5 Queue Hotfix V5.2] Applied HaulToInventory queue repair + reservation guards + performance layer.");
             }
             catch (Exception e)
             {
-                Log.Error("[PUAH 1.5 Queue Hotfix V5.1] Failed to initialize: " + e);
+                Log.Error("[PUAH 1.5 Queue Hotfix V5.2] Failed to initialize: " + e);
             }
         }
     }
@@ -81,8 +83,6 @@ namespace PUAHQueueHotfix
             int removedUnmatchedTargets = 0;
             int removedUnmatchedCounts = 0;
 
-            // PUAH consumes targetQueueA and countQueue in lockstep.  If one queue
-            // has an unmatched tail, the unmatched entries cannot be executed safely.
             while (job.targetQueueA.Count > job.countQueue.Count)
             {
                 job.targetQueueA.RemoveAt(job.targetQueueA.Count - 1);
@@ -97,7 +97,6 @@ namespace PUAHQueueHotfix
                 changed = true;
             }
 
-            // Walk backwards so paired removals never shift an unchecked index.
             for (int i = job.targetQueueA.Count - 1; i >= 0; i--)
             {
                 LocalTargetInfo target = job.targetQueueA[i];
@@ -112,9 +111,6 @@ namespace PUAHQueueHotfix
                     continue;
                 }
 
-                // HaulToInventory's queue A is a Thing queue.  A cell target, an
-                // invalid target, or a despawned/destroyed Thing cannot survive the
-                // driver's TargetThingA / SplitOff path, so remove the pair.
                 if (!target.IsValid || !target.HasThing)
                 {
                     job.targetQueueA.RemoveAt(i);
@@ -153,9 +149,6 @@ namespace PUAHQueueHotfix
                 return false;
             }
 
-            // This should be guaranteed by the trimming above, but keep a final
-            // invariant check so the original PUAH driver never receives mismatched
-            // queues from this hotfix.
             if (job.targetQueueA.Count != job.countQueue.Count)
             {
                 fatalReason = "queue mismatch remains after repair targetQueueA=" +
@@ -177,11 +170,7 @@ namespace PUAHQueueHotfix
 
         internal static void LogRepair(Job job, Pawn pawn, string stage, string summary)
         {
-            // V5.1 release behavior: successful repairs are intentionally silent.
-            // V5 logged every repaired job with Log.WarningOnce using a per-job key,
-            // which could generate many full stack traces and cause visible micro-stutter
-            // in colonies where PUAH frequently produces count<=0 queue entries.
-            // Keep the repair itself, but do not perform any logging on this hot path.
+            // V5.2 keeps V5.1's silent-success policy.
         }
 
         internal static void LogReject(Job job, Pawn pawn, string stage, string reason)
@@ -191,7 +180,7 @@ namespace PUAHQueueHotfix
             if (pawn != null) key ^= pawn.thingIDNumber;
             if (stage != null) key ^= stage.GetHashCode();
             Log.WarningOnce(
-                "[PUAH 1.5 Queue Hotfix V5.1] Rejected unrecoverable HaulToInventory job during " + stage +
+                "[PUAH 1.5 Queue Hotfix V5.2] Rejected unrecoverable HaulToInventory job during " + stage +
                 ". Pawn=" + pawnName + "; Reason=" + reason +
                 ". The bad PUAH job was discarded instead of crashing.",
                 key);
@@ -213,11 +202,6 @@ namespace PUAHQueueHotfix
                 if (!searched)
                 {
                     searched = true;
-
-                    // Different 1.5 builds/modded assemblies expose different
-                    // HaulToStorageJob signatures.  Prefer the legacy 3-arg form when
-                    // present.  If it is absent, leave fallback disabled rather than
-                    // guessing arguments for an unknown overload.
                     haulToStorageJob = AccessTools.Method(typeof(HaulAIUtility), "HaulToStorageJob",
                         new Type[] { typeof(Pawn), typeof(Thing), typeof(bool) });
                 }
@@ -229,7 +213,7 @@ namespace PUAHQueueHotfix
             }
             catch (Exception e)
             {
-                Log.Warning("[PUAH 1.5 Queue Hotfix V5.1] Vanilla haul fallback failed: " + e.GetType().Name + ": " + e.Message);
+                Log.Warning("[PUAH 1.5 Queue Hotfix V5.2] Vanilla haul fallback failed: " + e.GetType().Name + ": " + e.Message);
                 return null;
             }
         }
