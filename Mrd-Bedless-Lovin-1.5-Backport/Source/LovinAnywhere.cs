@@ -262,12 +262,32 @@ namespace LovinAnywhere
             {
                 Type t = ps[i].ParameterType;
                 if (i == 0 && t == typeof(Job))
+                {
                     args[i] = job;
-                else if (t == typeof(JobCondition))
+                    continue;
+                }
+                if (t == typeof(JobCondition))
+                {
                     args[i] = JobCondition.InterruptForced;
-                else if (ps[i].HasDefaultValue)
+                    continue;
+                }
+
+                // Mono can expose optional Nullable<T> defaults using the underlying
+                // metadata primitive (for example Byte for JobTag?). MethodInfo.Invoke
+                // will not convert that primitive back into Nullable<T>, so all optional
+                // nullable StartJob/TryTakeOrderedJob arguments must be supplied as null.
+                if (Nullable.GetUnderlyingType(t) != null)
+                {
+                    args[i] = null;
+                    continue;
+                }
+
+                if (ps[i].HasDefaultValue && IsCompatibleDefaultValue(t, ps[i].DefaultValue))
+                {
                     args[i] = ps[i].DefaultValue;
-                else if (t == typeof(bool))
+                    continue;
+                }
+                if (t == typeof(bool))
                     args[i] = false;
                 else if (t.IsValueType)
                     args[i] = Activator.CreateInstance(t);
@@ -275,6 +295,13 @@ namespace LovinAnywhere
                     args[i] = null;
             }
             return args;
+        }
+
+        private static bool IsCompatibleDefaultValue(Type parameterType, object value)
+        {
+            if (value == null || value == DBNull.Value || value == Type.Missing)
+                return !parameterType.IsValueType;
+            return parameterType.IsInstanceOfType(value);
         }
     }
 
