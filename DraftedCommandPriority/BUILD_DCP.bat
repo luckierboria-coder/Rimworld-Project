@@ -123,7 +123,7 @@ if exist "%CSC%" if not defined HARMONY (
   echo.
   set /p "HARMONY=Paste the full path to 0Harmony.dll, or press Enter for dotnet fallback: "
   if defined HARMONY (
-    set "HARMONY=!HARMONY:\"=!"
+    set HARMONY=!HARMONY:"=!
     if not exist "!HARMONY!" (
       echo [WARNING] The supplied Harmony path does not exist:
       echo !HARMONY!
