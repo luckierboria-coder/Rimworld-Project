@@ -1,39 +1,24 @@
-PUAH 1.5 Queue Hotfix V5.1
+PUAH 1.5 Queue Hotfix V5.2
 
-INSTALL / UPGRADE FROM V4
-1. Exit RimWorld completely.
-2. Delete or move the old PUAH_1.5_QueueHotfix_Buildable_v4 folder out of RimWorld\Mods.
-   V4 and V5 use the SAME packageId and must not both be installed.
-3. Put this whole V5 folder directly under RimWorld\Mods.
-4. Double-click START_BUILD.cmd.
-5. If SUCCESS appears, 1.5\Assemblies\PUAHQueueHotfix.dll was created.
-6. Enable "PUAH 1.5 Queue Hotfix V5" AFTER Pick Up And Haul.
-7. Existing saves are supported; make a backup before first test.
+Install AFTER Pick Up And Haul. Remove/replace V5.1; V5.1 and V5.2 use the same packageId and must not both be enabled.
 
-V5.1 behavior
-- If targetQueueA/countQueue contain a paired entry with count <= 0, V5 removes BOTH entries at that index.
-- If a queued Thing is invalid, destroyed, despawned, or otherwise unusable, V5 removes BOTH paired entries.
-- If targetQueueA/countQueue have unmatched tail entries, V5 trims only the unmatched tail.
-- If valid paired entries remain, the original PUAH HaulToInventory job continues normally.
-- If no valid entries remain, V5 rejects the job instead of allowing PUAH to crash.
-- A second repair/guard runs immediately before TryMakePreToilReservations in case world state changed after job creation.
+V5.2 keeps all V5.1 safety behavior:
+- repairs paired HaulToInventory targetQueueA/countQueue entries
+- removes count <= 0 and invalid/despawned paired entries
+- trims unmatched queue tails
+- keeps reservation-stage crash guards
+- successful repairs remain silent
 
-IMPORTANT SAFETY CHOICE
-V5 NEVER changes count=0 to count=1. It does not guess the intended haul amount.
-It only removes queue entries PUAH has already calculated as non-positive or unusable.
+V5.2 performance changes (PUAH-specific only):
+1. JobOnThing private haulable-list pre-sort is bypassed. PUAH immediately performs moving-center nearest searches afterward, so the O(n log n) pre-sort is redundant for that phase.
+2. WorkGiver_HaulToInventory.FindClosestThing is accelerated with an exact 16x16 spatial index attached to PUAH's private List<Thing>.
+3. PUAH's original GetClosestAndRemove remains in control of RemoveAt, Spawned/maxDistance handling, map.reachability.CanReach and Validator.
+4. StoreUtility, Pawn reservation state, Job creation and targetQueue construction are not moved or replaced.
+5. Unexpected list mutations cause an index rebuild; any unresolved inconsistency falls back to PUAH's original linear FindClosestThing for that call.
 
-Expected startup log:
-[PUAH 1.5 Queue Hotfix V5.1] Applied HaulToInventory queue repair + reservation guards.
+Expected startup logs:
+[PUAH 1.5 Queue Hotfix V5.2] Performance layer active: ...
+[PUAH 1.5 Queue Hotfix V5.2] Applied HaulToInventory queue repair + reservation guards + performance layer.
 
-Successful queue repairs are intentionally SILENT in V5.1. This avoids the full stack trace produced by Log.Warning for every repaired haul job.
-
-An unrecoverable queue may still log once per pawn/stage:
-[PUAH 1.5 Queue Hotfix V5.1] Rejected unrecoverable HaulToInventory job ...
-That means no safe paired targets remained, so the job was discarded instead of crashing.
-
-
-中文说明（V5.1）
-- 保留 V5 的 count<=0 队列元素同步删除、自修复和 reservation 防崩。
-- 成功修复时完全静默，不再每个 Job 输出 Warning 和完整调用栈。
-- 无法修复、必须丢弃的任务仍保留一次性警告，但不再按每个 Job 生成唯一日志。
-- 目的：避免 PUAH 高频坏队列在正常 Tick 中制造日志 I/O / StackTrace 微卡。
+中文：
+V5.2 不把 PUAH 逻辑塞进 RimMT，也不修改 RimWorld 通用 JobGiver。它只优化 PUAH 自己的多目标搬运搜索：去掉 JobOnThing 里的冗余全表 Sort，并用空间索引替代 FindClosestThing 的重复全表距离扫描。寻路可达性、Validator、仓储选择、预留与 Job 队列仍按原逻辑执行；异常情况自动回退原 PUAH 搜索。
