@@ -86,12 +86,76 @@ namespace DraftedCommandPriority
                 else
                     harmony.Patch(jobTrackerTick, postfix: new HarmonyMethod(typeof(MeleeAutoAttack), "Postfix"));
 
-                Log.Message("[Drafted Command Priority] V0.1 active. Player-forced drafted jobs have strict priority; optional drafted melee auto attack is enabled by settings with a configurable 1-20 cell radius (default 4). Explicit player-forced jobs always suppress auto attack.");
+                MethodBase pawnGetGizmos = AccessTools.Method(typeof(Pawn), "GetGizmos");
+                if (pawnGetGizmos == null)
+                    Log.Error("[Drafted Command Priority] Pawn.GetGizmos not found; melee auto attack toggle gizmo will remain inert.");
+                else
+                    harmony.Patch(pawnGetGizmos, postfix: new HarmonyMethod(typeof(MeleeAutoAttackGizmo), "Postfix"));
+
+                Log.Message("[Drafted Command Priority] V0.1 active. Player command chains are authoritative until completion. Ordinary AI and melee auto attack are gated while a player command is active. Drafted melee pawns use a Fire-at-will style per-pawn toggle; auto attack only starts from drafted idle/Wait_Combat state.");
             }
             catch (Exception ex)
             {
                 Log.Error("[Drafted Command Priority] Failed to install patches. " + ex);
             }
+        }
+    }
+
+    internal static class PlayerCommandGate
+    {
+        private static readonly HashSet<int> activePawnIds = new HashSet<int>();
+
+        internal static void Mark(Pawn pawn)
+        {
+            if (pawn != null)
+                activePawnIds.Add(pawn.thingIDNumber);
+        }
+
+        internal static void Clear(Pawn pawn)
+        {
+            if (pawn != null)
+                activePawnIds.Remove(pawn.thingIDNumber);
+        }
+
+        internal static bool IsActive(Pawn pawn)
+        {
+            return pawn != null && activePawnIds.Contains(pawn.thingIDNumber);
+        }
+
+        internal static bool HasQueuedPlayerOrder(Pawn_JobTracker tracker)
+        {
+            return tracker != null && tracker.jobQueue != null && tracker.jobQueue.AnyPlayerForced;
+        }
+
+        internal static bool IsIdleOrDraftWait(Pawn_JobTracker tracker)
+        {
+            if (tracker == null || tracker.curJob == null)
+                return true;
+
+            return tracker.curJob.def == JobDefOf.Wait_Combat;
+        }
+
+        internal static bool ReleaseIfCommandFinished(Pawn pawn, Pawn_JobTracker tracker)
+        {
+            if (pawn == null || tracker == null)
+                return false;
+
+            if (!pawn.Drafted || pawn.Downed || pawn.InMentalState)
+            {
+                Clear(pawn);
+                return true;
+            }
+
+            if (HasQueuedPlayerOrder(tracker))
+                return false;
+
+            if (IsIdleOrDraftWait(tracker))
+            {
+                Clear(pawn);
+                return true;
+            }
+
+            return !IsActive(pawn);
         }
     }
 
@@ -110,27 +174,43 @@ namespace DraftedCommandPriority
                 return true;
 
             Pawn pawn = ___pawn;
-            if (pawn == null || !pawn.Drafted || pawn.Downed || pawn.InMentalState)
+            if (pawn == null || !pawn.Drafted || pawn.Downed || pawn.InMentalState || !pawn.IsColonistPlayerControlled)
+            {
+                PlayerCommandGate.Clear(pawn);
                 return true;
+            }
 
-            if (!pawn.IsColonistPlayerControlled)
+            // Any explicit player command starts/refreshes the command gate.
+            if (newJob.playerForced)
+            {
+                PlayerCommandGate.Mark(pawn);
                 return true;
+            }
 
             Job current = __instance.curJob;
-            if (current == null || !current.playerForced)
+
+            // Recover the gate after loading a save or if another mod created the
+            // player-forced job before DCP observed its StartJob call.
+            if (current != null && current.playerForced)
+                PlayerCommandGate.Mark(pawn);
+
+            if (!PlayerCommandGate.IsActive(pawn))
                 return true;
 
-            if (newJob.playerForced)
+            // The player command chain is considered finished only when there is no
+            // queued player-forced order and the pawn has actually returned to idle /
+            // drafted Wait_Combat. Until then autonomous StartJob requests are rejected.
+            if (PlayerCommandGate.ReleaseIfCommandFinished(pawn, __instance))
                 return true;
 
             Interlocked.Increment(ref blockedJobs);
             if (settings.logBlockedJobs)
             {
                 string pawnLabel = pawn.LabelShortCap;
-                string currentDef = current.def == null ? "<null>" : current.def.defName;
+                string currentDef = current == null || current.def == null ? "<null>" : current.def.defName;
                 string incomingDef = newJob.def == null ? "<null>" : newJob.def.defName;
-                Log.Message("[Drafted Command Priority] Blocked autonomous StartJob for " + pawnLabel +
-                    ": incoming=" + incomingDef + ", currentForced=" + currentDef + ".");
+                Log.Message("[Drafted Command Priority] Blocked autonomous StartJob during active player command chain for " + pawnLabel +
+                    ": incoming=" + incomingDef + ", current=" + currentDef + ".");
             }
 
             return false;
@@ -154,14 +234,33 @@ namespace DraftedCommandPriority
 
             Pawn pawn = ___pawn;
             if (pawn == null || !pawn.Spawned || pawn.Map == null || !pawn.Drafted || pawn.Downed || pawn.InMentalState || !pawn.IsColonistPlayerControlled)
+            {
+                PlayerCommandGate.Clear(pawn);
                 return;
+            }
 
             ThingWithComps primary = pawn.equipment == null ? null : pawn.equipment.Primary;
             if (primary == null || primary.def == null || !primary.def.IsMeleeWeapon)
                 return;
 
+            // Per-pawn combat toggle: reuse the drafter's persistent FireAtWill state.
+            // RimWorld resets this to true when the pawn is newly drafted, matching
+            // the vanilla ranged auto-fire control semantics.
+            if (pawn.drafter == null || !pawn.drafter.FireAtWill)
+                return;
+
+            // Never enter during a player command chain. If the chain has just fully
+            // completed and the pawn is idle/Wait_Combat, release the gate here.
+            if (PlayerCommandGate.IsActive(pawn) && !PlayerCommandGate.ReleaseIfCommandFinished(pawn, __instance))
+                return;
+
+            // Crucial priority rule: DCP auto melee is not allowed to interrupt ANY
+            // active job. It can start only from true drafted idle / Wait_Combat.
             Job current = __instance.curJob;
-            if (current != null && current.playerForced)
+            if (current != null && current.def != JobDefOf.Wait_Combat)
+                return;
+
+            if (PlayerCommandGate.HasQueuedPlayerOrder(__instance))
                 return;
 
             int ticks = Find.TickManager == null ? 0 : Find.TickManager.TicksGame;
@@ -191,10 +290,14 @@ namespace DraftedCommandPriority
             if (nearest == null)
                 return;
 
-            if (current != null && current.def == JobDefOf.AttackMelee && current.targetA.HasThing && current.targetA.Thing == nearest)
+            if (!pawn.CanReach(nearest, PathEndMode.Touch, Danger.Deadly))
                 return;
 
-            if (!pawn.CanReach(nearest, PathEndMode.Touch, Danger.Deadly))
+            // Re-check immediately before StartJob in case another patch inserted a
+            // player order or another active job during target/reachability evaluation.
+            current = __instance.curJob;
+            if ((current != null && current.def != JobDefOf.Wait_Combat) ||
+                PlayerCommandGate.IsActive(pawn) || PlayerCommandGate.HasQueuedPlayerOrder(__instance))
                 return;
 
             Job attack = JobMaker.MakeJob(JobDefOf.AttackMelee, nearest);
@@ -203,6 +306,48 @@ namespace DraftedCommandPriority
             attack.checkOverrideOnExpire = true;
             __instance.StartJob(attack, JobCondition.InterruptOptional);
             Interlocked.Increment(ref autoAttackJobs);
+        }
+    }
+
+    internal static class MeleeAutoAttackGizmo
+    {
+        public static void Postfix(Pawn __instance, ref IEnumerable<Gizmo> __result)
+        {
+            if (__result == null)
+                return;
+
+            __result = Append(__result, __instance);
+        }
+
+        private static IEnumerable<Gizmo> Append(IEnumerable<Gizmo> original, Pawn pawn)
+        {
+            foreach (Gizmo gizmo in original)
+                yield return gizmo;
+
+            DcpSettings settings = DcpMod.Settings;
+            if (settings == null || !settings.enabled || !settings.meleeAutoAttack)
+                yield break;
+
+            if (pawn == null || !pawn.Drafted || pawn.Downed || !pawn.IsColonistPlayerControlled || pawn.drafter == null)
+                yield break;
+
+            ThingWithComps primary = pawn.equipment == null ? null : pawn.equipment.Primary;
+            if (primary == null || primary.def == null || !primary.def.IsMeleeWeapon)
+                yield break;
+
+            Command_Toggle toggle = new Command_Toggle();
+            toggle.hotKey = KeyBindingDefOf.Misc6;
+            toggle.isActive = delegate { return pawn.drafter != null && pawn.drafter.FireAtWill; };
+            toggle.toggleAction = delegate
+            {
+                if (pawn.drafter != null)
+                    pawn.drafter.FireAtWill = !pawn.drafter.FireAtWill;
+            };
+            toggle.icon = TexCommand.AttackMelee;
+            toggle.defaultLabel = "DCP_MeleeAutoAttackToggleLabel".Translate();
+            toggle.defaultDesc = "DCP_MeleeAutoAttackToggleDesc".Translate();
+            toggle.tutorTag = "DCP_MeleeAutoAttackToggle";
+            yield return toggle;
         }
     }
 }
