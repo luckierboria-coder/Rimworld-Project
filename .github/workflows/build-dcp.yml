@@ -1,0 +1,56 @@
+name: Build Drafted Command Priority RimWorld 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'DraftedCommandPriority/**'
+      - '.github/workflows/build-dcp.yml'
+  pull_request:
+    paths:
+      - 'DraftedCommandPriority/**'
+      - '.github/workflows/build-dcp.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore DraftedCommandPriority/Source/DraftedCommandPriority/DraftedCommandPriority.csproj
+
+      - name: Build Release
+        run: dotnet build DraftedCommandPriority/Source/DraftedCommandPriority/DraftedCommandPriority.csproj --configuration Release --no-restore
+
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dll = 'DraftedCommandPriority/1.5/Assemblies/DraftedCommandPriority.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package playtest
+        shell: pwsh
+        run: |
+          $stage = 'build/DraftedCommandPriority'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'DraftedCommandPriority/About' $stage -Recurse
+          Copy-Item 'DraftedCommandPriority/Languages' $stage -Recurse
+          Copy-Item 'DraftedCommandPriority/1.5' $stage -Recurse
+          Copy-Item 'DraftedCommandPriority/README.md' $stage
+          Compress-Archive -Path $stage -DestinationPath 'build/DraftedCommandPriority_V0.1_Playtest.zip' -Force
+
+      - name: Upload playtest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DraftedCommandPriority-V0.1-Playtest
+          path: build/DraftedCommandPriority_V0.1_Playtest.zip
+          if-no-files-found: error

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Drafted Command Priority</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.draftedcommandpriority</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>Drafted Command Priority makes explicit player-forced jobs authoritative while a player-controlled pawn is drafted. If a drafted pawn is currently executing a playerForced job, ordinary non-player-forced jobs are prevented from replacing it through Pawn_JobTracker.StartJob. This includes normal autonomous fire/flee/AI reactions that would otherwise steal control. The protection ends automatically when the forced order ends or the pawn is undrafted. Downed and mental-state pawns are not locked by the patch. RimWorld 1.5.</description>
+</ModMetaData>

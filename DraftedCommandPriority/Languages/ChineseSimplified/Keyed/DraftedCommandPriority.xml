@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <DCP_Intro>当玩家可控制的殖民者处于征召状态并正在执行明确的玩家强制命令时，普通自动 AI 工作不能覆盖该命令。</DCP_Intro>
+  <DCP_Enable>启用征召严格命令优先</DCP_Enable>
+  <DCP_EnableDesc>开启后，征召殖民者当前的玩家强制 Job 不会被非玩家强制的 StartJob 请求替换。</DCP_EnableDesc>
+  <DCP_LogBlocked>记录被阻止的自动 Job</DCP_LogBlocked>
+  <DCP_LogBlockedDesc>开发诊断选项。记录每次被阻止的 StartJob 请求。正常游玩建议关闭。</DCP_LogBlockedDesc>
+  <DCP_BlockedCount>本次游戏会话已阻止的自动 Job 替换：{0}</DCP_BlockedCount>
+</LanguageData>

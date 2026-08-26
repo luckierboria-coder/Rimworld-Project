@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <DCP_Intro>While a drafted player-controlled pawn is executing an explicit player-forced job, ordinary autonomous jobs cannot replace it.</DCP_Intro>
+  <DCP_Enable>Enable strict drafted command priority</DCP_Enable>
+  <DCP_EnableDesc>When enabled, a drafted pawn's current player-forced job cannot be replaced by a non-player-forced StartJob request.</DCP_EnableDesc>
+  <DCP_LogBlocked>Log blocked autonomous jobs</DCP_LogBlocked>
+  <DCP_LogBlockedDesc>Developer diagnostic option. Logs each blocked StartJob request. Leave off during normal play.</DCP_LogBlockedDesc>
+  <DCP_BlockedCount>Blocked autonomous job replacements this session: {0}</DCP_BlockedCount>
+</LanguageData>
