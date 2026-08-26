@@ -26,8 +26,9 @@ namespace RimMT
                 WorkGiverDetailPatches.Initialize(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
+                WorkCandidateOrderAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.7 playtest initialized. Direct JobGiver_Haul global searches now have a fail-closed spatial fast path in addition to the V0.4.6 Work scanner accelerator. Worker threads build immutable hauling indices; live reachability, validators and final jobs remain main-thread authoritative. Path shadow validation remains bounded and Vanilla is the fallback for unsupported, stale or incompatible calls.");
+                Log.Message("[RimMT] V0.4.9 playtest initialized. Large stable custom global Work candidate lists can be worker-ordered nearest-first before Vanilla GenClosest runs. Vanilla Reachability, validators, reservations and final jobs remain authoritative. Existing V0.4.6/V0.4.7 hauling fast paths and V0.4.8 bounded JobGiver tracing are retained; unsupported or stale calls fall back unchanged.");
             }
             catch (Exception ex)
             {
