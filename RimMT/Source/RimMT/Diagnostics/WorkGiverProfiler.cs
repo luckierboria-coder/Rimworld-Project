@@ -8,10 +8,6 @@ namespace RimMT
 {
     internal static class WorkGiverProfiler
     {
-        private const int SampleEveryJobPackages = 32;
-        private const int InitialDetailedPackages = 4;
-        private const int SlowBurstPackages = 8;
-
         private static readonly Dictionary<ProfileKey, Stat> Stats = new Dictionary<ProfileKey, Stat>();
         private static readonly long Threshold16Ticks = Math.Max(1L, Stopwatch.Frequency * 16L / 1000L);
         private static readonly long Threshold64Ticks = Math.Max(1L, Stopwatch.Frequency * 64L / 1000L);
@@ -19,11 +15,11 @@ namespace RimMT
 
         private static long totalSamples;
         private static long totalJobPackages;
-        private static long sampledJobPackages;
         private static long slowJobPackages;
-        private static int burstRemaining;
+        private static int targetJobPackages;
         private static int patchedMethods;
         private static int patchFailures;
+        private static bool sessionActive;
 
         [ThreadStatic]
         private static int jobPackageDepth;
@@ -38,28 +34,51 @@ namespace RimMT
             internal bool Outermost;
         }
 
+        internal static int PackagesRemaining
+        {
+            get
+            {
+                int remaining = targetJobPackages - (int)totalJobPackages;
+                return remaining < 0 ? 0 : remaining;
+            }
+        }
+
+        internal static void StartSession(int packageTarget, int patched, int failures)
+        {
+            Stats.Clear();
+            totalSamples = 0;
+            totalJobPackages = 0;
+            slowJobPackages = 0;
+            targetJobPackages = Math.Max(1, packageTarget);
+            patchedMethods = patched;
+            patchFailures = failures;
+            jobPackageDepth = 0;
+            captureDetail = false;
+            sessionActive = true;
+        }
+
+        internal static void StopSession()
+        {
+            sessionActive = false;
+            captureDetail = false;
+            jobPackageDepth = 0;
+        }
+
         internal static JobPackageScope BeginJobPackage()
         {
             JobPackageScope state = default(JobPackageScope);
-            if (!FeatureGate.IsEnabled("diagnostics.jobGiverDetail") || !RimMTThreadGuard.IsMainThread)
+            if (!sessionActive || !RimMTThreadGuard.IsMainThread)
                 return state;
 
             state.Entered = true;
             state.Outermost = jobPackageDepth == 0;
             jobPackageDepth++;
-
             if (!state.Outermost)
                 return state;
 
             state.Started = Stopwatch.GetTimestamp();
-            long sequence = ++totalJobPackages;
-            bool sample = sequence <= InitialDetailedPackages || burstRemaining > 0 || (sequence % SampleEveryJobPackages) == 0;
-            if (burstRemaining > 0)
-                burstRemaining--;
-
-            captureDetail = sample;
-            if (sample)
-                sampledJobPackages++;
+            totalJobPackages++;
+            captureDetail = true;
             return state;
         }
 
@@ -72,17 +91,17 @@ namespace RimMT
             {
                 long elapsed = Stopwatch.GetTimestamp() - state.Started;
                 if (elapsed >= Threshold64Ticks)
-                {
                     slowJobPackages++;
-                    if (burstRemaining < SlowBurstPackages)
-                        burstRemaining = SlowBurstPackages;
-                }
             }
 
             if (jobPackageDepth > 0)
                 jobPackageDepth--;
             if (jobPackageDepth == 0)
+            {
                 captureDetail = false;
+                if (sessionActive && totalJobPackages >= targetJobPackages)
+                    WorkGiverDetailPatches.RequestStopCapture();
+            }
         }
 
         internal static long Begin()
@@ -116,16 +135,6 @@ namespace RimMT
             totalSamples++;
         }
 
-        internal static void NotePatchedMethod()
-        {
-            patchedMethods++;
-        }
-
-        internal static void NotePatchFailure()
-        {
-            patchFailures++;
-        }
-
         internal static string Summary(int topN)
         {
             List<Entry> entries = new List<Entry>(Stats.Count);
@@ -143,13 +152,12 @@ namespace RimMT
             if (topN > entries.Count) topN = entries.Count;
 
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("JobGiver detail V0.4.5.1: patchedMethods=").Append(patchedMethods)
+            sb.Append("JobGiver detail V0.4.5.2: active=").Append(sessionActive)
+                .Append(", patchedMethods=").Append(patchedMethods)
                 .Append(", patchFailures=").Append(patchFailures)
                 .Append(", outerCalls=").Append(totalJobPackages)
-                .Append(", sampledPackages=").Append(sampledJobPackages)
+                .Append('/').Append(targetJobPackages)
                 .Append(", slowPackages>=64ms=").Append(slowJobPackages)
-                .Append(", sampleEvery=").Append(SampleEveryJobPackages)
-                .Append(", burstAfterSlow=").Append(SlowBurstPackages)
                 .Append(", phaseSamples=").Append(totalSamples)
                 .Append(", tracked=").Append(entries.Count);
 
