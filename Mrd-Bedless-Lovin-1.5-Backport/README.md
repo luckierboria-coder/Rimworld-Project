@@ -8,6 +8,13 @@ RimWorld 1.5 backport of **Mrd Bedless Lovin**.
 - English + Simplified Chinese localization included.
 - Includes the private interaction JoyGiver/JobDriver, GotSomeLovin memory, and Biotech pregnancy compatibility path.
 
+## Restore asset
+Run `Restore_Assets.bat` once after cloning/downloading the repository. It decodes the included `BinaryBase64/spt.png.b64` back to:
+
+`1.5/Textures/spt.png`
+
+The About preview image is optional and is not required for gameplay.
+
 ## Build
 Run `Build_RimWorld_1.5.bat` on Windows. It references the RimWorld 1.5 assemblies from the local game installation and outputs:
 
@@ -24,5 +31,5 @@ The tested build uses C# 5 (`/langversion:5`) for compatibility with the .NET Fr
 6. With Biotech active, pregnancy logic produces no red errors.
 7. Save/load once after an interaction and re-check the log.
 
-## Binary/assets note
-The repository connector used for this commit writes UTF-8 source files only, so the compiled DLL and PNG assets are not included in this source commit. Build the DLL locally with the included BAT and copy the original PNG assets from the packaged backport when testing.
+## Notes
+The connected GitHub writer commits UTF-8 text files, so the texture is stored as Base64 and restored by the included BAT. The compiled DLL is intentionally rebuilt locally against the installed RimWorld 1.5 assemblies using `Build_RimWorld_1.5.bat`.
