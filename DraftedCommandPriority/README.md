@@ -32,3 +32,5 @@ When no explicit `playerForced` order is active, the pawn periodically scans for
 - Can be disabled instantly in Mod Settings.
 
 V0.1 is deliberately small so combat behavior can be validated before adding per-pawn gizmos or finer exception lists.
+
+<!-- CI retrigger: 2026-08-26 -->
