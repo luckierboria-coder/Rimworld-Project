@@ -69,24 +69,34 @@ rem ------------------------------------------------------------
 set "CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if not exist "%CSC%" set "CSC=%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe"
 
-rem IMPORTANT: only accept a Harmony candidate when the DLL really exists.
-rem The old FOR /R form could manufacture a candidate such as Mods\0Harmony.dll.
 set "HARMONY="
 
-rem 1) Common local Harmony layouts first.
+rem 1) Prefer actual Harmony mod runtime assemblies.
 for %%H in (
   "%RW%\Mods\Harmony\1.5\Assemblies\0Harmony.dll"
   "%RW%\Mods\Harmony\Current\Assemblies\0Harmony.dll"
   "%RW%\Mods\brrainz.harmony\1.5\Assemblies\0Harmony.dll"
   "%RW%\Mods\brrainz.harmony\Current\Assemblies\0Harmony.dll"
+  "%RW%\Mods\2009463077\1.5\Assemblies\0Harmony.dll"
+  "%RW%\Mods\2009463077\Current\Assemblies\0Harmony.dll"
 ) do (
   if not defined HARMONY if exist "%%~fH" set "HARMONY=%%~fH"
 )
 
-rem 2) Recursively search the RimWorld Mods tree, but only from actual DIR results.
+rem 2) Search Mods recursively, but reject Source/packages copies and prefer Assemblies paths.
 if not defined HARMONY if exist "%RW%\Mods" (
   for /f "delims=" %%H in ('dir /b /s /a-d "%RW%\Mods\0Harmony.dll" 2^>nul') do (
-    if not defined HARMONY if exist "%%~fH" set "HARMONY=%%~fH"
+    if not defined HARMONY (
+      set "CAND=%%~fH"
+      set "FILTERED=!CAND:\Source\=!"
+      if /i "!FILTERED!"=="!CAND!" (
+        set "FILTERED=!CAND:\packages\=!"
+        if /i "!FILTERED!"=="!CAND!" (
+          set "FILTERED=!CAND:\Assemblies\=!"
+          if /i not "!FILTERED!"=="!CAND!" if exist "!CAND!" set "HARMONY=!CAND!"
+        )
+      )
+    )
   )
 )
 
@@ -99,6 +109,7 @@ if not defined HARMONY (
     "E:\SteamLibrary\steamapps\workshop\content\294100\2009463077"
     "F:\SteamLibrary\steamapps\workshop\content\294100\2009463077"
     "F:\Steam\steamapps\workshop\content\294100\2009463077"
+    "F:\Rimworld\steamapps\workshop\content\294100\2009463077"
     "G:\SteamLibrary\steamapps\workshop\content\294100\2009463077"
   ) do (
     if not defined HARMONY if exist "%%~D" (
@@ -109,19 +120,12 @@ if not defined HARMONY (
   )
 )
 
-rem 4) Last local fallback: search near this custom RimWorld installation.
-if not defined HARMONY if exist "F:\Rimworld" (
-  for /f "delims=" %%H in ('dir /b /s /a-d "F:\Rimworld\0Harmony.dll" 2^>nul') do (
-    if not defined HARMONY if exist "%%~fH" set "HARMONY=%%~fH"
-  )
-)
-
-rem 5) If CSC is available but Harmony still cannot be found, let the user paste it.
+rem 4) If CSC is available but Harmony still cannot be found, let the user paste it.
 if exist "%CSC%" if not defined HARMONY (
-  echo [INFO] Harmony 0Harmony.dll was not found automatically.
-  echo Typical path: ...\Harmony\1.5\Assemblies\0Harmony.dll
+  echo [INFO] Harmony runtime 0Harmony.dll was not found automatically.
+  echo Typical path: ...\2009463077\Current\Assemblies\0Harmony.dll
   echo.
-  set /p "HARMONY=Paste the full path to 0Harmony.dll, or press Enter for dotnet fallback: "
+  set /p "HARMONY=Paste the full path to runtime 0Harmony.dll, or press Enter for dotnet fallback: "
   if defined HARMONY (
     set HARMONY=!HARMONY:"=!
     if not exist "!HARMONY!" (
@@ -171,7 +175,7 @@ if errorlevel 1 (
   ) else (
     echo [ERROR] Neither a usable local CSC+Harmony setup nor a .NET SDK was found.
     echo.
-    echo Install/enable Harmony, or paste the real 0Harmony.dll path when prompted.
+    echo Install/enable Harmony, or paste the real runtime 0Harmony.dll path when prompted.
     goto :buildfail
   )
 )
