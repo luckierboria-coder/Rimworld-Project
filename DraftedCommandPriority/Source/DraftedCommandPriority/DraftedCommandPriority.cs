@@ -103,13 +103,13 @@ namespace DraftedCommandPriority
             get { return Interlocked.Read(ref blockedJobs); }
         }
 
-        public static bool Prefix(Pawn_JobTracker __instance, Job newJob)
+        public static bool Prefix(Pawn_JobTracker __instance, Pawn ___pawn, Job newJob)
         {
             DcpSettings settings = DcpMod.Settings;
             if (settings == null || !settings.enabled || __instance == null || newJob == null)
                 return true;
 
-            Pawn pawn = __instance.pawn;
+            Pawn pawn = ___pawn;
             if (pawn == null || !pawn.Drafted || pawn.Downed || pawn.InMentalState)
                 return true;
 
@@ -146,13 +146,13 @@ namespace DraftedCommandPriority
             get { return Interlocked.Read(ref autoAttackJobs); }
         }
 
-        public static void Postfix(Pawn_JobTracker __instance)
+        public static void Postfix(Pawn_JobTracker __instance, Pawn ___pawn)
         {
             DcpSettings settings = DcpMod.Settings;
             if (settings == null || !settings.enabled || !settings.meleeAutoAttack || __instance == null)
                 return;
 
-            Pawn pawn = __instance.pawn;
+            Pawn pawn = ___pawn;
             if (pawn == null || !pawn.Spawned || pawn.Map == null || !pawn.Drafted || pawn.Downed || pawn.InMentalState || !pawn.IsColonistPlayerControlled)
                 return;
 
@@ -173,7 +173,7 @@ namespace DraftedCommandPriority
             Pawn nearest = null;
             float nearestDistSq = float.MaxValue;
 
-            List<Pawn> pawns = pawn.Map.mapPawns.AllPawnsSpawned;
+            var pawns = pawn.Map.mapPawns.AllPawnsSpawned;
             for (int i = 0; i < pawns.Count; i++)
             {
                 Pawn other = pawns[i];
@@ -194,8 +194,6 @@ namespace DraftedCommandPriority
             if (current != null && current.def == JobDefOf.AttackMelee && current.targetA.HasThing && current.targetA.Thing == nearest)
                 return;
 
-            // One reachability check only after the cheap nearest-hostile scan. This keeps
-            // the feature from becoming another GenClosest/CanReach fan-out hotspot.
             if (!pawn.CanReach(nearest, PathEndMode.Touch, Danger.Deadly))
                 return;
 
