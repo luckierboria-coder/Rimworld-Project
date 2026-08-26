@@ -3,7 +3,12 @@
   <DCP_Intro>While a drafted player-controlled pawn is executing an explicit player-forced job, ordinary autonomous jobs cannot replace it.</DCP_Intro>
   <DCP_Enable>Enable strict drafted command priority</DCP_Enable>
   <DCP_EnableDesc>When enabled, a drafted pawn's current player-forced job cannot be replaced by a non-player-forced StartJob request.</DCP_EnableDesc>
+  <DCP_MeleeAutoAttack>Melee pawn auto attack</DCP_MeleeAutoAttack>
+  <DCP_MeleeAutoAttackDesc>Drafted player-controlled pawns holding a melee weapon automatically attack a nearby hostile pawn when they have no player-forced order.</DCP_MeleeAutoAttackDesc>
+  <DCP_MeleeAutoAttackRadius>Melee auto attack radius: {0} cells</DCP_MeleeAutoAttackRadius>
+  <DCP_MeleeAutoAttackRadiusDesc>Sets the maximum straight-line distance for automatic melee target acquisition. Range: 1-20 cells. Default: 4.</DCP_MeleeAutoAttackRadiusDesc>
   <DCP_LogBlocked>Log blocked autonomous jobs</DCP_LogBlocked>
   <DCP_LogBlockedDesc>Developer diagnostic option. Logs each blocked StartJob request. Leave off during normal play.</DCP_LogBlockedDesc>
   <DCP_BlockedCount>Blocked autonomous job replacements this session: {0}</DCP_BlockedCount>
+  <DCP_AutoAttackCount>Automatic melee attack jobs started this session: {0}</DCP_AutoAttackCount>
 </LanguageData>
