@@ -6,160 +6,147 @@ Compatibility-first performance and multithreading runtime for **RimWorld 1.5.40
 
 RimMT exists to raise real gameplay TPS by moving CPU-heavy work away from the main thread **as far as compatibility allows**. The preferred pattern is immutable main-thread snapshot -> worker computation across spare cores -> main-thread validation/commit. Unknown or unsafe live-state mutation remains fail-closed with vanilla fallback.
 
-## V0.4.5 Playtest
+## V0.4.5.2 Playtest
 
-V0.4.5 starts the next optimization phase after V0.4.4.1 validated sustained RimMT + Butter++ operation. The supplied long-session logs showed two clear targets:
+V0.4.5.2 is a stability-first cleanup after V0.4.5/0.4.5.1 diagnostics showed that RimMT's own validation/profiling could become visible as microstutter on a heavily modded colony.
 
-- Path worker correctness is stable (found/legal/endpoint parity), but immutable snapshots were being rebuilt far too often.
-- `JobGiver_Work.TryIssueJobPackage` is a much larger main-thread spike source than the currently eligible PathFinder subset, including individual calls hundreds of milliseconds long.
+Two observations drive this release:
 
-V0.4.5 therefore focuses on **PathGrid invalidation quality** and **per-WorkGiver hotspot attribution** before any JobGiver result is moved off-thread.
+- the V0.4.5 detailed JobGiver profiler touched hundreds of high-frequency WorkGiver phase methods and therefore should not remain resident during normal play;
+- shadow Path A* is still diagnostic-only, so millions of duplicate worker node expansions are pure validation cost until production offload can safely replace Vanilla work.
 
-### V0.4.5 PathGrid invalidation fix
+V0.4.5.2 therefore removes normal-play diagnostic overhead rather than expanding unsafe production scope.
 
-RimWorld 1.5 has nested `PathGrid.RecalculatePerceivedPathCostAt` overloads, and `RecalculateAllPerceivedPathCosts()` loops through cells and calls those recalculation methods. Earlier RimMT builds attached the same topology-generation postfix to all of them, so one logical update could be counted multiple times and a full-grid rebuild could create a generation storm.
+### JobGiver detail capture is now on-demand
 
-V0.4.5 keeps the fail-closed overload coverage but deduplicates the callbacks:
+Normal play keeps only the existing outer `JobGiver_Work.TryIssueJobPackage` hot-path timing. The detailed phase probes are **not patched at startup**.
 
-- the one-argument wrapper no longer generates a second invalidation after its core overload already did;
-- nested cell callbacks during `RecalculateAllPerceivedPathCosts()` are suppressed;
-- one full-grid recalculation produces one topology invalidation at its boundary;
-- normal core single-cell recalculations still invalidate immediately.
+From **Options -> Mod settings -> RimMT**, a temporary JobGiver detail capture can be started manually. RimMT then:
 
-Runtime reports now include:
+- discovers loaded WorkGiver implementations;
+- temporarily patches useful phases such as `ShouldSkip`, `NonScanJob`, `HasJobOnThing`, `HasJobOnCell`, `JobOnThing`, `JobOnCell`, and `GetPriority`;
+- captures up to 32 outer `TryIssueJobPackage` calls;
+- reports time by WorkGiverDef / concrete worker type / phase;
+- automatically removes the temporary detours from a stable main-thread frame hook after the capture finishes.
 
-```text
-PathGrid invalidation V0.4.5: cell=..., bulk=..., skippedNestedWrapper=..., skippedBulkCells=...
-```
+This keeps hotspot attribution available without making hundreds of detail detours part of normal gameplay.
 
-This should reduce unnecessary path-snapshot rebuilds without weakening stale-result detection. Vanilla `PawnPath` is still authoritative.
+### Bounded Path shadow validation
 
-### V0.4.5 JobGiver detail profiler
+Path worker validation remains immutable-snapshot and **Vanilla PawnPath remains authoritative**. V0.4.5.2 bounds the extra diagnostic CPU at admission time without modifying the validated A* inner loop:
 
-Long-session telemetry showed `JobGiver_Work.TryIssueJobPackage` dominating observed AI search time and producing very large single-call spikes. V0.4.5 does **not** send the whole JobGiver to worker threads; that would be unsafe with live Pawn/Thing/reservation state and a large mod list.
+- at most **1** shadow path may be in flight;
+- only **1 in 4** otherwise eligible TraverseParms requests is sampled;
+- validation only admits medium-distance paths up to **96 cells** Chebyshev distance;
+- when RimMT's adaptive load pressure is High/Critical, no new shadow validation is admitted;
+- after **64 completed paired validations**, subsequent PathFinder calls do not build snapshots or enqueue shadow A* work.
 
-Instead, V0.4.5 dynamically instruments concrete loaded `WorkGiver` implementations and attributes time by:
+The admission guard skips only `PathSnapshotWorker.TrySchedule`; it never skips Vanilla `PathFinder.FindPath`.
 
-- `WorkGiverDef.defName`
-- concrete worker type
-- phase/method
-
-The detail profiler covers useful scanner/job phases such as:
-
-- `ShouldSkip`
-- `NonScanJob`
-- `HasJobOnThing`
-- `HasJobOnCell`
-- `JobOnThing`
-- `JobOnCell`
-- `GetPriority(Pawn, TargetInfo)`
-
-Runtime reports print the top 12 entries by cumulative sampled time, with call count, total/average/max time and counts over 16/64/128 ms:
+Runtime telemetry now includes:
 
 ```text
-JobGiver detail V0.4.5: patchedMethods=..., patchFailures=..., samples=..., tracked=...
-  #1 WorkGiverDef / Namespace.WorkerType [HasJobOnThing]: calls=..., totalMs=..., avgMs=..., maxMs=..., >=16ms=..., >=64ms=..., >=128ms=...
+Path shadow budget V0.4.5.2: quota=64, complete=..., sampleEvery=4, maxDistance=96,
+  eligible=..., cadenceSkipped=..., distanceSkipped=..., pressureSkipped=...,
+  concurrencySkipped=..., quotaSkipped=...
 ```
 
-This is diagnostic groundwork for a later whitelist-only candidate-snapshot worker: main thread captures immutable candidates, workers pre-filter/score, then the main thread revalidates and creates/reserves the actual Job.
+V0.4.5 PathGrid invalidation deduplication remains enabled, as does the finalize-generation stale recheck.
 
 ## Butter++ compatibility baseline
 
-V0.4.5 carries forward the V0.4.4.1 Butter++ fix:
+The validated V0.4.4.1 Butter++ barrier remains unchanged:
 
-- `ButterPlusPlus.TickManagerPatch._midTickStarted` is the manager-level logical-tick commit barrier.
-- `ButterPlusPlus.TickListPatch.MidTick` is diagnostic only.
-- Worker-to-main-thread callbacks drain only at a safe logical-tick boundary.
-- Butter++ mode samples `TickManagerUpdate` slices rather than treating a split `DoSingleTick` as one wall-clock sample.
+- `ButterPlusPlus.TickManagerPatch._midTickStarted` is the manager-level logical-tick commit boundary;
+- `ButterPlusPlus.TickListPatch.MidTick` is diagnostic only;
+- worker-to-main-thread callbacks drain only at a safe logical-tick boundary;
+- Butter++ mode samples `TickManagerUpdate` slices rather than split `DoSingleTick` wall time.
 
-AdaptiveTPS remains supported separately. Butter++ itself declares AdaptiveTPS and Dubs Performance Analyzer incompatible, so RimMT does not claim those Butter++ combinations are safe.
+AdaptiveTPS remains supported separately. Butter++ itself declares AdaptiveTPS and Dubs Performance Analyzer incompatible, so RimMT does not claim those combinations are safe.
 
 ## Path worker status
 
-The V0.4.4 path cost model is retained. Worker costs currently include:
+The current worker cost model includes:
 
-- `PathGrid.pathGrid`
-- pawn `TicksPerMoveCardinal`
-- pawn `TicksPerMoveDiagonal`
-- drafted terrain extra path cost
-- non-drafted terrain extra path cost
-- Vanilla-compatible float movement rounding
+- `PathGrid.pathGrid`;
+- pawn `TicksPerMoveCardinal` / `TicksPerMoveDiagonal` as float;
+- Vanilla-compatible rounding;
+- drafted / non-drafted terrain extra path cost.
 
-The following dynamic Vanilla costs are still deliberately **not production-authoritative** in V0.4.5:
+Dynamic Vanilla costs are still not production-authoritative:
 
-- avoid grid
-- allowed-area penalty
-- pawn collision penalty
-- building / door cost
-- blueprint cost
-- lord walk-grid cost
-- custom `PathFinderCostTuning` (still rejected by the worker eligibility gate)
+- avoid grid;
+- allowed-area penalty;
+- pawn collision penalty;
+- building / door cost;
+- blueprint cost;
+- lord walk-grid cost;
+- custom `PathFinderCostTuning`.
 
-The long-session validation pattern — mismatches consistently worker-cheaper rather than worker-costlier — is consistent with missing positive dynamic costs. V0.4.5 first removes snapshot churn and improves diagnostics; the dynamic-cost snapshot will be expanded only while keeping immutable worker inputs and Vanilla fallback.
+Until these are captured safely, worker A* remains shadow validation only.
 
-### Enabled by default
+## Enabled by default
 
-- **Worker runtime** — 1-8 persistent background workers with bounded queues and priority scheduling.
-- **Main-thread dispatcher** — worker callbacks commit only on the main thread and respect the Butter++ manager-level logical-tick barrier.
-- **Adaptive burst scheduling** — background work reacts to recent main-thread pressure.
-- **Text metric cache** — caches repeated `Text.CalcHeight` / `Text.CalcSize` results.
-- **PathFinder diagnostics** — call counts, timing and paired path parity telemetry.
-- **JobGiver diagnostics** — outer `TryIssueJobPackage` timing plus V0.4.5 per-WorkGiver detail attribution.
-- **Path snapshot worker validation** — supported long `OnCell` paths run independent A* on immutable snapshots; Vanilla remains authoritative.
-- **PathGrid invalidation deduplication** — prevents nested/full-grid generation storms.
+- bounded worker runtime;
+- main-thread dispatcher with Butter++ logical-tick barrier;
+- adaptive burst scheduling;
+- text metric cache;
+- outer PathFinder / JobGiver hot-path diagnostics;
+- bounded Path snapshot parity validation;
+- PathGrid invalidation deduplication.
+
+Detailed per-WorkGiver profiling is now **OFF during normal play** and only temporarily installed by the manual capture button.
 
 ### Experimental and OFF by default
 
-- **Short-lived unreachable-result cache** — caches only recent `false` reachability results and invalidates on topology changes.
+- short-lived topology-aware unreachable-result cache.
 
 ### Intentionally NOT parallelized yet
 
-- `Pawn.Tick`
-- `Thing.Tick`
-- `ReservationManager`
-- live `Pawn_JobTracker` mutation
-- mutable map collections
-- faction ticks
+- `Pawn.Tick`;
+- `Thing.Tick`;
+- `ReservationManager`;
+- live `Pawn_JobTracker` mutation;
+- mutable map collections;
+- faction ticks.
 
 ## Compatibility policy
 
-RimMT is whitelist-only and fail-closed. Unknown Harmony conflicts suppress only the affected RimMT feature.
+RimMT is whitelist-only and fail-closed. Unknown Harmony conflicts suppress only the affected RimMT feature. Vanilla remains authoritative for gameplay state.
 
 Supported pacing configurations:
 
-- RimMT alone
-- RimMT + AdaptiveTPS
-- RimMT + Butter++
+- RimMT alone;
+- RimMT + AdaptiveTPS;
+- RimMT + Butter++.
 
 Not claimed safe:
 
-- Butter++ + AdaptiveTPS — Butter++ declares `Blue.adaptiveTPS` incompatible.
-- Butter++ + Dubs Performance Analyzer — Butter++ declares both DPA package IDs incompatible.
+- Butter++ + AdaptiveTPS;
+- Butter++ + Dubs Performance Analyzer.
 
 If another RimThreaded implementation is detected, gameplay optimizations are disabled while diagnostics remain available. RimMT does not write required state into saves.
 
-## Testing V0.4.5
+## Testing V0.4.5.2
 
-For the Butter++ profile, enable RimMT + Butter++ and leave AdaptiveTPS / Dubs Performance Analyzer disabled.
+For Butter++, enable RimMT + Butter++ and leave AdaptiveTPS / Dubs Performance Analyzer disabled.
 
-Play a real colony under normal load, then open **Options -> Mod settings -> RimMT** and click **Log current runtime compatibility / performance report**. Useful lines include:
+First judge normal gameplay feel. During ordinary play, `diagnostics.jobGiverDetail` should be OFF and the log should state that no per-WorkGiver detail detours are resident.
+
+After a normal session, click **Log current runtime compatibility / performance report**. Useful lines include:
 
 ```text
-[RimMT] Compatibility / performance report #... [runtime]
-Runtime compatibility: Butter++=True (LogicalTickProbe=True, source=ButterPlusPlus.TickManagerPatch._midTickStarted, ...)
+Runtime compatibility: Butter++=True (...)
 Dispatcher: queued=..., enqueued=..., drained=..., failures=..., drainCalls=...
 PathGrid invalidation V0.4.5: cell=..., bulk=..., skippedNestedWrapper=..., skippedBulkCells=...
-Path snapshot worker: scheduled=..., completed=..., snapshots=..., workerFailures=..., stale=...
+Path shadow budget V0.4.5.2: quota=64, complete=..., sampleEvery=4, maxDistance=96, ...
+Path snapshot worker: scheduled=..., completed=..., snapshots=..., nodesExpanded=..., workerFailures=..., stale=...
 Path parity: foundParity=..., foundMismatch=..., workerLegal=..., workerIllegal=...
-Path cost parity: sameCost=..., workerCheaper=..., workerCostlier=..., within1pct=..., within5pct=...
 JobGiver_Work.TryIssueJobPackage: calls=..., avgMs=..., p95Ms~=..., maxMs=...
-JobGiver detail V0.4.5: patchedMethods=..., patchFailures=..., samples=..., tracked=...
-  #1 ...
+JobGiver detail V0.4.5.2: active=False, ...
 ```
 
-For PathGrid churn, compare `snapshots / scheduled` with V0.4.4.1 and inspect `skippedNestedWrapper` / `skippedBulkCells`. A healthy result should reduce unnecessary snapshot rebuilds while keeping `workerFailures=0`, `stale` low, and found/legal/endpoint parity intact.
-
-For JobGiver, the top entries tell us which concrete scanners should be considered for the first whitelist-only worker prefilter. High `maxMs` and repeated `>=64ms` / `>=128ms` counts are especially important.
+Only when a JobGiver spike needs attribution, start the temporary detail capture from Mod Settings. It automatically removes its temporary WorkGiver patches after 32 outer job-package calls.
 
 ## Install
 
