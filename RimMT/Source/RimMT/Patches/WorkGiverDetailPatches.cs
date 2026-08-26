@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Threading;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -10,6 +11,7 @@ namespace RimMT
 {
     internal static class WorkGiverDetailPatches
     {
+        private const int CaptureJobPackages = 32;
         private static readonly HashSet<string> TargetNames = new HashSet<string>(StringComparer.Ordinal)
         {
             "ShouldSkip",
@@ -21,107 +23,186 @@ namespace RimMT
             "GetPriority"
         };
 
-        internal static void Apply(Harmony harmony)
+        private static readonly List<MethodBase> CandidateMethods = new List<MethodBase>();
+        private static readonly object Sync = new object();
+        private static Harmony harmony;
+        private static MethodBase jobPackageTarget;
+        private static bool candidatesDiscovered;
+        private static int active;
+        private static int stopRequested;
+        private static int patchFailures;
+
+        internal static bool CaptureActive { get { return Volatile.Read(ref active) != 0; } }
+        internal static int PackagesRemaining { get { return WorkGiverProfiler.PackagesRemaining; } }
+
+        internal static void Initialize(Harmony owner)
         {
-            if (harmony == null)
-                return;
+            harmony = owner;
+            FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
+            Log.Message("[RimMT] diagnostics.jobGiverDetail V0.4.5.2 is on-demand. No per-WorkGiver phase detours are resident during normal play; use Mod Settings to start a bounded capture.");
+        }
 
-            PatchJobPackageScope(harmony);
+        internal static bool StartCapture()
+        {
+            if (!RimMTThreadGuard.IsMainThread || harmony == null || CaptureActive)
+                return false;
 
-            HashSet<MethodBase> patched = new HashSet<MethodBase>();
-            int candidates = 0;
-            int failures = 0;
-
-            List<Type> allTypes;
-            try
+            lock (Sync)
             {
-                allTypes = GenTypes.AllTypes;
-            }
-            catch (Exception ex)
-            {
-                FeatureGate.Suppress("diagnostics.jobGiverDetail", "type enumeration failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] diagnostics.jobGiverDetail disabled: could not enumerate loaded types. " + ex.GetType().Name + ": " + ex.Message);
-                return;
-            }
+                if (CaptureActive)
+                    return false;
 
-            for (int i = 0; i < allTypes.Count; i++)
-            {
-                Type type = allTypes[i];
-                if (type == null || !typeof(WorkGiver).IsAssignableFrom(type))
-                    continue;
+                if (!EnsureCandidates())
+                    return false;
 
-                MethodInfo[] methods;
+                int patched = 0;
+                patchFailures = 0;
+                MethodInfo prefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(Prefix));
+                MethodInfo postfixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(Postfix));
+                MethodInfo packagePrefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(JobPackagePrefix));
+                MethodInfo packageFinalizerMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(JobPackageFinalizer));
+
                 try
                 {
-                    methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                    HarmonyMethod packagePrefix = new HarmonyMethod(packagePrefixMethod) { priority = Priority.First };
+                    HarmonyMethod packageFinalizer = new HarmonyMethod(packageFinalizerMethod) { priority = Priority.Last };
+                    harmony.Patch(jobPackageTarget, prefix: packagePrefix, finalizer: packageFinalizer);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    continue;
+                    FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
+                    Log.Warning("[RimMT] JobGiver detail capture could not patch the package scope. Capture was not started. " + ex.GetType().Name + ": " + ex.Message);
+                    return false;
                 }
 
-                for (int m = 0; m < methods.Length; m++)
+                for (int i = 0; i < CandidateMethods.Count; i++)
                 {
-                    MethodInfo method = methods[m];
-                    if (method == null || method.IsAbstract || !TargetNames.Contains(method.Name) || !IsUsefulSignature(method))
-                        continue;
-                    if (!patched.Add(method))
-                        continue;
-
-                    candidates++;
+                    MethodBase method = CandidateMethods[i];
                     try
                     {
-                        HarmonyMethod prefix = new HarmonyMethod(typeof(WorkGiverDetailPatches), nameof(Prefix));
-                        prefix.priority = Priority.First;
-                        HarmonyMethod postfix = new HarmonyMethod(typeof(WorkGiverDetailPatches), nameof(Postfix));
-                        postfix.priority = Priority.Last;
+                        HarmonyMethod prefix = new HarmonyMethod(prefixMethod) { priority = Priority.First };
+                        HarmonyMethod postfix = new HarmonyMethod(postfixMethod) { priority = Priority.Last };
                         harmony.Patch(method, prefix: prefix, postfix: postfix);
-                        WorkGiverProfiler.NotePatchedMethod();
+                        patched++;
                     }
                     catch (Exception ex)
                     {
-                        failures++;
-                        WorkGiverProfiler.NotePatchFailure();
-                        if (failures <= 5)
-                            Log.Warning("[RimMT] diagnostics.jobGiverDetail skipped " + method + ": " + ex.GetType().Name + ": " + ex.Message);
+                        patchFailures++;
+                        if (patchFailures <= 5)
+                            Log.Warning("[RimMT] JobGiver detail capture skipped " + method + ": " + ex.GetType().Name + ": " + ex.Message);
                     }
                 }
-            }
 
-            if (candidates == 0)
-            {
-                FeatureGate.Suppress("diagnostics.jobGiverDetail", "no WorkGiver methods were found");
-                Log.Warning("[RimMT] diagnostics.jobGiverDetail found no compatible WorkGiver methods.");
-            }
-            else
-            {
-                Log.Message("[RimMT] diagnostics.jobGiverDetail patched " + (candidates - failures) + "/" + candidates + " WorkGiver phase methods. V0.4.5.1 samples 1/32 job-package scopes and bursts after >=64ms calls to reduce profiler-induced microstutter; gameplay remains vanilla-authoritative.");
+                Interlocked.Exchange(ref stopRequested, 0);
+                Interlocked.Exchange(ref active, 1);
+                FeatureGate.SetEnabled("diagnostics.jobGiverDetail", true);
+                WorkGiverProfiler.StartSession(CaptureJobPackages, patched, patchFailures);
+                Log.Message("[RimMT] JobGiver detail capture started for up to " + CaptureJobPackages + " outer TryIssueJobPackage calls; temporarily patched " + patched + "/" + CandidateMethods.Count + " WorkGiver phase methods. It will auto-unpatch when complete.");
+                return true;
             }
         }
 
-        private static void PatchJobPackageScope(Harmony harmony)
+        internal static void RequestStopCapture()
         {
-            try
+            if (!CaptureActive)
+                return;
+            Interlocked.Exchange(ref active, 0);
+            FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
+            Interlocked.Exchange(ref stopRequested, 1);
+        }
+
+        internal static void OnMainThreadFrame()
+        {
+            if (!RimMTThreadGuard.IsMainThread || Interlocked.Exchange(ref stopRequested, 0) == 0)
+                return;
+            StopCaptureNow();
+        }
+
+        private static void StopCaptureNow()
+        {
+            lock (Sync)
             {
-                MethodBase target = AccessTools.Method(typeof(JobGiver_Work), "TryIssueJobPackage", new Type[] { typeof(Pawn), typeof(JobIssueParams) });
-                if (target == null)
-                {
-                    FeatureGate.Suppress("diagnostics.jobGiverDetail", "JobGiver_Work.TryIssueJobPackage was not found");
-                    Log.Warning("[RimMT] diagnostics.jobGiverDetail disabled: JobGiver_Work.TryIssueJobPackage was not found.");
+                if (harmony == null)
                     return;
+
+                MethodInfo prefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(Prefix));
+                MethodInfo postfixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(Postfix));
+                MethodInfo packagePrefixMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(JobPackagePrefix));
+                MethodInfo packageFinalizerMethod = AccessTools.Method(typeof(WorkGiverDetailPatches), nameof(JobPackageFinalizer));
+
+                try
+                {
+                    if (jobPackageTarget != null)
+                    {
+                        harmony.Unpatch(jobPackageTarget, packagePrefixMethod);
+                        harmony.Unpatch(jobPackageTarget, packageFinalizerMethod);
+                    }
+                    for (int i = 0; i < CandidateMethods.Count; i++)
+                    {
+                        harmony.Unpatch(CandidateMethods[i], prefixMethod);
+                        harmony.Unpatch(CandidateMethods[i], postfixMethod);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning("[RimMT] JobGiver detail capture unpatch encountered " + ex.GetType().Name + ": " + ex.Message + ". Gameplay remains vanilla-authoritative.");
                 }
 
-                HarmonyMethod prefix = new HarmonyMethod(typeof(WorkGiverDetailPatches), nameof(JobPackagePrefix));
-                prefix.priority = Priority.First;
-                HarmonyMethod finalizer = new HarmonyMethod(typeof(WorkGiverDetailPatches), nameof(JobPackageFinalizer));
-                finalizer.priority = Priority.Last;
-                harmony.Patch(target, prefix: prefix, finalizer: finalizer);
+                WorkGiverProfiler.StopSession();
+                FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
+                Log.Message("[RimMT] JobGiver detail capture stopped and temporary WorkGiver detours were removed. " + WorkGiverProfiler.Summary(12));
+            }
+        }
+
+        private static bool EnsureCandidates()
+        {
+            if (candidatesDiscovered)
+                return jobPackageTarget != null && CandidateMethods.Count > 0;
+
+            candidatesDiscovered = true;
+            try
+            {
+                jobPackageTarget = AccessTools.Method(typeof(JobGiver_Work), "TryIssueJobPackage", new Type[] { typeof(Pawn), typeof(JobIssueParams) });
+                if (jobPackageTarget == null)
+                {
+                    Log.Warning("[RimMT] JobGiver detail capture unavailable: JobGiver_Work.TryIssueJobPackage was not found.");
+                    return false;
+                }
+
+                HashSet<MethodBase> unique = new HashSet<MethodBase>();
+                List<Type> allTypes = GenTypes.AllTypes;
+                for (int i = 0; i < allTypes.Count; i++)
+                {
+                    Type type = allTypes[i];
+                    if (type == null || !typeof(WorkGiver).IsAssignableFrom(type))
+                        continue;
+
+                    MethodInfo[] methods;
+                    try
+                    {
+                        methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    for (int m = 0; m < methods.Length; m++)
+                    {
+                        MethodInfo method = methods[m];
+                        if (method == null || method.IsAbstract || !TargetNames.Contains(method.Name) || !IsUsefulSignature(method) || !unique.Add(method))
+                            continue;
+                        CandidateMethods.Add(method);
+                    }
+                }
             }
             catch (Exception ex)
             {
-                FeatureGate.Suppress("diagnostics.jobGiverDetail", "job-package sampling scope patch failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] diagnostics.jobGiverDetail disabled: job-package sampling scope patch failed. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] JobGiver detail candidate discovery failed: " + ex.GetType().Name + ": " + ex.Message);
+                return false;
             }
+
+            return CandidateMethods.Count > 0;
         }
 
         public static void JobPackagePrefix(ref WorkGiverProfiler.JobPackageScope __state)
@@ -150,10 +231,8 @@ namespace RimMT
             ParameterInfo[] parameters = method.GetParameters();
             if (parameters.Length == 0 || parameters[0].ParameterType != typeof(Pawn))
                 return false;
-
             if (method.Name == "GetPriority")
                 return parameters.Length == 2 && parameters[1].ParameterType == typeof(TargetInfo);
-
             return true;
         }
     }
