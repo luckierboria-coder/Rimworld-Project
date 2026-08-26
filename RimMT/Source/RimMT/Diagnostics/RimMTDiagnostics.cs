@@ -95,6 +95,7 @@ namespace RimMT
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath[traverseParms]"));
             sb.AppendLine(HotPathProfiler.Summary("JobGiver_Work.TryIssueJobPackage"));
             sb.AppendLine(WorkGiverProfiler.Summary(12));
+            sb.AppendLine(JobGiverInfrastructureProfiler.Summary(12));
             foreach (string line in CompatibilityGuard.Report)
                 sb.AppendLine(" * " + line);
             Log.Message(sb.ToString());
