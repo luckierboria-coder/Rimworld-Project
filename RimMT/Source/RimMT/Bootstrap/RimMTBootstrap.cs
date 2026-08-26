@@ -25,7 +25,7 @@ namespace RimMT
                 PathSnapshotSafetyPatches.Apply(harmony);
                 WorkGiverDetailPatches.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.5 playtest initialized. Butter++ logical-tick barrier retained; PathGrid invalidation storms are deduplicated, path generation is rechecked at finalize, and detailed WorkGiver phase profiling is active. Path workers remain immutable-snapshot/vanilla-authoritative.");
+                Log.Message("[RimMT] V0.4.5.1 playtest initialized. JobGiver detail profiling now uses sparse job-package sampling plus slow-call bursts to avoid profiler-induced microstutter; V0.4.5 PathGrid dedup/finalize safety and the Butter++ logical-tick barrier remain active. Path workers remain immutable-snapshot/vanilla-authoritative.");
             }
             catch (Exception ex)
             {
