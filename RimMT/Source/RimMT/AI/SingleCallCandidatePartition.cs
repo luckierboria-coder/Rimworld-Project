@@ -25,12 +25,13 @@ namespace RimMT
     // reachability work.
     //
     // Very large snapshots may opportunistically ask one RimMT worker to compute the
-    // pure integer ring keys. No live Verse object is dereferenced by the worker.
+    // pure integer ring keys. V0.4.10.1 makes that candidate-count threshold configurable;
+    // the default remains 512. No live Verse object is dereferenced by the worker.
     internal static class SingleCallCandidatePartition
     {
         private const string FeatureId = "parallel.jobPartition";
         private const int MinCandidateCount = 96;
-        private const int WorkerAssistMinCount = 512;
+        private const int DefaultWorkerAssistMinCount = 512;
         private const int RingSize = 16;
         private const double WorkerAssistBudgetMs = 0.20;
 
@@ -55,6 +56,20 @@ namespace RimMT
         private static long maxCandidateCount;
         private static long failures;
 
+        private static int WorkerAssistMinCount
+        {
+            get
+            {
+                RimMTSettings settings = RimMTMod.Settings;
+                if (settings == null)
+                    return DefaultWorkerAssistMinCount;
+                int value = settings.JobPartitionWorkerThreshold;
+                if (value < MinCandidateCount) return MinCandidateCount;
+                if (value > 2048) return 2048;
+                return value;
+            }
+        }
+
         internal static void Apply(Harmony harmony)
         {
             if (harmony == null)
@@ -75,7 +90,7 @@ namespace RimMT
                 if (target == null)
                 {
                     FeatureGate.Suppress(FeatureId, "GenClosest.ClosestThingReachable target not found");
-                    Log.Warning("[RimMT] parallel.jobPartition V0.4.10 unavailable: GenClosest.ClosestThingReachable target not found.");
+                    Log.Warning("[RimMT] parallel.jobPartition V0.4.10.1 unavailable: GenClosest.ClosestThingReachable target not found.");
                     return;
                 }
 
@@ -83,12 +98,12 @@ namespace RimMT
                 HarmonyMethod prefix = new HarmonyMethod(typeof(SingleCallCandidatePartition), nameof(Prefix));
                 prefix.priority = Priority.First + 50;
                 harmony.Patch(target, prefix: prefix);
-                Log.Message("[RimMT] parallel.jobPartition V0.4.10 installed. Supported custom global Work searches are reordered nearest-first per call; Vanilla Reachability/validator/final selection remain authoritative.");
+                Log.Message("[RimMT] parallel.jobPartition V0.4.10.1 installed. Supported custom global Work searches are reordered nearest-first per call; worker-assist threshold is configurable and defaults to 512; Vanilla Reachability/validator/final selection remain authoritative.");
             }
             catch (Exception ex)
             {
                 FeatureGate.Suppress(FeatureId, "single-call partition patch failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] parallel.jobPartition V0.4.10 patch failed; Vanilla candidate order remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] parallel.jobPartition V0.4.10.1 patch failed; Vanilla candidate order remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -175,7 +190,8 @@ namespace RimMT
 
                 int[] ringKeys = new int[count];
                 bool workerDone = false;
-                if (count >= WorkerAssistMinCount)
+                int workerAssistMinCount = WorkerAssistMinCount;
+                if (count >= workerAssistMinCount)
                     workerDone = TryWorkerRingKeys(root.x, root.z, xs, zs, ringKeys);
                 if (!workerDone)
                     ComputeRingKeys(root.x, root.z, xs, zs, ringKeys);
@@ -189,7 +205,7 @@ namespace RimMT
             {
                 Interlocked.Increment(ref failures);
                 CircuitBreaker.RecordFailure(FeatureId, ex);
-                Log.Warning("[RimMT] parallel.jobPartition V0.4.10 runtime failure; this call keeps Vanilla candidate order. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] parallel.jobPartition V0.4.10.1 runtime failure; this call keeps Vanilla candidate order. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -323,7 +339,8 @@ namespace RimMT
             long reordered = Interlocked.Read(ref reorderedCalls);
             long candidates = Interlocked.Read(ref candidatesReordered);
             double avg = reordered <= 0 ? 0.0 : candidates / (double)reordered;
-            return "Single-call work partition V0.4.10: compatibilityReady=" + compatibilityReady +
+            return "Single-call work partition V0.4.10.1: compatibilityReady=" + compatibilityReady +
+                ", workerThreshold=" + WorkerAssistMinCount +
                 ", observed=" + Interlocked.Read(ref observedCalls) +
                 ", supported=" + Interlocked.Read(ref supportedCalls) +
                 ", reordered=" + reordered +
