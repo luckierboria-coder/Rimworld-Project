@@ -1,0 +1,58 @@
+name: Build RimMT RimWorld 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt.yml'
+  pull_request:
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dll = 'RimMT/1.5/Assemblies/RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package playtest
+        shell: pwsh
+        run: |
+          $src = 'RimMT'
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "$src/About" $stage -Recurse
+          Copy-Item "$src/Languages" $stage -Recurse
+          Copy-Item "$src/1.5" $stage -Recurse
+          Copy-Item "$src/LoadFolders.xml" $stage
+          Copy-Item "$src/README.md" $stage
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.4.7_Playtest.zip' -Force
+
+      - name: Upload playtest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.4.7-Playtest
+          path: build/RimMT_V0.4.7_Playtest.zip
+          if-no-files-found: error
