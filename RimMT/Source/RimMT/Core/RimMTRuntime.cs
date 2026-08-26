@@ -41,7 +41,8 @@ namespace RimMT
             FeatureGate.Register("ai.reachNoCache", false, "Topology-aware short-lived negative reachability cache");
             FeatureGate.Register("ai.pathTopology", true, "PathGrid topology invalidation hooks for reachability generations");
             FeatureGate.Register("parallel.pathSnapshot", true, "Bounded worker-side immutable path parity validation; Vanilla authoritative");
-            FeatureGate.Register("parallel.jobScan", true, "V0.4.6 production Work search accelerator: worker-built hauling spatial index plus main-thread revalidation");
+            FeatureGate.Register("parallel.jobScan", true, "V0.4.6 Work scanner accelerator: worker-built hauling spatial index plus main-thread revalidation");
+            FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.thingTick", false, "Whitelist module not implemented");
@@ -60,6 +61,7 @@ namespace RimMT
             FeatureGate.SetEnabled("ai.reachNoCache", settings.ReachNoCache);
             FeatureGate.SetEnabled("parallel.pathSnapshot", settings.PathSnapshotWorker);
             FeatureGate.SetEnabled("parallel.jobScan", settings.WorkScanAcceleration);
+            FeatureGate.SetEnabled("parallel.haulGlobal", settings.WorkScanAcceleration);
         }
 
         internal static void OnMainThreadFrame()
@@ -98,6 +100,7 @@ namespace RimMT
                 compatibilityChecked = true;
                 CompatibilityGuard.RunBaselineScan();
                 HaulWorkAccelerator.MarkCompatibilityReady();
+                GlobalHaulAccelerator.MarkCompatibilityReady();
                 RimMTDiagnostics.LogStartupReport();
             }
         }
