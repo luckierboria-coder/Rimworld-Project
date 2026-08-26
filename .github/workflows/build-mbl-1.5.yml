@@ -1,0 +1,62 @@
+name: Build Mrd Bedless Lovin RimWorld 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Mrd-Bedless-Lovin-1.5-Backport/**'
+      - '.github/workflows/build-mbl-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply v4 JobStarter compatibility fix
+        shell: pwsh
+        run: ./Mrd-Bedless-Lovin-1.5-Backport/Apply_v4_JobStarterFix.ps1
+
+      - name: Restore texture asset
+        shell: cmd
+        run: call Mrd-Bedless-Lovin-1.5-Backport\Restore_Assets.bat
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore Mrd-Bedless-Lovin-1.5-Backport/Source/LovinAnywhere.csproj
+
+      - name: Build Release
+        run: dotnet build Mrd-Bedless-Lovin-1.5-Backport/Source/LovinAnywhere.csproj --configuration Release --no-restore
+
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dll = 'Mrd-Bedless-Lovin-1.5-Backport/1.5/Assemblies/LovinAnywhere.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package v4 playtest
+        shell: pwsh
+        run: |
+          $src = 'Mrd-Bedless-Lovin-1.5-Backport'
+          $stage = 'build/Mrd_Bedless_Lovin_1.5_Backport'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "$src/About" $stage -Recurse
+          Copy-Item "$src/Languages" $stage -Recurse
+          Copy-Item "$src/1.5" $stage -Recurse
+          Copy-Item "$src/README_1.5_BACKPORT.txt" $stage
+          Copy-Item "$src/README_CN.txt" $stage
+          Compress-Archive -Path $stage -DestinationPath 'build/Mrd_Bedless_Lovin_1.5_Backport_Bilingual_v4.zip' -Force
+
+      - name: Upload v4 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mrd-Bedless-Lovin-1.5-Backport-v4
+          path: build/Mrd_Bedless_Lovin_1.5_Backport_Bilingual_v4.zip
+          if-no-files-found: error
