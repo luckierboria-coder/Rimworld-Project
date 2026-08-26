@@ -10,28 +10,30 @@ using Verse.AI;
 
 namespace RimMT
 {
-    // V0.4.10 targets the hot chain measured by the bounded JobGiver capture:
-    // JobGiver_Work -> GenClosest.ClosestThingReachable -> ClosestThing_Global ->
-    // Reachability.CanReach -> RegionTraverser.
+    // V0.4.11 extends the production path validated in V0.4.10.
     //
-    // The optimization is deliberately non-authoritative. It never evaluates
-    // Reachability, WorkGiver validators, reservations, priorities or Jobs off-thread.
-    // For a supported custom global search set, the main thread materializes the exact
-    // candidate identities and positions once, then reorders the same candidates into
-    // coarse nearest-first spatial rings for THIS call. Vanilla GenClosest still scans
-    // every candidate needed to prove the closest valid result and remains responsible
-    // for all live gameplay decisions. Reordering only lets Vanilla establish a small
-    // best-distance earlier so later far candidates can skip expensive validator/
-    // reachability work.
+    // RimWorld's ClosestThingReachable first performs its normal regionwise search when
+    // the ThingRequest can be found in regions. customGlobalSearchSet is consumed only
+    // by the later global fallback. Therefore a defined ThingRequest does not make
+    // reordering the custom global set unsafe: region traversal, its stopping rules and
+    // any result it returns are untouched. V0.4.11 consequently admits those calls too.
     //
-    // Very large snapshots may opportunistically ask one RimMT worker to compute the
-    // pure integer ring keys. No live Verse object is dereferenced by the worker.
+    // The optimization remains deliberately non-authoritative. Candidate membership is
+    // unchanged. The main thread snapshots exact candidate identity and PositionHeld,
+    // then orders the same candidates by exact horizontal squared distance. Equal-distance
+    // candidates keep their original relative order, preserving Vanilla's tie order as
+    // closely as possible. Vanilla still owns max-distance checks, Reachability.CanReach,
+    // validators, reservations, priorities, final target selection and Job creation.
+    //
+    // Calls for which global search is disabled are not touched because Vanilla never
+    // consumes customGlobalSearchSet there. Non-passable traversableRegionTypes remain
+    // fail-closed because Vanilla itself considers that global-search combination
+    // unsupported. Exact ListerHaulables identity also remains owned by V0.4.6/V0.4.7.
     internal static class SingleCallCandidatePartition
     {
         private const string FeatureId = "parallel.jobPartition";
         private const int MinCandidateCount = 96;
         private const int WorkerAssistMinCount = 512;
-        private const int RingSize = 16;
         private const double WorkerAssistBudgetMs = 0.20;
 
         private static volatile bool compatibilityReady;
@@ -44,8 +46,13 @@ namespace RimMT
         private static long enumerableInputs;
         private static long smallSetFallbacks;
         private static long haulableBypasses;
-        private static long unsupportedShapeFallbacks;
-        private static long nullOrInvalidFallbacks;
+        private static long noCustomSetFallbacks;
+        private static long invalidMapRootFallbacks;
+        private static long invalidCandidateFallbacks;
+        private static long globalDisabledFallbacks;
+        private static long nonPassableRegionTypeFallbacks;
+        private static long definedRequestExpanded;
+        private static long forbiddenRegionExpanded;
         private static long workerAssistAttempts;
         private static long workerAssistCompleted;
         private static long workerAssistTimeouts;
@@ -53,6 +60,7 @@ namespace RimMT
         private static long candidatesSeen;
         private static long candidatesReordered;
         private static long maxCandidateCount;
+        private static long sortTicks;
         private static long failures;
 
         internal static void Apply(Harmony harmony)
@@ -75,7 +83,7 @@ namespace RimMT
                 if (target == null)
                 {
                     FeatureGate.Suppress(FeatureId, "GenClosest.ClosestThingReachable target not found");
-                    Log.Warning("[RimMT] parallel.jobPartition V0.4.10 unavailable: GenClosest.ClosestThingReachable target not found.");
+                    Log.Warning("[RimMT] parallel.jobPartition V0.4.11 unavailable: GenClosest.ClosestThingReachable target not found.");
                     return;
                 }
 
@@ -83,12 +91,12 @@ namespace RimMT
                 HarmonyMethod prefix = new HarmonyMethod(typeof(SingleCallCandidatePartition), nameof(Prefix));
                 prefix.priority = Priority.First + 50;
                 harmony.Patch(target, prefix: prefix);
-                Log.Message("[RimMT] parallel.jobPartition V0.4.10 installed. Supported custom global Work searches are reordered nearest-first per call; Vanilla Reachability/validator/final selection remain authoritative.");
+                Log.Message("[RimMT] parallel.jobPartition V0.4.11 installed. Defined-ThingRequest custom global fallbacks are now supported; exact-distance stable ordering is applied per call while Vanilla Reachability/validator/final selection remain authoritative.");
             }
             catch (Exception ex)
             {
                 FeatureGate.Suppress(FeatureId, "single-call partition patch failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] parallel.jobPartition V0.4.10 patch failed; Vanilla candidate order remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] parallel.jobPartition V0.4.11 patch failed; Vanilla candidate order remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -114,25 +122,35 @@ namespace RimMT
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return;
 
-            if (map == null || map.Disposed || !root.IsValid || !root.InBounds(map) || customGlobalSearchSet == null)
+            if (customGlobalSearchSet == null)
             {
-                Interlocked.Increment(ref nullOrInvalidFallbacks);
+                Interlocked.Increment(ref noCustomSetFallbacks);
                 return;
             }
 
-            // Narrow global-search shape only. Region-limited scans have different
-            // ordering/termination semantics and remain untouched.
-            if (!thingReq.IsUndefined || traversableRegionTypes != RegionType.Set_Passable ||
-                ignoreEntirelyForbiddenRegions || (!(searchRegionsMax < 0) && !forceAllowGlobalSearch))
+            if (map == null || map.Disposed || !root.IsValid || !root.InBounds(map))
             {
-                Interlocked.Increment(ref unsupportedShapeFallbacks);
+                Interlocked.Increment(ref invalidMapRootFallbacks);
+                return;
+            }
+
+            // Vanilla never consumes customGlobalSearchSet when global search is disabled.
+            if (!(searchRegionsMax < 0 || forceAllowGlobalSearch))
+            {
+                Interlocked.Increment(ref globalDisabledFallbacks);
+                return;
+            }
+
+            // Vanilla itself logs this global-search shape as unsupported because its
+            // Reachability check is based on passable regions only. Keep it fail-closed.
+            if (traversableRegionTypes != RegionType.Set_Passable)
+            {
+                Interlocked.Increment(ref nonPassableRegionTypeFallbacks);
                 return;
             }
 
             try
             {
-                // Do not overlap with PUAH/vanilla hauling acceleration. Exact live
-                // ListerHaulables identity stays on the established V0.4.6 path.
                 List<Thing> haulables = map.listerHaulables == null ? null : map.listerHaulables.ThingsPotentiallyNeedingHauling();
                 if (haulables != null && ReferenceEquals(customGlobalSearchSet, haulables))
                 {
@@ -160,27 +178,37 @@ namespace RimMT
                     Thing thing = things[i];
                     if (thing == null)
                     {
-                        Interlocked.Increment(ref nullOrInvalidFallbacks);
+                        Interlocked.Increment(ref invalidCandidateFallbacks);
                         return;
                     }
+
                     IntVec3 pos = thing.PositionHeld;
                     if (!pos.IsValid || !pos.InBounds(map))
                     {
-                        Interlocked.Increment(ref nullOrInvalidFallbacks);
+                        Interlocked.Increment(ref invalidCandidateFallbacks);
                         return;
                     }
+
                     xs[i] = pos.x;
                     zs[i] = pos.z;
                 }
 
-                int[] ringKeys = new int[count];
+                int[] distanceKeys = new int[count];
                 bool workerDone = false;
                 if (count >= WorkerAssistMinCount)
-                    workerDone = TryWorkerRingKeys(root.x, root.z, xs, zs, ringKeys);
+                    workerDone = TryWorkerDistanceKeys(root.x, root.z, xs, zs, distanceKeys);
                 if (!workerDone)
-                    ComputeRingKeys(root.x, root.z, xs, zs, ringKeys);
+                    ComputeDistanceKeys(root.x, root.z, xs, zs, distanceKeys);
 
-                customGlobalSearchSet = StableRingPartition(things, ringKeys);
+                long sortStarted = Stopwatch.GetTimestamp();
+                customGlobalSearchSet = StableExactDistanceOrder(things, distanceKeys);
+                Interlocked.Add(ref sortTicks, Stopwatch.GetTimestamp() - sortStarted);
+
+                if (!thingReq.IsUndefined)
+                    Interlocked.Increment(ref definedRequestExpanded);
+                if (ignoreEntirelyForbiddenRegions)
+                    Interlocked.Increment(ref forbiddenRegionExpanded);
+
                 Interlocked.Increment(ref supportedCalls);
                 Interlocked.Increment(ref reorderedCalls);
                 Interlocked.Add(ref candidatesReordered, count);
@@ -189,7 +217,7 @@ namespace RimMT
             {
                 Interlocked.Increment(ref failures);
                 CircuitBreaker.RecordFailure(FeatureId, ex);
-                Log.Warning("[RimMT] parallel.jobPartition V0.4.10 runtime failure; this call keeps Vanilla candidate order. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] parallel.jobPartition V0.4.11 runtime failure; this call keeps Vanilla candidate order. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -225,7 +253,7 @@ namespace RimMT
             return true;
         }
 
-        private static bool TryWorkerRingKeys(int rootX, int rootZ, int[] xs, int[] zs, int[] ringKeys)
+        private static bool TryWorkerDistanceKeys(int rootX, int rootZ, int[] xs, int[] zs, int[] distanceKeys)
         {
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             if (scheduler == null || scheduler.Pending > 0 || scheduler.ActiveWorkers >= scheduler.WorkerCount)
@@ -237,7 +265,7 @@ namespace RimMT
             {
                 try
                 {
-                    ComputeRingKeys(rootX, rootZ, xs, zs, ringKeys);
+                    ComputeDistanceKeys(rootX, rootZ, xs, zs, distanceKeys);
                 }
                 finally
                 {
@@ -271,41 +299,43 @@ namespace RimMT
             return true;
         }
 
-        private static void ComputeRingKeys(int rootX, int rootZ, int[] xs, int[] zs, int[] ringKeys)
+        private static void ComputeDistanceKeys(int rootX, int rootZ, int[] xs, int[] zs, int[] distanceKeys)
         {
-            for (int i = 0; i < ringKeys.Length; i++)
+            for (int i = 0; i < distanceKeys.Length; i++)
             {
-                int dx = Math.Abs(xs[i] - rootX);
-                int dz = Math.Abs(zs[i] - rootZ);
-                ringKeys[i] = Math.Max(dx, dz) / RingSize;
+                int dx = xs[i] - rootX;
+                int dz = zs[i] - rootZ;
+                distanceKeys[i] = dx * dx + dz * dz;
             }
         }
 
-        private static Thing[] StableRingPartition(Thing[] source, int[] ringKeys)
+        private static Thing[] StableExactDistanceOrder(Thing[] source, int[] distanceKeys)
         {
-            int count = source.Length;
-            int maxRing = 0;
-            for (int i = 0; i < count; i++)
-                if (ringKeys[i] > maxRing) maxRing = ringKeys[i];
-
-            int[] counts = new int[maxRing + 1];
-            for (int i = 0; i < count; i++)
-                counts[ringKeys[i]]++;
-
-            int[] offsets = new int[counts.Length];
-            int sum = 0;
-            for (int i = 0; i < counts.Length; i++)
+            CandidateOrder[] order = new CandidateOrder[source.Length];
+            for (int i = 0; i < source.Length; i++)
             {
-                offsets[i] = sum;
-                sum += counts[i];
+                order[i].Thing = source[i];
+                order[i].DistanceSquared = distanceKeys[i];
+                order[i].OriginalIndex = i;
             }
 
-            Thing[] result = new Thing[count];
-            int[] write = new int[offsets.Length];
-            Array.Copy(offsets, write, offsets.Length);
-            for (int i = 0; i < count; i++)
-                result[write[ringKeys[i]]++] = source[i];
+            Array.Sort(order, delegate(CandidateOrder a, CandidateOrder b)
+            {
+                int distance = a.DistanceSquared.CompareTo(b.DistanceSquared);
+                return distance != 0 ? distance : a.OriginalIndex.CompareTo(b.OriginalIndex);
+            });
+
+            Thing[] result = new Thing[order.Length];
+            for (int i = 0; i < order.Length; i++)
+                result[i] = order[i].Thing;
             return result;
+        }
+
+        private struct CandidateOrder
+        {
+            internal Thing Thing;
+            internal int DistanceSquared;
+            internal int OriginalIndex;
         }
 
         private static void UpdateMax(ref long field, int value)
@@ -323,18 +353,26 @@ namespace RimMT
             long reordered = Interlocked.Read(ref reorderedCalls);
             long candidates = Interlocked.Read(ref candidatesReordered);
             double avg = reordered <= 0 ? 0.0 : candidates / (double)reordered;
-            return "Single-call work partition V0.4.10: compatibilityReady=" + compatibilityReady +
+            double sortMs = Interlocked.Read(ref sortTicks) * 1000.0 / Stopwatch.Frequency;
+            double avgSortUs = reordered <= 0 ? 0.0 : sortMs * 1000.0 / reordered;
+
+            return "Single-call work partition V0.4.11: compatibilityReady=" + compatibilityReady +
                 ", observed=" + Interlocked.Read(ref observedCalls) +
                 ", supported=" + Interlocked.Read(ref supportedCalls) +
                 ", reordered=" + reordered +
+                ", definedRequestExpanded=" + Interlocked.Read(ref definedRequestExpanded) +
+                ", forbiddenRegionExpanded=" + Interlocked.Read(ref forbiddenRegionExpanded) +
                 ", listInputs=" + Interlocked.Read(ref listInputs) +
                 ", collectionInputs=" + Interlocked.Read(ref collectionInputs) +
                 ", enumerableInputs=" + Interlocked.Read(ref enumerableInputs) +
                 ", materialized=" + Interlocked.Read(ref materializedEnumerables) +
                 ", smallSet=" + Interlocked.Read(ref smallSetFallbacks) +
                 ", haulableBypass=" + Interlocked.Read(ref haulableBypasses) +
-                ", unsupportedShape=" + Interlocked.Read(ref unsupportedShapeFallbacks) +
-                ", invalid=" + Interlocked.Read(ref nullOrInvalidFallbacks) +
+                ", noCustomSet=" + Interlocked.Read(ref noCustomSetFallbacks) +
+                ", invalidMapRoot=" + Interlocked.Read(ref invalidMapRootFallbacks) +
+                ", invalidCandidate=" + Interlocked.Read(ref invalidCandidateFallbacks) +
+                ", globalDisabled=" + Interlocked.Read(ref globalDisabledFallbacks) +
+                ", nonPassableRegionType=" + Interlocked.Read(ref nonPassableRegionTypeFallbacks) +
                 ", workerAttempts=" + Interlocked.Read(ref workerAssistAttempts) +
                 ", workerImmediate=" + Interlocked.Read(ref workerAssistCompleted) +
                 ", workerWaits=" + Interlocked.Read(ref workerAssistTimeouts) +
@@ -343,8 +381,10 @@ namespace RimMT
                 ", candidatesReordered=" + candidates +
                 ", avgCandidates=" + avg.ToString("F1") +
                 ", maxCandidates=" + Interlocked.Read(ref maxCandidateCount) +
+                ", sortTotalMs=" + sortMs.ToString("F3") +
+                ", avgSortUs=" + avgSortUs.ToString("F2") +
                 ", failures=" + Interlocked.Read(ref failures) +
-                ". Candidate membership is unchanged; Vanilla GenClosest/Reachability/validator/final selection remains authoritative.";
+                ". Candidate membership is unchanged; exact-distance ties retain original order; Vanilla region search/Reachability/validator/final selection remains authoritative.";
         }
     }
 }
