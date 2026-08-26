@@ -35,13 +35,13 @@ namespace RimMT
             FeatureGate.Register("diagnostics.hotPaths", true, "PathFinder / JobGiver / tick hot-path profiler");
             FeatureGate.Register("diagnostics.pathFinder", true, "PathFinder.FindPath overload probes");
             FeatureGate.Register("diagnostics.jobGiver", true, "JobGiver_Work.TryIssueJobPackage probes");
-            FeatureGate.Register("diagnostics.jobGiverDetail", false, "V0.4.5.2 temporary on-demand per-WorkGiver phase capture; no resident detail detours during normal play");
+            FeatureGate.Register("diagnostics.jobGiverDetail", false, "Temporary on-demand per-WorkGiver phase capture; no resident detail detours during normal play");
             FeatureGate.Register("ui.textCache", true, "Text metric result cache");
             FeatureGate.Register("ui.overlayCache", true, "Visible Thing overlay scan cache");
             FeatureGate.Register("ai.reachNoCache", false, "Topology-aware short-lived negative reachability cache");
             FeatureGate.Register("ai.pathTopology", true, "PathGrid topology invalidation hooks for reachability generations");
-            FeatureGate.Register("parallel.pathSnapshot", true, "Worker-side immutable path A* parity validation; vanilla authoritative while production parity is tightened");
-            FeatureGate.Register("parallel.jobScan", false, "JobGiver candidate snapshot scan; not implemented yet");
+            FeatureGate.Register("parallel.pathSnapshot", true, "Bounded worker-side immutable path parity validation; Vanilla authoritative");
+            FeatureGate.Register("parallel.jobScan", true, "V0.4.6 production Work search accelerator: worker-built hauling spatial index plus main-thread revalidation");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.thingTick", false, "Whitelist module not implemented");
@@ -59,6 +59,7 @@ namespace RimMT
             FeatureGate.SetEnabled("ui.overlayCache", settings.OverlayCache);
             FeatureGate.SetEnabled("ai.reachNoCache", settings.ReachNoCache);
             FeatureGate.SetEnabled("parallel.pathSnapshot", settings.PathSnapshotWorker);
+            FeatureGate.SetEnabled("parallel.jobScan", settings.WorkScanAcceleration);
         }
 
         internal static void OnMainThreadFrame()
@@ -96,6 +97,7 @@ namespace RimMT
             {
                 compatibilityChecked = true;
                 CompatibilityGuard.RunBaselineScan();
+                HaulWorkAccelerator.MarkCompatibilityReady();
                 RimMTDiagnostics.LogStartupReport();
             }
         }
