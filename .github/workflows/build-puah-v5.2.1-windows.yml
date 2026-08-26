@@ -1,0 +1,82 @@
+name: Build PUAH Hotfix 1.5 V5.2.1 Windows
+
+on:
+  push:
+    branches:
+      - feature/puah-v5.2.1-safe-performance
+    paths:
+      - 'PUAH-1.5-Queue-Hotfix/Source/PerformanceV52.cs'
+      - 'ci/PUAH_Performance_Stub.cs'
+      - '.github/workflows/build-puah-v5.2.1-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve compiler
+        shell: pwsh
+        run: |
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path $csc)) { $csc = "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe" }
+          if (-not (Test-Path $csc)) { throw 'csc.exe not found' }
+          "CSC=$csc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Harmony 2.0.4
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .ci-harmony | Out-Null
+          Invoke-WebRequest 'https://www.nuget.org/api/v2/package/Lib.Harmony/2.0.4' -OutFile .ci-harmony\harmony.nupkg
+          Expand-Archive .ci-harmony\harmony.nupkg .ci-harmony\pkg -Force
+          $h = Get-ChildItem .ci-harmony\pkg -Recurse -Filter 0Harmony.dll | Select-Object -First 1
+          if (-not $h) { throw '0Harmony.dll not found' }
+          Copy-Item $h.FullName .ci-harmony\0Harmony.dll -Force
+
+      - name: Build minimal Assembly-CSharp stub
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .ci-refs | Out-Null
+          & $env:CSC /nologo /target:library /out:.ci-refs\Assembly-CSharp.dll ci\PUAH_Performance_Stub.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile standalone performance DLL
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force PUAH-1.5-Queue-Hotfix\1.5\Assemblies | Out-Null
+          & $env:CSC /nologo /target:library /optimize+ /out:PUAH-1.5-Queue-Hotfix\1.5\Assemblies\PUAHPerformanceV52.dll /reference:.ci-refs\Assembly-CSharp.dll /reference:.ci-harmony\0Harmony.dll PUAH-1.5-Queue-Hotfix\Source\PerformanceV52.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify binary markers
+        shell: pwsh
+        run: |
+          $dll = 'PUAH-1.5-Queue-Hotfix\1.5\Assemblies\PUAHPerformanceV52.dll'
+          if (-not (Test-Path $dll)) { throw 'performance DLL missing' }
+          $bytes = [IO.File]::ReadAllBytes($dll)
+          $text = [Text.Encoding]::Unicode.GetString($bytes)
+          if (-not $text.Contains('PUAH 1.5 Queue Hotfix V5.2.1')) { throw 'V5.2.1 marker missing' }
+          if (-not $text.Contains('JobOnThing is NOT transpiled')) { throw 'safe marker missing' }
+
+      - name: Commit compiled performance DLL
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add PUAH-1.5-Queue-Hotfix/1.5/Assemblies/PUAHPerformanceV52.dll
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m 'Build PUAH V5.2.1 performance DLL on Windows [skip ci]'
+            git push
+          }
+
+      - name: Upload performance DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: PUAH-V5.2.1-Performance-DLL
+          path: PUAH-1.5-Queue-Hotfix/1.5/Assemblies/PUAHPerformanceV52.dll
+          if-no-files-found: error
