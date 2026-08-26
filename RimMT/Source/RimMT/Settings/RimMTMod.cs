@@ -32,6 +32,10 @@ namespace RimMT
 
             listing.Label("RimMT_Production".Translate());
             listing.CheckboxLabeled("RimMT_WorkScanAcceleration".Translate(), ref Settings.WorkScanAcceleration, "RimMT_WorkScanAccelerationDesc".Translate());
+            listing.Label("RimMT_JobPartitionWorkerThreshold".Translate(Settings.JobPartitionWorkerThreshold));
+            int workerThreshold = Mathf.RoundToInt(listing.Slider(Settings.JobPartitionWorkerThreshold, 96f, 2048f) / 32f) * 32;
+            Settings.JobPartitionWorkerThreshold = Mathf.Clamp(workerThreshold, 96, 2048);
+            listing.Label("RimMT_JobPartitionWorkerThresholdDesc".Translate());
             listing.GapLine();
 
             listing.Label("RimMT_Experimental".Translate());
