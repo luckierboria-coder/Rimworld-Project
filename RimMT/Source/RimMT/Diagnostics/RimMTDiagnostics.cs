@@ -82,6 +82,7 @@ namespace RimMT
             sb.AppendLine("Text cache: hits=" + TextMetricCache.Hits + ", misses=" + TextMetricCache.Misses);
             sb.AppendLine("Overlay cache: sourceScans=" + ThingOverlayCache.SourceScans + ", cachedFrames=" + ThingOverlayCache.CachedFrames);
             sb.AppendLine("Reach NO cache: hits=" + ReachabilityNoCache.Hits + ", stores=" + ReachabilityNoCache.Stores + ", topologyGen=" + ReachabilityNoCache.TopologyGeneration);
+            sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotWorker.Summary());
             sb.AppendLine(HotPathProfiler.Summary("TickManager.DoSingleTick"));
             if (RuntimeCompatibility.ButterPlusPlusActive)
@@ -90,6 +91,7 @@ namespace RimMT
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath[pawn]"));
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath[traverseParms]"));
             sb.AppendLine(HotPathProfiler.Summary("JobGiver_Work.TryIssueJobPackage"));
+            sb.AppendLine(WorkGiverProfiler.Summary(12));
             foreach (string line in CompatibilityGuard.Report)
                 sb.AppendLine(" * " + line);
             Log.Message(sb.ToString());
