@@ -25,9 +25,7 @@ namespace RimMT
     // reachability work.
     //
     // Very large snapshots may opportunistically ask one RimMT worker to compute the
-    // pure integer ring keys. The main thread waits only for a tiny bounded window; on
-    // timeout it computes the same keys locally. No live Verse object is dereferenced by
-    // the worker.
+    // pure integer ring keys. No live Verse object is dereferenced by the worker.
     internal static class SingleCallCandidatePartition
     {
         private const string FeatureId = "parallel.jobPartition";
@@ -83,8 +81,6 @@ namespace RimMT
 
                 CompatibilityGuard.RegisterTarget(FeatureId, target);
                 HarmonyMethod prefix = new HarmonyMethod(typeof(SingleCallCandidatePartition), nameof(Prefix));
-                // Run before RimMT's V0.4.6 hauling prefix; exact ListerHaulables calls are
-                // explicitly bypassed below and remain owned by that existing fast path.
                 prefix.priority = Priority.First + 50;
                 harmony.Patch(target, prefix: prefix);
                 Log.Message("[RimMT] parallel.jobPartition V0.4.10 installed. Supported custom global Work searches are reordered nearest-first per call; Vanilla Reachability/validator/final selection remain authoritative.");
@@ -101,24 +97,6 @@ namespace RimMT
             compatibilityReady = true;
         }
 
-        public static void Prefix(
-            IntVec3 root,
-            Map map,
-            ThingRequest thingReq,
-            IEnumerable<Thing> customGlobalSearchSet,
-            int searchRegionsMin,
-            int searchRegionsMax,
-            bool forceAllowGlobalSearch,
-            RegionType traversableRegionTypes,
-            bool ignoreEntirelyForbiddenRegions,
-            ref IEnumerable<Thing> __state)
-        {
-            // __state is unused as Harmony state; keeping the signature simple avoids
-            // touching the original return value. Candidate replacement happens through
-            // the explicit argument patch below in PrefixArgs.
-        }
-
-        // Harmony maps the argument name exactly, so this overload is the actual patch.
         public static void Prefix(
             IntVec3 root,
             Map map,
@@ -202,11 +180,7 @@ namespace RimMT
                 if (!workerDone)
                     ComputeRingKeys(root.x, root.z, xs, zs, ringKeys);
 
-                Thing[] reordered = StableRingPartition(things, ringKeys);
-                if (reordered == null)
-                    return;
-
-                customGlobalSearchSet = reordered;
+                customGlobalSearchSet = StableRingPartition(things, ringKeys);
                 Interlocked.Increment(ref supportedCalls);
                 Interlocked.Increment(ref reorderedCalls);
                 Interlocked.Add(ref candidatesReordered, count);
@@ -236,16 +210,12 @@ namespace RimMT
             if (collection != null)
             {
                 Interlocked.Increment(ref collectionInputs);
-                int count = collection.Count;
-                result = new Thing[count];
+                result = new Thing[collection.Count];
                 collection.CopyTo(result, 0);
                 Interlocked.Increment(ref materializedEnumerables);
                 return true;
             }
 
-            // Lazy enumerables are materialized exactly once, which matches the single
-            // enumeration Vanilla would perform. This is intentionally limited to the
-            // already-whitelisted global search shape above.
             Interlocked.Increment(ref enumerableInputs);
             List<Thing> temp = new List<Thing>();
             foreach (Thing thing in source)
@@ -295,10 +265,6 @@ namespace RimMT
                 return true;
             }
 
-            // The worker owns ringKeys until it signals. Do not compute into the same
-            // array concurrently. Wait for completion here; this path is only admitted
-            // when the scheduler was idle and count >= 512. The bounded spin above is
-            // diagnostic telemetry for whether the worker was effectively immediate.
             Interlocked.Increment(ref workerAssistTimeouts);
             done.Wait();
             done.Dispose();
@@ -307,8 +273,7 @@ namespace RimMT
 
         private static void ComputeRingKeys(int rootX, int rootZ, int[] xs, int[] zs, int[] ringKeys)
         {
-            int count = ringKeys.Length;
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < ringKeys.Length; i++)
             {
                 int dx = Math.Abs(xs[i] - rootX);
                 int dz = Math.Abs(zs[i] - rootZ);
