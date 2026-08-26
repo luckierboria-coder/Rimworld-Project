@@ -4,12 +4,15 @@
   <RimMT_AdaptiveBurst>Adaptive burst scheduling</RimMT_AdaptiveBurst>
   <RimMT_AdaptiveBurstDesc>Detects tick spikes and temporarily defers background worker jobs so high-priority work gets the CPU first.</RimMT_AdaptiveBurstDesc>
   <RimMT_HotPathDiagnostics>Profile PathFinder and JobGiver hot paths</RimMT_HotPathDiagnostics>
-  <RimMT_HotPathDiagnosticsDesc>Records call counts, average time, approximate P95 and maximum spikes for PathFinder and the outer JobGiver call. Detailed per-WorkGiver probes are now temporary/on-demand.</RimMT_HotPathDiagnosticsDesc>
+  <RimMT_HotPathDiagnosticsDesc>Records call counts, average time, approximate P95 and maximum spikes for PathFinder and the outer JobGiver call. Detailed per-WorkGiver probes are temporary/on-demand.</RimMT_HotPathDiagnosticsDesc>
   <RimMT_TextCache>Cache text measurements</RimMT_TextCache>
   <RimMT_TextCacheDesc>Caches repeated UI text size/height calculations. Low risk; automatically disabled if another mod patches the same methods.</RimMT_TextCacheDesc>
   <RimMT_OverlayCache>Cache visible Thing overlays</RimMT_OverlayCache>
   <RimMT_OverlayCacheDesc>Avoids scanning every overlay-capable Thing every rendered frame while the camera is stationary. Draw calls remain on the main thread.</RimMT_OverlayCacheDesc>
   <RimMT_OverlayRefresh>Overlay cache refresh: {0} frames</RimMT_OverlayRefresh>
+  <RimMT_Production>Production optimization</RimMT_Production>
+  <RimMT_WorkScanAcceleration>Accelerate safe Work searches (V0.4.6)</RimMT_WorkScanAcceleration>
+  <RimMT_WorkScanAccelerationDesc>Production fast-path for a strict whitelist of Vanilla Work searches. V0.4.6 starts with non-prioritized hauling: a worker builds a spatial index of the live haulable list, then the main thread checks only nearby candidates with Vanilla reachability and WorkGiver validation. Eligible hits skip Vanilla's full haulable-list GenClosest scan. Unsupported, stale, patched or ambiguous calls fall back to Vanilla.</RimMT_WorkScanAccelerationDesc>
   <RimMT_Experimental>Experimental</RimMT_Experimental>
   <RimMT_PathSnapshotWorker>Bounded Path snapshot parity validation (V0.4.5.2)</RimMT_PathSnapshotWorker>
   <RimMT_PathSnapshotWorkerDesc>Runs immutable worker A* only as a bounded shadow validator. V0.4.5.2 samples eligible medium-distance paths, permits at most one shadow task at a time, yields under high load, and stops after the validation quota. Vanilla PawnPath remains authoritative.</RimMT_PathSnapshotWorkerDesc>
