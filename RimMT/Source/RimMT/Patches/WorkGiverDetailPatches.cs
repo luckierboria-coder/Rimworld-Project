@@ -4,6 +4,7 @@ using System.Reflection;
 using HarmonyLib;
 using RimWorld;
 using Verse;
+using Verse.AI;
 
 namespace RimMT
 {
@@ -24,6 +25,8 @@ namespace RimMT
         {
             if (harmony == null)
                 return;
+
+            PatchJobPackageScope(harmony);
 
             HashSet<MethodBase> patched = new HashSet<MethodBase>();
             int candidates = 0;
@@ -92,8 +95,44 @@ namespace RimMT
             }
             else
             {
-                Log.Message("[RimMT] diagnostics.jobGiverDetail patched " + (candidates - failures) + "/" + candidates + " WorkGiver phase methods. V0.4.5 reports per-def/type hot spots; gameplay remains vanilla-authoritative.");
+                Log.Message("[RimMT] diagnostics.jobGiverDetail patched " + (candidates - failures) + "/" + candidates + " WorkGiver phase methods. V0.4.5.1 samples 1/32 job-package scopes and bursts after >=64ms calls to reduce profiler-induced microstutter; gameplay remains vanilla-authoritative.");
             }
+        }
+
+        private static void PatchJobPackageScope(Harmony harmony)
+        {
+            try
+            {
+                MethodBase target = AccessTools.Method(typeof(JobGiver_Work), "TryIssueJobPackage", new Type[] { typeof(Pawn), typeof(JobIssueParams) });
+                if (target == null)
+                {
+                    FeatureGate.Suppress("diagnostics.jobGiverDetail", "JobGiver_Work.TryIssueJobPackage was not found");
+                    Log.Warning("[RimMT] diagnostics.jobGiverDetail disabled: JobGiver_Work.TryIssueJobPackage was not found.");
+                    return;
+                }
+
+                HarmonyMethod prefix = new HarmonyMethod(typeof(WorkGiverDetailPatches), nameof(JobPackagePrefix));
+                prefix.priority = Priority.First;
+                HarmonyMethod finalizer = new HarmonyMethod(typeof(WorkGiverDetailPatches), nameof(JobPackageFinalizer));
+                finalizer.priority = Priority.Last;
+                harmony.Patch(target, prefix: prefix, finalizer: finalizer);
+            }
+            catch (Exception ex)
+            {
+                FeatureGate.Suppress("diagnostics.jobGiverDetail", "job-package sampling scope patch failed: " + ex.GetType().Name);
+                Log.Warning("[RimMT] diagnostics.jobGiverDetail disabled: job-package sampling scope patch failed. " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        public static void JobPackagePrefix(ref WorkGiverProfiler.JobPackageScope __state)
+        {
+            __state = WorkGiverProfiler.BeginJobPackage();
+        }
+
+        public static Exception JobPackageFinalizer(Exception __exception, WorkGiverProfiler.JobPackageScope __state)
+        {
+            WorkGiverProfiler.EndJobPackage(__state);
+            return __exception;
         }
 
         public static void Prefix(ref long __state)
