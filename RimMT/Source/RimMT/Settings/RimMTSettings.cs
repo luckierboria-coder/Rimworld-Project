@@ -13,6 +13,7 @@ namespace RimMT
         public bool HotPathDiagnostics = true;
         public bool PathSnapshotWorker = true;
         public bool WorkScanAcceleration = true;
+        public int JobPartitionWorkerThreshold = 512;
 
         public override void ExposeData()
         {
@@ -25,8 +26,10 @@ namespace RimMT
             Scribe_Values.Look(ref HotPathDiagnostics, "hotPathDiagnostics", true);
             Scribe_Values.Look(ref PathSnapshotWorker, "pathSnapshotWorker", true);
             Scribe_Values.Look(ref WorkScanAcceleration, "workScanAcceleration", true);
+            Scribe_Values.Look(ref JobPartitionWorkerThreshold, "jobPartitionWorkerThreshold", 512);
             OverlayRefreshFrames = Clamp(OverlayRefreshFrames, 5, 120);
             ReachNoCacheTtl = Clamp(ReachNoCacheTtl, 5, 60);
+            JobPartitionWorkerThreshold = Clamp(JobPartitionWorkerThreshold, 96, 2048);
         }
 
         private static int Clamp(int value, int min, int max)
