@@ -28,7 +28,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.10 playtest initialized. General custom global Work searches can be spatially partitioned per call before Vanilla GenClosest; exact hauling fast paths remain separate. Reachability, WorkGiver validators, reservations and final Jobs remain main-thread authoritative. Butter++ logical-tick barriers and V0.4.8 bounded slow JobPackage tracing are retained.");
+                Log.Message("[RimMT] V0.4.11 playtest initialized. The validated V0.4.10 single-call JobGiver partition now admits defined-ThingRequest custom global fallbacks and uses exact-distance stable ordering. Vanilla region search, Reachability, WorkGiver validators, reservations and final Jobs remain main-thread authoritative. Exact hauling fast paths remain separate; Butter++ logical-tick barriers and bounded slow JobPackage tracing are retained.");
             }
             catch (Exception ex)
             {
