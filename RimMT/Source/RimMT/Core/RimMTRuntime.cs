@@ -43,6 +43,7 @@ namespace RimMT
             FeatureGate.Register("parallel.pathSnapshot", true, "Bounded worker-side immutable path parity validation; Vanilla authoritative");
             FeatureGate.Register("parallel.jobScan", true, "V0.4.6 Work scanner accelerator: worker-built hauling spatial index plus main-thread revalidation");
             FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
+            FeatureGate.Register("parallel.jobCandidates", true, "V0.4.9 stable worker ordering for large custom global Work candidate lists; Vanilla selection remains authoritative");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.thingTick", false, "Whitelist module not implemented");
@@ -62,6 +63,7 @@ namespace RimMT
             FeatureGate.SetEnabled("parallel.pathSnapshot", settings.PathSnapshotWorker);
             FeatureGate.SetEnabled("parallel.jobScan", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled("parallel.haulGlobal", settings.WorkScanAcceleration);
+            FeatureGate.SetEnabled("parallel.jobCandidates", settings.WorkScanAcceleration);
         }
 
         internal static void OnMainThreadFrame()
@@ -101,6 +103,7 @@ namespace RimMT
                 CompatibilityGuard.RunBaselineScan();
                 HaulWorkAccelerator.MarkCompatibilityReady();
                 GlobalHaulAccelerator.MarkCompatibilityReady();
+                WorkCandidateOrderAccelerator.MarkCompatibilityReady();
                 RimMTDiagnostics.LogStartupReport();
             }
         }
