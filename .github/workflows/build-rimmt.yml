@@ -48,11 +48,11 @@ jobs:
           Copy-Item "$src/1.5" $stage -Recurse
           Copy-Item "$src/LoadFolders.xml" $stage
           Copy-Item "$src/README.md" $stage
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.4.8_Playtest.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.4.10_Playtest.zip' -Force
 
       - name: Upload playtest artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.4.8-Playtest
-          path: build/RimMT_V0.4.8_Playtest.zip
+          name: RimMT-V0.4.10-Playtest
+          path: build/RimMT_V0.4.10_Playtest.zip
           if-no-files-found: error
