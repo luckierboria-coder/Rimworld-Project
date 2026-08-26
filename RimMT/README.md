@@ -6,39 +6,86 @@ Compatibility-first performance and multithreading runtime for **RimWorld 1.5.40
 
 RimMT exists to raise real gameplay TPS by moving CPU-heavy work away from the main thread **as far as compatibility allows**. The preferred pattern is immutable main-thread snapshot -> worker computation across spare cores -> main-thread validation/commit. Unknown or unsafe live-state mutation remains fail-closed with vanilla fallback.
 
-## V0.4.4.1 Playtest
+## V0.4.5 Playtest
 
-V0.4.4.1 is a Butter++ compatibility hotfix on top of the V0.4.4 path-cost work. Vanilla `PawnPath` is still authoritative; RimMT will not skip Vanilla pathfinding until the remaining dynamic path-cost components have been validated.
+V0.4.5 starts the next optimization phase after V0.4.4.1 validated sustained RimMT + Butter++ operation. The supplied long-session logs showed two clear targets:
 
-### Butter++ V0.4.4.1 fix
+- Path worker correctness is stable (found/legal/endpoint parity), but immutable snapshots were being rebuilt far too often.
+- `JobGiver_Work.TryIssueJobPackage` is a much larger main-thread spike source than the currently eligible PathFinder subset, including individual calls hundreds of milliseconds long.
 
-The first V0.4.4 playtest used the wrong reflection target for the Butter++ logical-tick state. Inspection of the supplied Butter++ 1.5 assembly shows two distinct states:
+V0.4.5 therefore focuses on **PathGrid invalidation quality** and **per-WorkGiver hotspot attribution** before any JobGiver result is moved off-thread.
 
-- `ButterPlusPlus.TickManagerPatch._midTickStarted` — manager-level state indicating that one logical `DoSingleTick` is still split/incomplete. **This is now RimMT's commit barrier.**
-- `ButterPlusPlus.TickListPatch.MidTick` / `_midTick` — lower-level TickList split state. V0.4.4.1 keeps this only as diagnostic telemetry; it does not define the manager-level commit boundary.
+### V0.4.5 PathGrid invalidation fix
 
-Because V0.4.4 looked for `TickManagerPatch.MidTick/_midTick`, the probe could be unavailable and RimMT would conservatively defer dispatcher draining forever. V0.4.4.1 fixes that failure mode and also guarantees that a future unreadable Butter++ probe produces an explicit fail-closed compatibility report instead of silently stranding queued callbacks.
+RimWorld 1.5 has nested `PathGrid.RecalculatePerceivedPathCostAt` overloads, and `RecalculateAllPerceivedPathCosts()` loops through cells and calls those recalculation methods. Earlier RimMT builds attached the same topology-generation postfix to all of them, so one logical update could be counted multiple times and a full-grid rebuild could create a generation storm.
 
-### Included V0.4.4 path work
+V0.4.5 keeps the fail-closed overload coverage but deduplicates the callbacks:
 
-- **Butter++ pressure sampling** — when Butter++ is active, RimMT samples CPU time spent in `TickManagerUpdate` slices rather than treating one split `DoSingleTick` as a single wall-clock sample.
-- **AdaptiveTPS remains supported separately** — its known `TickManagerUpdate` pacing transpiler is still allowed beside RimMT. Butter++ itself declares AdaptiveTPS incompatible, so RimMT reports that external conflict instead of treating the three-way combination as safe.
-- **Dubs Performance Analyzer warning with Butter++** — Butter++ declares DPA incompatible; RimMT reports the combination.
-- **Expanded immutable path cost snapshot** — worker A* captures pawn cardinal/diagonal move ticks and terrain `extraDraftedPerceivedPathCost` / `extraNonDraftedPerceivedPathCost` in addition to `PathGrid` costs.
-- **Vanilla-compatible float movement rounding** — RimWorld 1.5 uses float pawn move ticks and rounds accumulated known cost; RimMT mirrors that behavior without calling Unity APIs from workers.
-- **128-validation milestone** — longer sessions emit another automatic parity summary after 128 paired path validations.
+- the one-argument wrapper no longer generates a second invalidation after its core overload already did;
+- nested cell callbacks during `RecalculateAllPerceivedPathCosts()` are suppressed;
+- one full-grid recalculation produces one topology invalidation at its boundary;
+- normal core single-cell recalculations still invalidate immediately.
 
-### Path cost model status
+Runtime reports now include:
 
-V0.4.4.1 worker costs include:
+```text
+PathGrid invalidation V0.4.5: cell=..., bulk=..., skippedNestedWrapper=..., skippedBulkCells=...
+```
+
+This should reduce unnecessary path-snapshot rebuilds without weakening stale-result detection. Vanilla `PawnPath` is still authoritative.
+
+### V0.4.5 JobGiver detail profiler
+
+Long-session telemetry showed `JobGiver_Work.TryIssueJobPackage` dominating observed AI search time and producing very large single-call spikes. V0.4.5 does **not** send the whole JobGiver to worker threads; that would be unsafe with live Pawn/Thing/reservation state and a large mod list.
+
+Instead, V0.4.5 dynamically instruments concrete loaded `WorkGiver` implementations and attributes time by:
+
+- `WorkGiverDef.defName`
+- concrete worker type
+- phase/method
+
+The detail profiler covers useful scanner/job phases such as:
+
+- `ShouldSkip`
+- `NonScanJob`
+- `HasJobOnThing`
+- `HasJobOnCell`
+- `JobOnThing`
+- `JobOnCell`
+- `GetPriority(Pawn, TargetInfo)`
+
+Runtime reports print the top 12 entries by cumulative sampled time, with call count, total/average/max time and counts over 16/64/128 ms:
+
+```text
+JobGiver detail V0.4.5: patchedMethods=..., patchFailures=..., samples=..., tracked=...
+  #1 WorkGiverDef / Namespace.WorkerType [HasJobOnThing]: calls=..., totalMs=..., avgMs=..., maxMs=..., >=16ms=..., >=64ms=..., >=128ms=...
+```
+
+This is diagnostic groundwork for a later whitelist-only candidate-snapshot worker: main thread captures immutable candidates, workers pre-filter/score, then the main thread revalidates and creates/reserves the actual Job.
+
+## Butter++ compatibility baseline
+
+V0.4.5 carries forward the V0.4.4.1 Butter++ fix:
+
+- `ButterPlusPlus.TickManagerPatch._midTickStarted` is the manager-level logical-tick commit barrier.
+- `ButterPlusPlus.TickListPatch.MidTick` is diagnostic only.
+- Worker-to-main-thread callbacks drain only at a safe logical-tick boundary.
+- Butter++ mode samples `TickManagerUpdate` slices rather than treating a split `DoSingleTick` as one wall-clock sample.
+
+AdaptiveTPS remains supported separately. Butter++ itself declares AdaptiveTPS and Dubs Performance Analyzer incompatible, so RimMT does not claim those Butter++ combinations are safe.
+
+## Path worker status
+
+The V0.4.4 path cost model is retained. Worker costs currently include:
 
 - `PathGrid.pathGrid`
 - pawn `TicksPerMoveCardinal`
 - pawn `TicksPerMoveDiagonal`
 - drafted terrain extra path cost
 - non-drafted terrain extra path cost
+- Vanilla-compatible float movement rounding
 
-The following dynamic Vanilla costs are deliberately **not** treated as production-safe yet:
+The following dynamic Vanilla costs are still deliberately **not production-authoritative** in V0.4.5:
 
 - avoid grid
 - allowed-area penalty
@@ -48,20 +95,22 @@ The following dynamic Vanilla costs are deliberately **not** treated as producti
 - lord walk-grid cost
 - custom `PathFinderCostTuning` (still rejected by the worker eligibility gate)
 
-This is intentional. RimMT prioritizes compatibility over prematurely replacing Vanilla `FindPath` with a route that is legal but behaviorally different.
+The long-session validation pattern — mismatches consistently worker-cheaper rather than worker-costlier — is consistent with missing positive dynamic costs. V0.4.5 first removes snapshot churn and improves diagnostics; the dynamic-cost snapshot will be expanded only while keeping immutable worker inputs and Vanilla fallback.
 
 ### Enabled by default
 
 - **Worker runtime** — 1-8 persistent background workers with bounded queues and priority scheduling.
-- **Main-thread dispatcher** — worker callbacks are committed only on the main thread and, with Butter++, only when `TickManagerPatch._midTickStarted == false`.
-- **Adaptive burst scheduling** — background work yields during severe pressure. Uses `DoSingleTick` samples normally and Butter++ `TickManagerUpdate` slice samples in Butter++ mode.
+- **Main-thread dispatcher** — worker callbacks commit only on the main thread and respect the Butter++ manager-level logical-tick barrier.
+- **Adaptive burst scheduling** — background work reacts to recent main-thread pressure.
 - **Text metric cache** — caches repeated `Text.CalcHeight` / `Text.CalcSize` results.
-- **PathFinder / JobGiver diagnostics** — call counts and timing telemetry.
-- **Path snapshot worker validation** — supported long `OnCell` paths capture immutable data on the main thread and run independent A* work on RimMT workers.
+- **PathFinder diagnostics** — call counts, timing and paired path parity telemetry.
+- **JobGiver diagnostics** — outer `TryIssueJobPackage` timing plus V0.4.5 per-WorkGiver detail attribution.
+- **Path snapshot worker validation** — supported long `OnCell` paths run independent A* on immutable snapshots; Vanilla remains authoritative.
+- **PathGrid invalidation deduplication** — prevents nested/full-grid generation storms.
 
 ### Experimental and OFF by default
 
-- **Short-lived unreachable-result cache** — caches only recent `false` reachability results for cell targets and invalidates them when path topology changes.
+- **Short-lived unreachable-result cache** — caches only recent `false` reachability results and invalidates on topology changes.
 
 ### Intentionally NOT parallelized yet
 
@@ -72,13 +121,11 @@ This is intentional. RimMT prioritizes compatibility over prematurely replacing 
 - mutable map collections
 - faction ticks
 
-Worker code receives immutable snapshots/primitives only. Main-thread state remains authoritative and every module has vanilla fallback behavior.
-
 ## Compatibility policy
 
 RimMT is whitelist-only and fail-closed. Unknown Harmony conflicts suppress only the affected RimMT feature.
 
-Supported pacing configurations for V0.4.4.1:
+Supported pacing configurations:
 
 - RimMT alone
 - RimMT + AdaptiveTPS
@@ -89,41 +136,30 @@ Not claimed safe:
 - Butter++ + AdaptiveTPS — Butter++ declares `Blue.adaptiveTPS` incompatible.
 - Butter++ + Dubs Performance Analyzer — Butter++ declares both DPA package IDs incompatible.
 
-If another RimThreaded implementation is detected, gameplay optimizations are disabled entirely while diagnostics remain available.
+If another RimThreaded implementation is detected, gameplay optimizations are disabled while diagnostics remain available. RimMT does not write required state into saves.
 
-RimMT does not write required state into saves. Removing it should leave the save usable.
+## Testing V0.4.5
 
-## Testing V0.4.4.1
+For the Butter++ profile, enable RimMT + Butter++ and leave AdaptiveTPS / Dubs Performance Analyzer disabled.
 
-For the **Butter++ compatibility test**, enable Butter++ and RimMT, but disable AdaptiveTPS and Dubs Performance Analyzer so Butter++ is not being tested in combinations it explicitly declares incompatible.
-
-After loading an existing colony and playing normally, open **Options -> Mod settings -> RimMT** and click **Log current runtime compatibility / performance report**. Useful lines include:
+Play a real colony under normal load, then open **Options -> Mod settings -> RimMT** and click **Log current runtime compatibility / performance report**. Useful lines include:
 
 ```text
-[RimMT] Compatibility / performance report #... [startup|runtime]
+[RimMT] Compatibility / performance report #... [runtime]
 Runtime compatibility: Butter++=True (LogicalTickProbe=True, source=ButterPlusPlus.TickManagerPatch._midTickStarted, ...)
-Butter++ dispatcher barrier: logicalTickDrainDeferrals=..., probeFailureDrainDeferrals=..., managerProbeReadable=True, managerInProgress=...
-Load pressure: ..., sampleSource=Butter++ TickManagerUpdate slice, butterFrameSamples=...
-runtime.dispatcher: ACTIVE
-Dispatcher: queued=..., enqueued=..., drained=..., butterLogicalTickDeferred=..., butterProbeFailureDeferred=..., drainCalls=...
-Path snapshot worker: scheduled=..., completed=..., exactGeometry=..., workerFailures=...
-Path cost model V0.4.4: ...
+Dispatcher: queued=..., enqueued=..., drained=..., failures=..., drainCalls=...
+PathGrid invalidation V0.4.5: cell=..., bulk=..., skippedNestedWrapper=..., skippedBulkCells=...
+Path snapshot worker: scheduled=..., completed=..., snapshots=..., workerFailures=..., stale=...
 Path parity: foundParity=..., foundMismatch=..., workerLegal=..., workerIllegal=...
-Path cost parity: comparable=..., sameCost=..., workerCheaper=..., workerCostlier=..., within1pct=..., within5pct=...
-Path geometry parity: avgAbsNodeDelta=..., avgSharedPrefixFromStart=...
-Path snapshot ingress: observed=..., pawnOverload=..., traverseParmsOverload=...
+Path cost parity: sameCost=..., workerCheaper=..., workerCostlier=..., within1pct=..., within5pct=...
+JobGiver_Work.TryIssueJobPackage: calls=..., avgMs=..., p95Ms~=..., maxMs=...
+JobGiver detail V0.4.5: patchedMethods=..., patchFailures=..., samples=..., tracked=...
+  #1 ...
 ```
 
-Healthy Butter++ behavior should show:
+For PathGrid churn, compare `snapshots / scheduled` with V0.4.4.1 and inspect `skippedNestedWrapper` / `skippedBulkCells`. A healthy result should reduce unnecessary snapshot rebuilds while keeping `workerFailures=0`, `stale` low, and found/legal/endpoint parity intact.
 
-- `LogicalTickProbe=True`
-- source `ButterPlusPlus.TickManagerPatch._midTickStarted`
-- `managerProbeReadable=True`
-- `runtime.dispatcher: ACTIVE`
-- `drainCalls` rising over time
-- `butterFrameSamples` rising over time
-- logical-tick deferrals may rise during split ticks
-- `probeFailureDrainDeferrals=0` and `butterProbeFailureDeferred=0`
+For JobGiver, the top entries tell us which concrete scanners should be considered for the first whitelist-only worker prefilter. High `maxMs` and repeated `>=64ms` / `>=128ms` counts are especially important.
 
 ## Install
 
@@ -134,7 +170,7 @@ RimWorld/Mods/RimMT/About/About.xml
 RimWorld/Mods/RimMT/1.5/Assemblies/RimMT.dll
 ```
 
-Load Harmony before RimMT. When Butter++ is used, place RimMT before Butter++ so Butter++ can remain low in the mod list as its author recommends.
+Load Harmony before RimMT. When Butter++ is used, place RimMT before Butter++ so Butter++ can remain low in the mod list.
 
 ## Build
 
