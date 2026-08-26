@@ -84,6 +84,7 @@ namespace RimMT
             sb.AppendLine("Reach NO cache: hits=" + ReachabilityNoCache.Hits + ", stores=" + ReachabilityNoCache.Stores + ", topologyGen=" + ReachabilityNoCache.TopologyGeneration);
             sb.AppendLine(HaulWorkAccelerator.Summary());
             sb.AppendLine(GlobalHaulAccelerator.Summary());
+            sb.AppendLine(SingleCallCandidatePartition.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
             sb.AppendLine(PathSnapshotWorker.Summary());
