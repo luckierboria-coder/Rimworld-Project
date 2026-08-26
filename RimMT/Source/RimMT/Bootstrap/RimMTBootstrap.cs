@@ -21,8 +21,10 @@ namespace RimMT
                 Harmony harmony = new Harmony(HarmonyId);
                 TryPatchDispatcher(harmony);
                 RimMTPatches.Apply(harmony);
+                PathGridInvalidation.ApplyBulkGuard(harmony);
+                WorkGiverDetailPatches.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.4.1 playtest initialized. Butter++ manager-level logical-tick probe uses TickManagerPatch._midTickStarted; dispatcher commits remain fail-closed and path workers remain immutable-snapshot/vanilla-authoritative.");
+                Log.Message("[RimMT] V0.4.5 playtest initialized. Butter++ logical-tick barrier retained; PathGrid invalidation storms are deduplicated and detailed WorkGiver phase profiling is active. Path workers remain immutable-snapshot/vanilla-authoritative.");
             }
             catch (Exception ex)
             {
