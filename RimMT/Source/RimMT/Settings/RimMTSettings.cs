@@ -12,6 +12,7 @@ namespace RimMT
         public bool AdaptiveBurst = true;
         public bool HotPathDiagnostics = true;
         public bool PathSnapshotWorker = true;
+        public bool WorkScanAcceleration = true;
 
         public override void ExposeData()
         {
@@ -23,6 +24,7 @@ namespace RimMT
             Scribe_Values.Look(ref AdaptiveBurst, "adaptiveBurst", true);
             Scribe_Values.Look(ref HotPathDiagnostics, "hotPathDiagnostics", true);
             Scribe_Values.Look(ref PathSnapshotWorker, "pathSnapshotWorker", true);
+            Scribe_Values.Look(ref WorkScanAcceleration, "workScanAcceleration", true);
             OverlayRefreshFrames = Clamp(OverlayRefreshFrames, 5, 120);
             ReachNoCacheTtl = Clamp(ReachNoCacheTtl, 5, 60);
         }
