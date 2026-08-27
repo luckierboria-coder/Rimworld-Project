@@ -592,7 +592,6 @@ namespace RimMT
 
                 float maxDistanceSquared = maxDistance * maxDistance;
                 float bestDistanceSquared = float.MaxValue;
-                int bestSourceIndex = int.MaxValue;
                 int rootBucketX = root.x / BucketSize;
                 int rootBucketZ = root.z / BucketSize;
                 int maxRing = Math.Max(
@@ -649,7 +648,6 @@ namespace RimMT
 
                         chosen = thing;
                         bestDistanceSquared = candidate.DistanceSquared;
-                        bestSourceIndex = entry.SourceIndex;
                     }
 
                     float outsideMin = MinimumOutsideDistanceSquared(root, minBx, maxBx, minBz, maxBz);
@@ -739,7 +737,7 @@ namespace RimMT
             }
         }
 
-        private struct FabricEntry
+        internal struct FabricEntry
         {
             internal readonly Thing Thing;
             internal readonly int X;
