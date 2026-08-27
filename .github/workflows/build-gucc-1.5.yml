@@ -1,0 +1,80 @@
+name: Build GUCC RimWorld 1.5 Backport
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'GUCC-1.5-Backport/**'
+      - '.github/workflows/build-gucc-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download SteamCMD
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path steamcmd | Out-Null
+          Invoke-WebRequest -Uri 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile steamcmd.zip
+          Expand-Archive steamcmd.zip -DestinationPath steamcmd -Force
+
+      - name: Download GUCC workshop source
+        shell: pwsh
+        run: |
+          & .\steamcmd\steamcmd.exe +login anonymous +workshop_download_item 294100 3778461890 validate +quit
+          $candidate = Join-Path (Resolve-Path steamcmd).Path 'steamapps\workshop\content\294100\3778461890'
+          if (!(Test-Path $candidate)) {
+            $hit = Get-ChildItem -Path . -Directory -Recurse -Filter 3778461890 | Select-Object -First 1
+            if (!$hit) { throw 'SteamCMD did not download GUCC workshop item 3778461890.' }
+            $candidate = $hit.FullName
+          }
+          New-Item -ItemType Directory -Force -Path 'GUCC-1.5-Backport\work' | Out-Null
+          Copy-Item (Join-Path $candidate '*') 'GUCC-1.5-Backport\work' -Recurse -Force
+          if (!(Test-Path 'GUCC-1.5-Backport\work\Source\GiddyUpCavalryCharge.csproj')) {
+            throw 'Downloaded GUCC does not contain Source/GiddyUpCavalryCharge.csproj.'
+          }
+
+      - name: Apply RimWorld 1.5 backport
+        shell: pwsh
+        run: ./GUCC-1.5-Backport/Apply_15_Backport.ps1 -ModRoot 'GUCC-1.5-Backport/work'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore GUCC-1.5-Backport/work/Source/GiddyUpCavalryCharge.csproj
+
+      - name: Build Release
+        run: dotnet build GUCC-1.5-Backport/work/Source/GiddyUpCavalryCharge.csproj --configuration Release --no-restore
+
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dlls = Get-ChildItem 'GUCC-1.5-Backport\work\1.5\Assemblies\*.dll' -File
+          if (!$dlls) { throw 'No compiled GUCC DLL found.' }
+          $dlls | Format-Table Name,Length,LastWriteTime
+
+      - name: Package playtest build
+        shell: pwsh
+        run: |
+          $src = 'GUCC-1.5-Backport\work'
+          $stage = 'build\GUCC_1.5_Backport'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          foreach ($dir in @('About','Defs','Sounds','1.5')) {
+            if (Test-Path "$src\$dir") { Copy-Item "$src\$dir" $stage -Recurse -Force }
+          }
+          if (Test-Path "$src\README_1.5_BACKPORT.txt") { Copy-Item "$src\README_1.5_BACKPORT.txt" $stage }
+          Compress-Archive -Path $stage -DestinationPath 'build\GUCC_1.5_Backport_v0.8.5.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GUCC-1.5-Backport-v0.8.5
+          path: build/GUCC_1.5_Backport_v0.8.5.zip
+          if-no-files-found: error
