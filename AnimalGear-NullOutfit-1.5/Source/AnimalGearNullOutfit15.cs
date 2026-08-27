@@ -55,6 +55,7 @@ namespace Allen.AnimalGearNullOutfit15
         {
             if (tracker == null || CurPolicyField == null)
                 return;
+
             CurPolicyField.SetValue(tracker, policy);
             Pawn pawn = tracker.pawn;
             if (pawn != null && pawn.mindState != null)
@@ -67,6 +68,8 @@ namespace Allen.AnimalGearNullOutfit15
         }
     }
 
+    // Vanilla 1.5 converts a null curApparelPolicy to DefaultOutfit/Anything in this getter.
+    // For player animals only, preserve a genuine null as the explicit None state.
     [HarmonyPatch(typeof(Pawn_OutfitTracker), "get_CurrentApparelPolicy")]
     public static class PawnOutfitTracker_CurrentPolicy_Patch
     {
@@ -86,11 +89,14 @@ namespace Allen.AnimalGearNullOutfit15
         }
     }
 
+    // Let Animal Gear's own high-priority prefix establish/clear its caches, then skip the
+    // vanilla scan at the last prefix priority when the animal is explicitly on None.
     [HarmonyPatch(typeof(JobGiver_OptimizeApparel), "TryGiveJob")]
+    [HarmonyAfter(new[] { "AnimalGear" })]
     public static class JobGiverOptimizeApparel_NullPolicy_Patch
     {
         [HarmonyPrefix]
-        [HarmonyPriority(Priority.First)]
+        [HarmonyPriority(Priority.Last)]
         public static bool Prefix(Pawn pawn, ref Job __result)
         {
             if (!AnimalOutfitUtility.IsPlayerAnimal(pawn) || pawn.outfits == null)
@@ -104,6 +110,8 @@ namespace Allen.AnimalGearNullOutfit15
         }
     }
 
+    // Animal Gear inserts the vanilla Outfit column into the Animals table. The vanilla
+    // worker assumes CurrentApparelPolicy is never null, so animals get a null-aware cell.
     [HarmonyPatch(typeof(PawnColumnWorker_Outfit), "DoCell")]
     public static class PawnColumnWorkerOutfit_DoCell_Patch
     {
@@ -133,17 +141,26 @@ namespace Allen.AnimalGearNullOutfit15
             }
 
             ApparelPolicy raw = AnimalOutfitUtility.RawPolicy(pawn.outfits);
-            string label = AnimalOutfitUtility.DisplayLabel(raw);
 
-            if (Widgets.ButtonText(policyRect, label.Truncate(policyRect.width)))
+            if (pawn.IsQuestLodger())
             {
-                List<FloatMenuOption> options = BuildMenu(pawn, raw);
-                Find.WindowStack.Add(new FloatMenu(options));
+                Text.Anchor = TextAnchor.MiddleCenter;
+                Widgets.Label(policyRect, "Unchangeable".Translate().ToString().Truncate(policyRect.width));
+                Text.Anchor = TextAnchor.UpperLeft;
             }
+            else
+            {
+                string label = AnimalOutfitUtility.DisplayLabel(raw);
+                if (Widgets.ButtonText(policyRect, label.Truncate(policyRect.width)))
+                {
+                    List<FloatMenuOption> options = BuildMenu(pawn, raw);
+                    Find.WindowStack.Add(new FloatMenu(options));
+                }
 
-            TooltipHandler.TipRegion(policyRect, raw == null
-                ? "AnimalGearNullOutfit_NoneDesc".Translate().ToString()
-                : raw.label);
+                TooltipHandler.TipRegion(policyRect, raw == null
+                    ? "AnimalGearNullOutfit_NoneDesc".Translate().ToString()
+                    : raw.label);
+            }
 
             if (hasForced)
             {
@@ -158,6 +175,8 @@ namespace Allen.AnimalGearNullOutfit15
         {
             List<FloatMenuOption> list = new List<FloatMenuOption>();
 
+            // This is a persistent animal-only selectable state, not a database policy.
+            // It is always available, so a mistaken policy assignment can be reverted.
             list.Add(new FloatMenuOption("AnimalGearNullOutfit_None".Translate(), delegate
             {
                 AnimalOutfitUtility.SetRawPolicy(pawn.outfits, null);
@@ -184,6 +203,10 @@ namespace Allen.AnimalGearNullOutfit15
         }
     }
 
+    // Existing saves often already serialized Animal Gear animals with vanilla's default
+    // Anything policy because the getter had been accessed. Convert only that legacy default
+    // once; custom policies are preserved. The migration flag makes later explicit Anything
+    // selections stay explicit.
     public sealed class AnimalNullOutfitMigrationComponent : GameComponent
     {
         private bool migratedDefaultAnything;
