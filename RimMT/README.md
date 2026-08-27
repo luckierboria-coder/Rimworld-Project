@@ -4,42 +4,43 @@ Compatibility-first performance and multithreading runtime for **RimWorld 1.5.40
 
 ## Design goal
 
-RimMT exists to raise real gameplay TPS by moving or eliminating CPU-heavy main-thread work **as far as compatibility allows**. The preferred pattern is immutable main-thread snapshot -> worker computation across spare cores -> main-thread validation/commit. A production optimization only counts as successful when it actually lets RimWorld skip or materially shrink work that Vanilla would otherwise perform on the main thread. Unknown or unsafe live-state mutation remains fail-closed with Vanilla fallback.
+RimMT's first performance objective is **reducing visible stutter and frame-time spikes**. Raising average TPS is secondary. A change that improves average throughput but introduces new main-thread variance, waits, GC pressure, or occasional multi-millisecond stalls is considered a regression for the target playtest environment.
 
-## V0.4.8 Playtest
+The preferred architecture remains immutable main-thread snapshot -> worker computation across spare cores -> main-thread validation/commit, but only when that pipeline actually removes or shrinks expensive foreground work. RimMT does not pursue worker utilization for its own sake. Unknown or unsafe live-state mutation remains fail-closed with Vanilla fallback.
 
-V0.4.8 is a diagnosis-first JobGiver release. In the target heavily-modded colony, `JobGiver_Work.TryIssueJobPackage` remains the dominant observed hotspot (roughly 20-30 ms average with 128 ms-class p95 and occasional 600 ms-class spikes), while individual WorkGiver callback probes were mostly sub-millisecond. V0.4.8 therefore does **not** blindly move more live Verse state off-thread. Instead it expands the existing bounded 32-package capture so the next playtest can locate the real outer-search cost before production parallelism is widened.
+## V0.4.12 Playtest — Stutter First
 
-### Slow JobPackage trace
+V0.4.11 proved that the GenClosest candidate-ordering path was thread-safe, but the target colony reported more noticeable stutter. Runtime telemetry also showed an approximately 15 ms assist outlier and no clear improvement in average `JobGiver_Work.TryIssueJobPackage` cost, even though the observed maximum fell from roughly 964 ms to roughly 790 ms.
 
-The on-demand capture still temporarily instruments useful WorkGiver callbacks (`ShouldSkip`, `NonScanJob`, `HasJobOnThing`, `HasJobOnCell`, `JobOnThing`, `JobOnCell`, `GetPriority`), but V0.4.8 additionally measures selected infrastructure while an outer `TryIssueJobPackage` capture is active:
+V0.4.12 therefore deliberately removes foreground variance before attempting any broader search-space reduction:
+
+- Low-pressure GenClosest calls remain completely Vanilla.
+- Normal pressure only considers very large `IList<Thing>` candidate sets (512+).
+- High pressure threshold is 256 candidates; Critical is 192.
+- Unknown `IEnumerable<Thing>` and non-list collection shapes are **not materialized** by RimMT.
+- The V0.4.11 foreground worker assist and all `SpinWait` / micro-wait behavior are removed.
+- Thread-local integer scratch buffers replace per-call X/Z and worker-output arrays.
+- Candidate membership remains unchanged.
+- The assist has a 0.75 ms hard foreground budget. If the budget is exceeded, the reorder is abandoned before commit and Vanilla sees the original input.
+- Any assist taking at least 1.0 ms trips a 2-second cooldown so RimMT cannot repeatedly become its own stutter source.
+- Reentrant calls are bypassed.
+
+The runtime report exposes `budgetAbort`, `slowTrip`, `cooldownBypass`, `lowPressureBypass`, `nonListBypass`, `thresholdBypass(N/H/C)`, `avgAssistUs`, and `maxAssistUs` so the next playtest can judge **frame-time smoothness first**.
+
+## V0.4.8 diagnostic foundation retained
+
+The bounded JobGiver capture remains available. It instruments useful WorkGiver callbacks plus selected infrastructure while the capture is active:
 
 - `GenClosest.ClosestThing*` search calls;
 - `Reachability.CanReach`;
 - `RegionTraverser.BreadthFirstTraverse` when available;
 - concrete `WorkGiver_Scanner` `PotentialWorkThingsGlobal` / `PotentialWorkCellsGlobal` getters.
 
-All of these detours are diagnostic-only and exist only during the bounded capture. They are automatically unpatched when the 32 outer packages have completed.
-
-For any outer package taking at least 64 ms, RimMT now keeps a bounded slow trace (up to the 8 slowest packages), including the Pawn label and the 10 largest **inclusive** measured phases. Inclusive timing is intentional: nested phases may overlap, so the trace is used to locate hotspots rather than pretend nested timings add up to the outer duration.
-
-Runtime reports now contain both:
-
-```text
-JobGiver detail V0.4.8: ... slowPackages>=64ms=..., slowTracesKept=...
-  SLOW#1: totalMs=... pawn=... topInclusivePhases=...
-JobGiver infrastructure V0.4.8: samples=..., tracked=...
-  #1 GenClosest.ClosestThingReachable: ...
-  #2 Reachability.CanReach: ...
-```
-
-The intended V0.4.8 workflow is: run normally, start one bounded JobGiver detail capture from Mod Settings, let it auto-finish, then emit a runtime report. Production workerization should be based on those traces rather than guessing which WorkGiver is expensive.
+All of these detours are diagnostic-only and are automatically unpatched after the bounded 32-package capture completes. Slow packages keep bounded inclusive traces so hotspot work can be identified without permanently instrumenting every WorkGiver.
 
 ## Production hauling Work acceleration retained
 
 V0.4.6/V0.4.7 hauling fast paths remain present and fail-closed. The main thread snapshots haulable references/positions; workers may build immutable spatial indices; Vanilla reachability, validators, reservations and final jobs stay main-thread authoritative. Unsupported, stale, patched or ambiguous calls fall back immediately.
-
-The target colony showed that the V0.4.7 direct global hauling path can have very low real hit rate, especially for priority-bearing calls, so V0.4.8 does not broaden that path speculatively. The next production optimization should target whichever outer JobGiver phase the new slow traces prove to be dominant.
 
 ### Clean Pathfinding compatibility
 
