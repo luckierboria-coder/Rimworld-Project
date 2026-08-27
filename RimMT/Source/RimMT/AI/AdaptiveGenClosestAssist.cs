@@ -11,37 +11,29 @@ using Verse.AI;
 
 namespace RimMT
 {
-    // V0.4.13: true offload for repeated custom global Work scans.
+    // V0.4.14: persistent-map-fabric consumer.
     //
-    // V0.4.11/0.4.12 still did useful ordering work on the main thread. This version
-    // changes the model: the first observation snapshots only Thing refs + integer
-    // positions on the main thread, then a normal-priority RimMT worker builds an
-    // immutable spatial index. Later calls consume that already-built index without
-    // waiting for a worker. Vanilla live Reachability, the caller validator and final
-    // Job/Reservation authority remain on the main thread.
+    // V0.4.13 proved true worker offload is stable, but its per-IList position snapshots
+    // were invalidated by movement and its broad no-result queries still performed almost
+    // the full Vanilla set of live Reachability/validator calls. V0.4.14 therefore stores
+    // only source membership/order here. Position ownership moves to PersistentMapSearchFabric,
+    // which is maintained incrementally by worker cores.
     //
-    // The optimization is deliberately narrow:
-    //   * ThingRequest must be Undefined and customGlobalSearchSet must be an IList
-    //     (Thing/Pawn/Building).
-    //   * Global search must actually be allowed.
-    //   * Exact ListerHaulables searches are left to the dedicated V0.4.6/V0.4.7 path.
-    //   * Before every accelerated call, the source list is compared exactly against
-    //     the published snapshot (same refs and same positions). Any change falls back
-    //     to Vanilla for that call and schedules a background rebuild.
-    //   * The worker never dereferences Verse objects. It groups immutable integer
-    //     coordinates/source indices only.
+    // Stutter-first admission rule: if the already-built fabric predicts that a query would
+    // require more than MaxLiveChecks live candidates, RimMT does not attempt the query at all.
+    // Vanilla runs directly. This prevents the accelerator itself from creating 30-70 ms
+    // main-thread stalls while the next reachability-offload stage is developed.
     internal static class AdaptiveGenClosestAssist
     {
         private const string FeatureId = "parallel.jobPartition";
-        private const int BucketSize = 16;
         private const int MinCandidateCount = 96;
-        private const int MaxConcurrentBuilds = 4;
+        private const int MaxLiveChecks = 64;
 
         private static readonly ConditionalWeakTable<object, SourceState> States =
             new ConditionalWeakTable<object, SourceState>();
 
         private static volatile bool compatibilityReady;
-        private static int activeBuilds;
+        private static int nextSourceId;
 
         [ThreadStatic]
         private static int assistDepth;
@@ -55,20 +47,16 @@ namespace RimMT
         private static long shapeBypasses;
         private static long smallSetBypasses;
         private static long haulableBypasses;
-        private static long cacheMisses;
-        private static long cacheHits;
-        private static long cacheInvalidations;
-        private static long buildsScheduled;
-        private static long buildsPublished;
-        private static long buildsDiscarded;
-        private static long buildsRejected;
-        private static long buildBusyBypasses;
-        private static long snapshotCaptures;
-        private static long snapshotCandidates;
-        private static long snapshotCaptureTicks;
-        private static long validationPasses;
-        private static long validationFailures;
-        private static long validationTicks;
+        private static long mobileSourceBypasses;
+        private static long unspawnedSourceBypasses;
+        private static long membershipHits;
+        private static long membershipRefreshes;
+        private static long membershipRefreshRejected;
+        private static long fabricMisses;
+        private static long broadQueryBypasses;
+        private static long liveCapFallbacks;
+        private static long staleFallbacks;
+        private static long estimatedCandidatesTotal;
         private static long queryTicks;
         private static long queryTicksMax;
         private static long bucketVisits;
@@ -82,6 +70,8 @@ namespace RimMT
         {
             if (harmony == null)
                 return;
+
+            PersistentMapSearchFabric.Apply(harmony);
 
             try
             {
@@ -98,7 +88,7 @@ namespace RimMT
                 if (target == null)
                 {
                     FeatureGate.Suppress(FeatureId, "GenClosest.ClosestThingReachable target not found");
-                    Log.Warning("[RimMT] parallel.jobPartition V0.4.13 unavailable: GenClosest.ClosestThingReachable target not found.");
+                    Log.Warning("[RimMT] parallel.jobPartition V0.4.14 unavailable: GenClosest.ClosestThingReachable target not found.");
                     return;
                 }
 
@@ -107,12 +97,12 @@ namespace RimMT
                 prefix.priority = Priority.First + 100;
                 harmony.Patch(target, prefix: prefix);
 
-                Log.Message("[RimMT] parallel.jobPartition V0.4.13 true-offload installed. Repeated IList-backed custom global searches may use a worker-built immutable spatial index. The main thread never waits for index construction; any missing/stale snapshot falls back to Vanilla. Live Reachability, validators, reservations and final Jobs remain main-thread authoritative.");
+                Log.Message("[RimMT] parallel.jobPartition V0.4.14 persistent-fabric consumer installed. Source membership/order is cached on the main thread; positions are maintained incrementally by worker cores. Queries predicted to exceed 64 live Reachability/validator checks bypass RimMT and run Vanilla directly.");
             }
             catch (Exception ex)
             {
-                FeatureGate.Suppress(FeatureId, "true-offload GenClosest patch failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] parallel.jobPartition V0.4.13 patch failed; Vanilla GenClosest remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
+                FeatureGate.Suppress(FeatureId, "persistent-fabric GenClosest patch failed: " + ex.GetType().Name);
+                Log.Warning("[RimMT] parallel.jobPartition V0.4.14 patch failed; Vanilla GenClosest remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -149,9 +139,6 @@ namespace RimMT
                 return true;
             }
 
-            // With an undefined ThingRequest there is no region BFS branch; when global
-            // search is allowed Vanilla goes directly to ClosestThing_Global over the
-            // custom set. That exact shape is what this accelerator reproduces.
             if (!thingReq.IsUndefined ||
                 traversableRegionTypes != RegionType.Set_Passable ||
                 ignoreEntirelyForbiddenRegions ||
@@ -176,7 +163,6 @@ namespace RimMT
                 return true;
             }
 
-            // Exact hauling lists already have a stronger dedicated accelerator.
             IList<Thing> thingList = source as IList<Thing>;
             if (thingList != null)
             {
@@ -206,13 +192,55 @@ namespace RimMT
 
             Interlocked.Increment(ref eligibleCalls);
             SourceState state = States.GetValue(source, CreateState);
-            EnsureMapIdentity(state, map);
-
-            SpatialIndex index = state.Index;
-            if (index == null || index.Count != count)
+            if (state.MapId != map.uniqueID)
             {
-                Interlocked.Increment(ref cacheMisses);
-                EnsureBuildScheduled(source, kind, count, map, state);
+                state.MapId = map.uniqueID;
+                state.Members = null;
+            }
+
+            if (!MembershipMatches(source, kind, count, state.Members))
+            {
+                Thing[] members;
+                CaptureFailure failure;
+                if (!TryCaptureMembers(source, kind, count, map, out members, out failure))
+                {
+                    if (failure == CaptureFailure.Mobile)
+                        Interlocked.Increment(ref mobileSourceBypasses);
+                    else if (failure == CaptureFailure.Unspawned)
+                        Interlocked.Increment(ref unspawnedSourceBypasses);
+                    else
+                        Interlocked.Increment(ref fallbackCalls);
+                    return true;
+                }
+
+                state.Members = members;
+                Interlocked.Increment(ref membershipRefreshes);
+                if (!PersistentMapSearchFabric.RegisterOrUpdateSource(map, state.SourceId, members))
+                {
+                    Interlocked.Increment(ref membershipRefreshRejected);
+                    return true;
+                }
+
+                Interlocked.Increment(ref fallbackCalls);
+                return true;
+            }
+
+            Interlocked.Increment(ref membershipHits);
+
+            PersistentMapSearchFabric.SourceSnapshot snapshot;
+            if (!PersistentMapSearchFabric.TryGetSourceSnapshot(map, state.SourceId, out snapshot) ||
+                snapshot == null || snapshot.Count != count)
+            {
+                Interlocked.Increment(ref fabricMisses);
+                Interlocked.Increment(ref fallbackCalls);
+                return true;
+            }
+
+            int estimate = snapshot.EstimateCandidates(root, maxDistance, MaxLiveChecks);
+            Interlocked.Add(ref estimatedCandidatesTotal, estimate);
+            if (estimate > MaxLiveChecks)
+            {
+                Interlocked.Increment(ref broadQueryBypasses);
                 Interlocked.Increment(ref fallbackCalls);
                 return true;
             }
@@ -220,38 +248,26 @@ namespace RimMT
             assistDepth = 1;
             try
             {
-                long validationStart = Stopwatch.GetTimestamp();
-                bool valid = ValidateSnapshot(source, kind, count, map, index);
-                Interlocked.Add(ref validationTicks, Stopwatch.GetTimestamp() - validationStart);
-                if (!valid)
-                {
-                    Interlocked.Increment(ref validationFailures);
-                    Invalidate(state);
-                    EnsureBuildScheduled(source, kind, count, map, state);
-                    Interlocked.Increment(ref fallbackCalls);
-                    return true;
-                }
-
-                Interlocked.Increment(ref validationPasses);
-                Interlocked.Increment(ref cacheHits);
-
                 long queryStart = Stopwatch.GetTimestamp();
                 Thing chosen;
                 int visited;
                 int bucketsSeen;
                 int reaches;
                 int validations;
-                bool ok = index.TryFindClosest(
-                    root, map, peMode, traverseParams, maxDistance, validator,
-                    out chosen, out visited, out bucketsSeen, out reaches, out validations);
-                long queryElapsed = Stopwatch.GetTimestamp() - queryStart;
-                Interlocked.Add(ref queryTicks, queryElapsed);
-                UpdateMax(ref queryTicksMax, queryElapsed);
+                bool staleDetected;
+                bool ok = snapshot.TryFindClosest(
+                    root, map, peMode, traverseParams, maxDistance, validator, MaxLiveChecks,
+                    out chosen, out visited, out bucketsSeen, out reaches, out validations, out staleDetected);
+                long elapsed = Stopwatch.GetTimestamp() - queryStart;
+                Interlocked.Add(ref queryTicks, elapsed);
+                UpdateMax(ref queryTicksMax, elapsed);
 
                 if (!ok)
                 {
-                    Invalidate(state);
-                    EnsureBuildScheduled(source, kind, count, map, state);
+                    if (staleDetected)
+                        Interlocked.Increment(ref staleFallbacks);
+                    else
+                        Interlocked.Increment(ref liveCapFallbacks);
                     Interlocked.Increment(ref fallbackCalls);
                     return true;
                 }
@@ -273,7 +289,7 @@ namespace RimMT
             {
                 Interlocked.Increment(ref failures);
                 CircuitBreaker.RecordFailure(FeatureId, ex);
-                Log.Warning("[RimMT] parallel.jobPartition V0.4.13 runtime failure; this call falls back to Vanilla. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] parallel.jobPartition V0.4.14 runtime failure; this call falls back to Vanilla. " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
             finally
@@ -284,19 +300,57 @@ namespace RimMT
 
         private static SourceState CreateState(object source)
         {
-            return new SourceState();
+            int id = Interlocked.Increment(ref nextSourceId);
+            if (id == 0)
+                id = Interlocked.Increment(ref nextSourceId);
+            return new SourceState { SourceId = id, MapId = int.MinValue };
         }
 
-        private static void EnsureMapIdentity(SourceState state, Map map)
+        private static bool MembershipMatches(object source, SourceKind kind, int count, Thing[] members)
         {
-            if (state.MapId == map.uniqueID && state.Width == map.Size.x && state.Height == map.Size.z)
-                return;
+            if (members == null || members.Length != count)
+                return false;
 
-            state.MapId = map.uniqueID;
-            state.Width = map.Size.x;
-            state.Height = map.Size.z;
-            state.Index = null;
-            Interlocked.Increment(ref state.BuildToken);
+            for (int i = 0; i < count; i++)
+            {
+                Thing current = GetThingAt(source, kind, i);
+                if (!ReferenceEquals(current, members[i]))
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool TryCaptureMembers(object source, SourceKind kind, int count, Map map, out Thing[] members, out CaptureFailure failure)
+        {
+            members = new Thing[count];
+            failure = CaptureFailure.None;
+            for (int i = 0; i < count; i++)
+            {
+                Thing thing = GetThingAt(source, kind, i);
+                if (thing == null)
+                {
+                    failure = CaptureFailure.Invalid;
+                    return false;
+                }
+                if (thing is Pawn)
+                {
+                    failure = CaptureFailure.Mobile;
+                    return false;
+                }
+                if (!thing.Spawned || thing.MapHeld != map)
+                {
+                    failure = CaptureFailure.Unspawned;
+                    return false;
+                }
+                IntVec3 pos = thing.Position;
+                if (!pos.IsValid || !pos.InBounds(map))
+                {
+                    failure = CaptureFailure.Invalid;
+                    return false;
+                }
+                members[i] = thing;
+            }
+            return true;
         }
 
         private static bool TryGetSourceShape(object source, out SourceKind kind, out int count)
@@ -345,162 +399,22 @@ namespace RimMT
             }
         }
 
-        private static bool ValidateSnapshot(object source, SourceKind kind, int count, Map map, SpatialIndex index)
-        {
-            if (index == null || index.Count != count || index.MapId != map.uniqueID ||
-                index.Width != map.Size.x || index.Height != map.Size.z)
-                return false;
-
-            for (int i = 0; i < count; i++)
-            {
-                Thing current = GetThingAt(source, kind, i);
-                if (current == null || !ReferenceEquals(current, index.SourceThings[i]))
-                    return false;
-
-                IntVec3 pos = current.PositionHeld;
-                if (!pos.IsValid || !pos.InBounds(map) ||
-                    pos.x != index.SourceXs[i] || pos.z != index.SourceZs[i])
-                    return false;
-            }
-
-            return true;
-        }
-
-        private static void EnsureBuildScheduled(
-            object source,
-            SourceKind kind,
-            int count,
-            Map map,
-            SourceState state)
-        {
-            if (count < MinCandidateCount || Volatile.Read(ref state.BuildInFlight) != 0)
-                return;
-
-            if (Volatile.Read(ref activeBuilds) >= MaxConcurrentBuilds)
-            {
-                Interlocked.Increment(ref buildBusyBypasses);
-                return;
-            }
-
-            JobScheduler scheduler = RimMTRuntime.Scheduler;
-            if (scheduler == null)
-                return;
-
-            Thing[] things = new Thing[count];
-            int[] xs = new int[count];
-            int[] zs = new int[count];
-
-            long captureStart = Stopwatch.GetTimestamp();
-            try
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    Thing thing = GetThingAt(source, kind, i);
-                    if (thing == null)
-                        return;
-
-                    IntVec3 pos = thing.PositionHeld;
-                    if (!pos.IsValid || !pos.InBounds(map))
-                        return;
-
-                    things[i] = thing;
-                    xs[i] = pos.x;
-                    zs[i] = pos.z;
-                }
-            }
-            finally
-            {
-                Interlocked.Add(ref snapshotCaptureTicks, Stopwatch.GetTimestamp() - captureStart);
-            }
-
-            Interlocked.Increment(ref snapshotCaptures);
-            Interlocked.Add(ref snapshotCandidates, count);
-
-            int token = Interlocked.Increment(ref state.BuildToken);
-            Volatile.Write(ref state.BuildInFlight, 1);
-            Interlocked.Increment(ref activeBuilds);
-            Interlocked.Increment(ref buildsScheduled);
-
-            int mapId = map.uniqueID;
-            int width = map.Size.x;
-            int height = map.Size.z;
-
-            bool accepted = scheduler.TryEnqueue(FeatureId, JobPriority.Normal, delegate
-            {
-                SpatialIndex built = SpatialIndex.Build(mapId, width, height, things, xs, zs);
-
-                bool queued = MainThreadDispatcher.TryEnqueue(delegate
-                {
-                    try
-                    {
-                        if (Volatile.Read(ref state.BuildToken) != token ||
-                            map.Disposed || map.uniqueID != mapId ||
-                            map.Size.x != width || map.Size.z != height)
-                        {
-                            Interlocked.Increment(ref buildsDiscarded);
-                            return;
-                        }
-
-                        state.Index = built;
-                        Interlocked.Increment(ref buildsPublished);
-                    }
-                    finally
-                    {
-                        Volatile.Write(ref state.BuildInFlight, 0);
-                        Interlocked.Decrement(ref activeBuilds);
-                    }
-                });
-
-                if (!queued)
-                {
-                    Volatile.Write(ref state.BuildInFlight, 0);
-                    Interlocked.Decrement(ref activeBuilds);
-                    Interlocked.Increment(ref buildsDiscarded);
-                }
-            });
-
-            if (!accepted)
-            {
-                Volatile.Write(ref state.BuildInFlight, 0);
-                Interlocked.Decrement(ref activeBuilds);
-                Interlocked.Increment(ref buildsRejected);
-            }
-        }
-
-        private static void Invalidate(SourceState state)
-        {
-            if (state.Index != null)
-            {
-                state.Index = null;
-                Interlocked.Increment(ref cacheInvalidations);
-            }
-            Interlocked.Increment(ref state.BuildToken);
-        }
-
         internal static string Summary()
         {
             long accelerated = Interlocked.Read(ref acceleratedCalls);
             long visited = Interlocked.Read(ref candidatesVisited);
             long avoided = Interlocked.Read(ref candidatesAvoided);
-            long validations = Interlocked.Read(ref validationPasses);
-            long captures = Interlocked.Read(ref snapshotCaptures);
-
+            long eligible = Interlocked.Read(ref eligibleCalls);
             double avgVisited = accelerated <= 0 ? 0.0 : visited / (double)accelerated;
             double avgAvoided = accelerated <= 0 ? 0.0 : avoided / (double)accelerated;
-            double avgValidationUs = validations <= 0
-                ? 0.0
-                : (Interlocked.Read(ref validationTicks) * 1000000.0 / Stopwatch.Frequency) / validations;
-            double avgQueryUs = accelerated <= 0
-                ? 0.0
-                : (Interlocked.Read(ref queryTicks) * 1000000.0 / Stopwatch.Frequency) / accelerated;
+            double avgEstimate = eligible <= 0 ? 0.0 : Interlocked.Read(ref estimatedCandidatesTotal) / (double)eligible;
+            double avgQueryUs = accelerated <= 0 ? 0.0 :
+                (Interlocked.Read(ref queryTicks) * 1000000.0 / Stopwatch.Frequency) / accelerated;
             double maxQueryUs = Interlocked.Read(ref queryTicksMax) * 1000000.0 / Stopwatch.Frequency;
-            double avgCaptureUs = captures <= 0
-                ? 0.0
-                : (Interlocked.Read(ref snapshotCaptureTicks) * 1000000.0 / Stopwatch.Frequency) / captures;
 
-            return "Background GenClosest true-offload V0.4.13: compatibilityReady=" + compatibilityReady +
+            return "Persistent-fabric GenClosest V0.4.14: compatibilityReady=" + compatibilityReady +
                 ", observed=" + Interlocked.Read(ref observedCalls) +
-                ", eligible=" + Interlocked.Read(ref eligibleCalls) +
+                ", eligible=" + eligible +
                 ", accelerated=" + accelerated +
                 ", acceleratedNoResult=" + Interlocked.Read(ref acceleratedNoResult) +
                 ", fallback=" + Interlocked.Read(ref fallbackCalls) +
@@ -508,21 +422,17 @@ namespace RimMT
                 ", shapeBypass=" + Interlocked.Read(ref shapeBypasses) +
                 ", smallSetBypass=" + Interlocked.Read(ref smallSetBypasses) +
                 ", haulableBypass=" + Interlocked.Read(ref haulableBypasses) +
-                ", cacheHits=" + Interlocked.Read(ref cacheHits) +
-                ", cacheMisses=" + Interlocked.Read(ref cacheMisses) +
-                ", invalidations=" + Interlocked.Read(ref cacheInvalidations) +
-                ", buildsScheduled=" + Interlocked.Read(ref buildsScheduled) +
-                ", buildsPublished=" + Interlocked.Read(ref buildsPublished) +
-                ", buildsDiscarded=" + Interlocked.Read(ref buildsDiscarded) +
-                ", buildsRejected=" + Interlocked.Read(ref buildsRejected) +
-                ", buildBusyBypass=" + Interlocked.Read(ref buildBusyBypasses) +
-                ", activeBuilds=" + Volatile.Read(ref activeBuilds) +
-                ", snapshotCaptures=" + captures +
-                ", snapshotCandidates=" + Interlocked.Read(ref snapshotCandidates) +
-                ", avgCaptureUs=" + avgCaptureUs.ToString("F2") +
-                ", validationPasses=" + validations +
-                ", validationFailures=" + Interlocked.Read(ref validationFailures) +
-                ", avgValidationUs=" + avgValidationUs.ToString("F2") +
+                ", mobileSourceBypass=" + Interlocked.Read(ref mobileSourceBypasses) +
+                ", unspawnedSourceBypass=" + Interlocked.Read(ref unspawnedSourceBypasses) +
+                ", membershipHits=" + Interlocked.Read(ref membershipHits) +
+                ", membershipRefreshes=" + Interlocked.Read(ref membershipRefreshes) +
+                ", membershipRefreshRejected=" + Interlocked.Read(ref membershipRefreshRejected) +
+                ", fabricMisses=" + Interlocked.Read(ref fabricMisses) +
+                ", broadQueryBypass=" + Interlocked.Read(ref broadQueryBypasses) +
+                ", liveCapFallback=" + Interlocked.Read(ref liveCapFallbacks) +
+                ", staleFallback=" + Interlocked.Read(ref staleFallbacks) +
+                ", maxLiveChecks=" + MaxLiveChecks +
+                ", avgEstimate=" + avgEstimate.ToString("F1") +
                 ", avgQueryUs=" + avgQueryUs.ToString("F2") +
                 ", maxQueryUs=" + maxQueryUs.ToString("F2") +
                 ", bucketVisits=" + Interlocked.Read(ref bucketVisits) +
@@ -533,15 +443,15 @@ namespace RimMT
                 ", reachChecks=" + Interlocked.Read(ref reachabilityChecks) +
                 ", validatorChecks=" + Interlocked.Read(ref validatorChecks) +
                 ", failures=" + Interlocked.Read(ref failures) +
-                ". Index construction runs on RimMT workers at normal priority and is never awaited by the main thread. Snapshot validation and live Reachability/validator/final selection remain main-thread authoritative.";
+                ". Stutter-first admission refuses broad queries before any live Reachability/validator work; Vanilla remains authoritative for every bypass.";
         }
 
         private static void UpdateMax(ref long field, long value)
         {
-            long observed;
-            while (value > (observed = Interlocked.Read(ref field)))
+            long seen;
+            while (value > (seen = Interlocked.Read(ref field)))
             {
-                if (Interlocked.CompareExchange(ref field, value, observed) == observed)
+                if (Interlocked.CompareExchange(ref field, value, seen) == seen)
                     break;
             }
         }
@@ -554,288 +464,19 @@ namespace RimMT
             Building
         }
 
-        private sealed class SourceState
+        private enum CaptureFailure
         {
-            internal int MapId = int.MinValue;
-            internal int Width;
-            internal int Height;
-            internal int BuildToken;
-            internal int BuildInFlight;
-            internal SpatialIndex Index;
+            None,
+            Invalid,
+            Mobile,
+            Unspawned
         }
 
-        private sealed class SpatialIndex
+        private sealed class SourceState
         {
-            private readonly int bucketCols;
-            private readonly int bucketRows;
-            private readonly int[] bucketOffsets;
-            private readonly int[] sourceIndices;
-
-            internal readonly int MapId;
-            internal readonly int Width;
-            internal readonly int Height;
-            internal readonly Thing[] SourceThings;
-            internal readonly int[] SourceXs;
-            internal readonly int[] SourceZs;
-            internal int Count { get { return SourceThings.Length; } }
-
-            private SpatialIndex(
-                int mapId,
-                int width,
-                int height,
-                Thing[] things,
-                int[] xs,
-                int[] zs,
-                int bucketCols,
-                int bucketRows,
-                int[] bucketOffsets,
-                int[] sourceIndices)
-            {
-                MapId = mapId;
-                Width = width;
-                Height = height;
-                SourceThings = things;
-                SourceXs = xs;
-                SourceZs = zs;
-                this.bucketCols = bucketCols;
-                this.bucketRows = bucketRows;
-                this.bucketOffsets = bucketOffsets;
-                this.sourceIndices = sourceIndices;
-            }
-
-            internal static SpatialIndex Build(
-                int mapId,
-                int width,
-                int height,
-                Thing[] things,
-                int[] xs,
-                int[] zs)
-            {
-                int cols = Math.Max(1, (width + BucketSize - 1) / BucketSize);
-                int rows = Math.Max(1, (height + BucketSize - 1) / BucketSize);
-                int bucketCount = cols * rows;
-                int[] counts = new int[bucketCount];
-
-                for (int i = 0; i < things.Length; i++)
-                {
-                    int key = (xs[i] / BucketSize) + (zs[i] / BucketSize) * cols;
-                    counts[key]++;
-                }
-
-                int[] offsets = new int[bucketCount + 1];
-                int sum = 0;
-                for (int i = 0; i < bucketCount; i++)
-                {
-                    offsets[i] = sum;
-                    sum += counts[i];
-                }
-                offsets[bucketCount] = sum;
-
-                int[] write = new int[bucketCount];
-                Array.Copy(offsets, write, bucketCount);
-                int[] indices = new int[things.Length];
-                for (int i = 0; i < things.Length; i++)
-                {
-                    int key = (xs[i] / BucketSize) + (zs[i] / BucketSize) * cols;
-                    indices[write[key]++] = i;
-                }
-
-                return new SpatialIndex(mapId, width, height, things, xs, zs, cols, rows, offsets, indices);
-            }
-
-            internal bool TryFindClosest(
-                IntVec3 root,
-                Map map,
-                PathEndMode peMode,
-                TraverseParms traverseParams,
-                float maxDistance,
-                Predicate<Thing> validator,
-                out Thing chosen,
-                out int visited,
-                out int bucketsSeen,
-                out int reaches,
-                out int validations)
-            {
-                chosen = null;
-                visited = 0;
-                bucketsSeen = 0;
-                reaches = 0;
-                validations = 0;
-
-                if (map == null || map.uniqueID != MapId || Width != map.Size.x ||
-                    Height != map.Size.z || !root.InBounds(map))
-                    return false;
-
-                float maxDistanceSquared = maxDistance * maxDistance;
-                float bestDistanceSquared = float.MaxValue;
-                int bestSourceIndex = int.MaxValue;
-
-                int rootBucketX = root.x / BucketSize;
-                int rootBucketZ = root.z / BucketSize;
-                int maxRing = Math.Max(
-                    Math.Max(rootBucketX, bucketCols - 1 - rootBucketX),
-                    Math.Max(rootBucketZ, bucketRows - 1 - rootBucketZ));
-
-                for (int ring = 0; ring <= maxRing; ring++)
-                {
-                    int minBx = Math.Max(0, rootBucketX - ring);
-                    int maxBx = Math.Min(bucketCols - 1, rootBucketX + ring);
-                    int minBz = Math.Max(0, rootBucketZ - ring);
-                    int maxBz = Math.Min(bucketRows - 1, rootBucketZ + ring);
-
-                    if (ring == 0)
-                    {
-                        ProcessBucket(
-                            rootBucketX, rootBucketZ, root, map, peMode, traverseParams,
-                            maxDistanceSquared, validator, ref chosen, ref bestDistanceSquared,
-                            ref bestSourceIndex, ref visited, ref bucketsSeen, ref reaches, ref validations);
-                    }
-                    else
-                    {
-                        for (int bx = minBx; bx <= maxBx; bx++)
-                        {
-                            ProcessBucket(
-                                bx, minBz, root, map, peMode, traverseParams,
-                                maxDistanceSquared, validator, ref chosen, ref bestDistanceSquared,
-                                ref bestSourceIndex, ref visited, ref bucketsSeen, ref reaches, ref validations);
-
-                            if (maxBz != minBz)
-                                ProcessBucket(
-                                    bx, maxBz, root, map, peMode, traverseParams,
-                                    maxDistanceSquared, validator, ref chosen, ref bestDistanceSquared,
-                                    ref bestSourceIndex, ref visited, ref bucketsSeen, ref reaches, ref validations);
-                        }
-
-                        for (int bz = minBz + 1; bz < maxBz; bz++)
-                        {
-                            ProcessBucket(
-                                minBx, bz, root, map, peMode, traverseParams,
-                                maxDistanceSquared, validator, ref chosen, ref bestDistanceSquared,
-                                ref bestSourceIndex, ref visited, ref bucketsSeen, ref reaches, ref validations);
-
-                            if (maxBx != minBx)
-                                ProcessBucket(
-                                    maxBx, bz, root, map, peMode, traverseParams,
-                                    maxDistanceSquared, validator, ref chosen, ref bestDistanceSquared,
-                                    ref bestSourceIndex, ref visited, ref bucketsSeen, ref reaches, ref validations);
-                        }
-                    }
-
-                    float outsideMin = MinimumOutsideDistanceSquared(root, minBx, maxBx, minBz, maxBz);
-                    if (chosen != null && outsideMin > bestDistanceSquared)
-                        break;
-                    if (chosen == null && outsideMin > maxDistanceSquared)
-                        break;
-                }
-
-                return true;
-            }
-
-            private void ProcessBucket(
-                int bx,
-                int bz,
-                IntVec3 root,
-                Map map,
-                PathEndMode peMode,
-                TraverseParms traverseParams,
-                float maxDistanceSquared,
-                Predicate<Thing> validator,
-                ref Thing chosen,
-                ref float bestDistanceSquared,
-                ref int bestSourceIndex,
-                ref int visited,
-                ref int bucketsSeen,
-                ref int reaches,
-                ref int validations)
-            {
-                if (bx < 0 || bz < 0 || bx >= bucketCols || bz >= bucketRows)
-                    return;
-
-                int key = bx + bz * bucketCols;
-                int start = bucketOffsets[key];
-                int end = bucketOffsets[key + 1];
-                if (start == end)
-                    return;
-
-                bucketsSeen++;
-                for (int p = start; p < end; p++)
-                {
-                    int sourceIndex = sourceIndices[p];
-                    Thing thing = SourceThings[sourceIndex];
-                    visited++;
-
-                    if (thing == null)
-                        continue;
-                    if (!thing.Spawned && !HaulAIUtility.IsInHaulableInventory(thing))
-                        continue;
-
-                    IntVec3 pos = thing.PositionHeld;
-                    float distanceSquared = (float)(root - pos).LengthHorizontalSquared;
-
-                    if (distanceSquared > maxDistanceSquared)
-                        continue;
-
-                    if (distanceSquared > bestDistanceSquared)
-                        continue;
-
-                    // Vanilla ClosestThing_Global keeps the first candidate at an equal
-                    // distance. Preserve that tie-break even though buckets change scan order.
-                    if (distanceSquared == bestDistanceSquared && sourceIndex >= bestSourceIndex)
-                        continue;
-
-                    reaches++;
-                    if (!map.reachability.CanReach(root, (LocalTargetInfo)thing, peMode, traverseParams))
-                        continue;
-
-                    if (validator != null)
-                    {
-                        validations++;
-                        if (!validator(thing))
-                            continue;
-                    }
-
-                    chosen = thing;
-                    bestDistanceSquared = distanceSquared;
-                    bestSourceIndex = sourceIndex;
-                }
-            }
-
-            private float MinimumOutsideDistanceSquared(
-                IntVec3 root,
-                int minBx,
-                int maxBx,
-                int minBz,
-                int maxBz)
-            {
-                int minX = minBx * BucketSize;
-                int maxX = Math.Min(Width - 1, (maxBx + 1) * BucketSize - 1);
-                int minZ = minBz * BucketSize;
-                int maxZ = Math.Min(Height - 1, (maxBz + 1) * BucketSize - 1);
-                long best = long.MaxValue;
-
-                if (minBx > 0)
-                {
-                    long dx = root.x - (minX - 1);
-                    best = Math.Min(best, dx * dx);
-                }
-                if (maxBx < bucketCols - 1)
-                {
-                    long dx = (maxX + 1) - root.x;
-                    best = Math.Min(best, dx * dx);
-                }
-                if (minBz > 0)
-                {
-                    long dz = root.z - (minZ - 1);
-                    best = Math.Min(best, dz * dz);
-                }
-                if (maxBz < bucketRows - 1)
-                {
-                    long dz = (maxZ + 1) - root.z;
-                    best = Math.Min(best, dz * dz);
-                }
-
-                return best == long.MaxValue ? float.MaxValue : (float)best;
-            }
+            internal int SourceId;
+            internal int MapId;
+            internal Thing[] Members;
         }
     }
 }
