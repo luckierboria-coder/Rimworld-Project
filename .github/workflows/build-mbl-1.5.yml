@@ -15,10 +15,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Apply v4 JobStarter compatibility fix
-        shell: pwsh
-        run: ./Mrd-Bedless-Lovin-1.5-Backport/Apply_v4_JobStarterFix.ps1
-
       - name: Restore texture asset
         shell: cmd
         run: call Mrd-Bedless-Lovin-1.5-Backport\Restore_Assets.bat
@@ -41,7 +37,13 @@ jobs:
           if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
           Get-Item $dll | Format-List FullName,Length,LastWriteTime
 
-      - name: Package v4 playtest
+      - name: Remove compile-only Harmony copy
+        shell: pwsh
+        run: |
+          $harmony = 'Mrd-Bedless-Lovin-1.5-Backport/1.5/Assemblies/0Harmony.dll'
+          if (Test-Path $harmony) { Remove-Item $harmony -Force }
+
+      - name: Package v5 RJW bridge playtest
         shell: pwsh
         run: |
           $src = 'Mrd-Bedless-Lovin-1.5-Backport'
@@ -52,11 +54,11 @@ jobs:
           Copy-Item "$src/1.5" $stage -Recurse
           Copy-Item "$src/README_1.5_BACKPORT.txt" $stage
           Copy-Item "$src/README_CN.txt" $stage
-          Compress-Archive -Path $stage -DestinationPath 'build/Mrd_Bedless_Lovin_1.5_Backport_Bilingual_v4.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/Mrd_Bedless_Lovin_1.5_Backport_Bilingual_v5_RJWBridge.zip' -Force
 
-      - name: Upload v4 artifact
+      - name: Upload v5 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Mrd-Bedless-Lovin-1.5-Backport-v4
-          path: build/Mrd_Bedless_Lovin_1.5_Backport_Bilingual_v4.zip
+          name: Mrd-Bedless-Lovin-1.5-Backport-v5-RJWBridge
+          path: build/Mrd_Bedless_Lovin_1.5_Backport_Bilingual_v5_RJWBridge.zip
           if-no-files-found: error
