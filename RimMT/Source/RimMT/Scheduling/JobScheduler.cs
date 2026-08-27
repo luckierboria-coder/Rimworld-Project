@@ -10,7 +10,12 @@ namespace RimMT
         private readonly ConcurrentQueue<WorkItem> high = new ConcurrentQueue<WorkItem>();
         private readonly ConcurrentQueue<WorkItem> normal = new ConcurrentQueue<WorkItem>();
         private readonly ConcurrentQueue<WorkItem> background = new ConcurrentQueue<WorkItem>();
-        private readonly AutoResetEvent signal = new AutoResetEvent(false);
+
+        // V0.4.15: AutoResetEvent collapsed a ParallelFor wake burst into one signal.
+        // A single worker could therefore drain dozens of short batches before the other
+        // workers' 5 ms polling timeout expired. SemaphoreSlim preserves wake credits so
+        // independent batches actually fan out across the worker pool.
+        private readonly SemaphoreSlim wakeSignal = new SemaphoreSlim(0, int.MaxValue);
         private readonly object enqueueSync = new object();
         private readonly Thread[] workers;
         private readonly int maxPending;
@@ -23,6 +28,9 @@ namespace RimMT
         private long completed;
         private long rejected;
         private long failures;
+        private long wakeReleases;
+        private long multiWakeCalls;
+        private long parallelBatchesEnqueued;
 
         public int WorkerCount { get { return workers.Length; } }
         public int Pending { get { return Volatile.Read(ref pending); } }
@@ -33,6 +41,9 @@ namespace RimMT
         public long Completed { get { return Interlocked.Read(ref completed); } }
         public long Rejected { get { return Interlocked.Read(ref rejected); } }
         public long Failures { get { return Interlocked.Read(ref failures); } }
+        public long WakeReleases { get { return Interlocked.Read(ref wakeReleases); } }
+        public long MultiWakeCalls { get { return Interlocked.Read(ref multiWakeCalls); } }
+        public long ParallelBatchesEnqueued { get { return Interlocked.Read(ref parallelBatchesEnqueued); } }
 
         public JobScheduler(int workerCount, int maxPendingJobs)
         {
@@ -70,7 +81,7 @@ namespace RimMT
                 UpdateHighWater(nowPending);
                 EnqueueReserved(new WorkItem(featureId, action), priority);
             }
-            signal.Set();
+            WakeWorkers(1);
             return true;
         }
 
@@ -98,6 +109,7 @@ namespace RimMT
 
                 int nowPending = Interlocked.Add(ref pending, batches);
                 Interlocked.Add(ref enqueued, batches);
+                Interlocked.Add(ref parallelBatchesEnqueued, batches);
                 UpdateHighWater(nowPending);
 
                 for (int start = fromInclusive; start < toExclusive; start += batchSize)
@@ -116,8 +128,30 @@ namespace RimMT
 
             if (Volatile.Read(ref remaining) == 0 && onComplete != null)
                 MainThreadDispatcher.TryEnqueue(onComplete);
-            signal.Set();
+
+            // Wake enough distinct sleepers to service this batch concurrently. We cap wake
+            // credits at WorkerCount: workers that finish early keep draining the shared queue.
+            WakeWorkers(Math.Min(batches, workers.Length));
             return true;
+        }
+
+        private void WakeWorkers(int count)
+        {
+            if (count <= 0)
+                return;
+            if (count > 1)
+                Interlocked.Increment(ref multiWakeCalls);
+            Interlocked.Add(ref wakeReleases, count);
+            try
+            {
+                wakeSignal.Release(count);
+            }
+            catch (SemaphoreFullException)
+            {
+                // Intentionally fail-open: workers also poll every 5 ms and queued work remains
+                // intact. With maxPending bounded and int.MaxValue semaphore capacity this is
+                // defensive only.
+            }
         }
 
         private void EnqueueReserved(WorkItem item, JobPriority priority)
@@ -137,7 +171,7 @@ namespace RimMT
                 WorkItem item;
                 if (!TryTake(out item))
                 {
-                    signal.WaitOne(5);
+                    wakeSignal.Wait(5);
                     continue;
                 }
 
