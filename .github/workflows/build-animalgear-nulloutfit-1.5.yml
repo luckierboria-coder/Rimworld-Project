@@ -8,6 +8,9 @@ on:
       - '.github/workflows/build-animalgear-nulloutfit-1.5.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -48,10 +51,12 @@ Load after Animal Gear.
 
 Behavior:
 - Player animals default to None / 无方案.
-- None is an animal-only outfit selector entry; colonist outfit UI is unchanged.
-- While None is selected, JobGiver_OptimizeApparel is skipped for that animal, so it does not search for apparel.
+- None / 无方案 is a permanent animal-only outfit selector entry and can always be selected again after choosing another policy by mistake.
+- Colonist outfit UI and policies are untouched; colonists never see this option.
+- While None / 无方案 is selected, JobGiver_OptimizeApparel is skipped for that animal, so it does not search for, optimize, replace, or automatically wear apparel.
 - Selecting a normal apparel policy re-enables Animal Gear apparel optimization normally.
-- On the first load of an existing save, player animals still using the vanilla default Anything policy are migrated to None. Custom animal policies are preserved.
+- On the first load of an existing save, player animals still using the vanilla default Anything policy are migrated once to None. Custom animal policies are preserved.
+- After that one-time migration, explicitly selecting Anything remains respected.
 '@ | Set-Content "$stage\README.txt" -Encoding UTF8
           Compress-Archive -Path $stage -DestinationPath 'build\AnimalGear_NullOutfit_1.5_DLL_READY.zip' -Force
 
@@ -61,3 +66,18 @@ Behavior:
           name: AnimalGear-NullOutfit-1.5-DLL-READY
           path: build/AnimalGear_NullOutfit_1.5_DLL_READY.zip
           if-no-files-found: error
+
+      - name: Publish stable ZIP to repository
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'dist-artifacts' | Out-Null
+          Copy-Item 'build\AnimalGear_NullOutfit_1.5_DLL_READY.zip' 'dist-artifacts\AnimalGear_NullOutfit_1.5_DLL_READY.zip' -Force
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'dist-artifacts/AnimalGear_NullOutfit_1.5_DLL_READY.zip'
+          if (git diff --cached --quiet) {
+            Write-Host 'Published ZIP is already current.'
+          } else {
+            git commit -m 'Publish Animal Gear Null Outfit 1.5 DLL-ready build'
+            git push
+          }
