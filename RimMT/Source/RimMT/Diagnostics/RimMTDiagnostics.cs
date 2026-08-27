@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.15 keeps the cap fixed while fan-out is runtime-validated)");
+                ", workerCap=8 (V0.4.16 keeps the validated cap while useful off-thread workload is expanded)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -66,7 +66,7 @@ namespace RimMT
                     ", tickListProbe=" + RuntimeCompatibility.ButterTickListProbeDescription);
             }
 
-            sb.AppendLine("Policy: fail-closed / whitelist-only / vanilla commit");
+            sb.AppendLine("Policy: bounded-risk whitelist / sampled parity / automatic fuse / Vanilla state commit");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
                 ", sampleSource=" + AdaptiveLoadBalancer.SampleSource +
                 ", EMA ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
@@ -92,6 +92,7 @@ namespace RimMT
             sb.AppendLine(GlobalHaulAccelerator.Summary());
             sb.AppendLine(PersistentMapSearchFabric.Summary());
             sb.AppendLine(AdaptiveGenClosestAssist.Summary());
+            sb.AppendLine(AggressiveReachabilityProfiles.Summary());
             sb.AppendLine(ParallelRegionConnectivity.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
