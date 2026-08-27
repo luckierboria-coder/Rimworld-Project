@@ -3,5 +3,6 @@
   <MBL_SettingsCategory>Lovin Anywhere</MBL_SettingsCategory>
   <MBL_InteractionChance>Interaction chance: {0}</MBL_InteractionChance>
   <MBL_ActDuration>Act duration: {0} ticks ({1} real seconds)</MBL_ActDuration>
+  <MBL_DurationManagedExternally>Interaction duration and effects are controlled by vanilla Lovin or the active Lovin framework (for example RJW).</MBL_DurationManagedExternally>
   <MBL_DevPregnancyStarted>[Mrd Bedless Lovin 1.5] Pregnancy started.</MBL_DevPregnancyStarted>
 </LanguageData>
