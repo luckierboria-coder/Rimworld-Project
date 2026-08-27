@@ -12,9 +12,11 @@ namespace RimMT
         private static long mainThreadFrames;
         private static long butterLogicalTickDrainDeferrals;
         private static long butterProbeFailureDrainDeferrals;
+        private static int detectedProcessorCount;
 
         internal static JobScheduler Scheduler { get { return scheduler; } }
         internal static bool Initialized { get { return initialized; } }
+        internal static int DetectedProcessorCount { get { return detectedProcessorCount; } }
         internal static long MainThreadFrames { get { return Interlocked.Read(ref mainThreadFrames); } }
         internal static long ButterLogicalTickDrainDeferrals { get { return Interlocked.Read(ref butterLogicalTickDrainDeferrals); } }
         internal static long ButterProbeFailureDrainDeferrals { get { return Interlocked.Read(ref butterProbeFailureDrainDeferrals); } }
@@ -25,10 +27,15 @@ namespace RimMT
             initialized = true;
             RuntimeCompatibility.Initialize();
 
-            int workers = Math.Max(1, Math.Min(Environment.ProcessorCount - 1, 8));
+            detectedProcessorCount = Math.Max(1, Environment.ProcessorCount);
+            // V0.4.15 intentionally keeps the validated 8-worker ceiling. The scheduler fan-out
+            // fix must first prove that existing workers actually run concurrently. Only after
+            // runtime peakActive/pending data shows saturation should higher-core CPUs receive a
+            // larger pool; otherwise extra threads only add scheduling/cache contention.
+            int workers = Math.Max(1, Math.Min(detectedProcessorCount - 1, 8));
             scheduler = new JobScheduler(workers, 100000);
 
-            FeatureGate.Register("runtime.scheduler", true, "Core bounded worker scheduler");
+            FeatureGate.Register("runtime.scheduler", true, "Core bounded worker scheduler; V0.4.15 semaphore work credits preserve ParallelFor fan-out");
             FeatureGate.Register("runtime.dispatcher", true, "Worker-to-main-thread dispatcher; AdaptiveTPS and Butter++ TickManagerUpdate coexistence supported");
             FeatureGate.Register("runtime.adaptiveBurst", true, "Pressure-aware scheduler; samples Butter++ TickManagerUpdate slices when Butter++ is active");
             FeatureGate.Register("diagnostics.selfTest", true, "Pure CPU worker self-test");
@@ -43,7 +50,8 @@ namespace RimMT
             FeatureGate.Register("parallel.pathSnapshot", true, "Bounded worker-side immutable path parity validation; Vanilla authoritative");
             FeatureGate.Register("parallel.jobScan", true, "V0.4.6 Work scanner accelerator: worker-built hauling spatial index plus main-thread revalidation");
             FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
-            FeatureGate.Register("parallel.jobPartition", true, "V0.4.13 true-offload GenClosest accelerator: worker-built immutable indexes for repeated IList-backed custom global searches; Vanilla live validation/final authority retained");
+            FeatureGate.Register("parallel.jobPartition", true, "V0.4.14 persistent-map-fabric GenClosest accelerator; Vanilla live validation/final authority retained");
+            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, true, "V0.4.15 parallel permissive connectivity hint; disconnected candidates pruned before live Vanilla CanReach");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.thingTick", false, "Whitelist module not implemented");
@@ -64,6 +72,7 @@ namespace RimMT
             FeatureGate.SetEnabled("parallel.jobScan", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled("parallel.haulGlobal", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled("parallel.jobPartition", settings.WorkScanAcceleration);
+            FeatureGate.SetEnabled(ParallelRegionConnectivity.FeatureId, settings.WorkScanAcceleration);
         }
 
         internal static void OnMainThreadFrame()
@@ -102,6 +111,7 @@ namespace RimMT
                 HaulWorkAccelerator.MarkCompatibilityReady();
                 GlobalHaulAccelerator.MarkCompatibilityReady();
                 AdaptiveGenClosestAssist.MarkCompatibilityReady();
+                ParallelRegionConnectivity.MarkCompatibilityReady();
                 RimMTDiagnostics.LogStartupReport();
             }
         }

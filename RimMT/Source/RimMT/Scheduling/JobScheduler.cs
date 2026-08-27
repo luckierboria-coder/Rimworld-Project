@@ -10,7 +10,11 @@ namespace RimMT
         private readonly ConcurrentQueue<WorkItem> high = new ConcurrentQueue<WorkItem>();
         private readonly ConcurrentQueue<WorkItem> normal = new ConcurrentQueue<WorkItem>();
         private readonly ConcurrentQueue<WorkItem> background = new ConcurrentQueue<WorkItem>();
-        private readonly AutoResetEvent signal = new AutoResetEvent(false);
+
+        // V0.4.15: one queued work item owns one semaphore credit. AutoResetEvent used by
+        // earlier builds collapsed a ParallelFor burst into a single wake, allowing one
+        // worker to drain dozens of short batches before peers woke on their 5 ms poll.
+        private readonly SemaphoreSlim wakeSignal = new SemaphoreSlim(0, int.MaxValue);
         private readonly object enqueueSync = new object();
         private readonly Thread[] workers;
         private readonly int maxPending;
@@ -23,6 +27,10 @@ namespace RimMT
         private long completed;
         private long rejected;
         private long failures;
+        private long wakeReleases;
+        private long multiWakeCalls;
+        private long parallelBatchesEnqueued;
+        private long timeoutPollClaims;
 
         public int WorkerCount { get { return workers.Length; } }
         public int Pending { get { return Volatile.Read(ref pending); } }
@@ -33,6 +41,10 @@ namespace RimMT
         public long Completed { get { return Interlocked.Read(ref completed); } }
         public long Rejected { get { return Interlocked.Read(ref rejected); } }
         public long Failures { get { return Interlocked.Read(ref failures); } }
+        public long WakeReleases { get { return Interlocked.Read(ref wakeReleases); } }
+        public long MultiWakeCalls { get { return Interlocked.Read(ref multiWakeCalls); } }
+        public long ParallelBatchesEnqueued { get { return Interlocked.Read(ref parallelBatchesEnqueued); } }
+        public long TimeoutPollClaims { get { return Interlocked.Read(ref timeoutPollClaims); } }
 
         public JobScheduler(int workerCount, int maxPendingJobs)
         {
@@ -70,7 +82,7 @@ namespace RimMT
                 UpdateHighWater(nowPending);
                 EnqueueReserved(new WorkItem(featureId, action), priority);
             }
-            signal.Set();
+            ReleaseWakeCredits(1);
             return true;
         }
 
@@ -98,6 +110,7 @@ namespace RimMT
 
                 int nowPending = Interlocked.Add(ref pending, batches);
                 Interlocked.Add(ref enqueued, batches);
+                Interlocked.Add(ref parallelBatchesEnqueued, batches);
                 UpdateHighWater(nowPending);
 
                 for (int start = fromInclusive; start < toExclusive; start += batchSize)
@@ -116,8 +129,28 @@ namespace RimMT
 
             if (Volatile.Read(ref remaining) == 0 && onComplete != null)
                 MainThreadDispatcher.TryEnqueue(onComplete);
-            signal.Set();
+
+            // One credit per batch lets sleeping workers fan out immediately. A worker consumes
+            // one credit per claimed item, so burst credits do not remain after the queue drains.
+            ReleaseWakeCredits(batches);
             return true;
+        }
+
+        private void ReleaseWakeCredits(int count)
+        {
+            if (count <= 0)
+                return;
+            if (count > 1)
+                Interlocked.Increment(ref multiWakeCalls);
+            Interlocked.Add(ref wakeReleases, count);
+            try
+            {
+                wakeSignal.Release(count);
+            }
+            catch (SemaphoreFullException)
+            {
+                // Defensive only: maxPending is far below SemaphoreSlim's capacity.
+            }
         }
 
         private void EnqueueReserved(WorkItem item, JobPriority priority)
@@ -134,12 +167,16 @@ namespace RimMT
         {
             while (running)
             {
+                bool signaled = wakeSignal.Wait(5);
                 WorkItem item;
                 if (!TryTake(out item))
-                {
-                    signal.WaitOne(5);
                     continue;
-                }
+
+                // When a background credit was consumed while adaptiveBurst hid the background
+                // queue, the 5 ms timeout path can later claim that pending work after pressure
+                // falls. This is a fail-open recovery path, not a spin loop.
+                if (!signaled)
+                    Interlocked.Increment(ref timeoutPollClaims);
 
                 int active = Interlocked.Increment(ref activeWorkers);
                 UpdatePeakActive(active);

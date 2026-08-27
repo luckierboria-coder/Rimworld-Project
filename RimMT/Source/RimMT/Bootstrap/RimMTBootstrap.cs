@@ -25,10 +25,11 @@ namespace RimMT
                 PathSnapshotSafetyPatches.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
                 AdaptiveGenClosestAssist.Apply(harmony);
+                ParallelRegionConnectivity.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.14 playtest initialized. Persistent-map-fabric policy: repeated IList-backed custom GenClosest sources cache membership/order while source positions are maintained incrementally by normal-priority RimMT workers through ThingGrid events. The main thread never waits for fabric updates. Broad searches predicted to require more than 64 live candidates bypass RimMT before Reachability/validator work and run Vanilla directly. Live Reachability, WorkGiver validators, reservations and final Jobs remain main-thread authoritative. V0.4.6/V0.4.7 hauling accelerators, bounded path shadow validation, Butter++ logical-tick barriers and V0.4.8 bounded slow JobPackage tracing are retained.");
+                Log.Message("[RimMT] V0.4.15 playtest initialized. Scheduler policy: ParallelFor batches now carry independent semaphore wake credits so existing workers can fan out immediately instead of one worker draining short bursts. Region policy: a generation-bound permissive PathGrid connectivity snapshot is built in parallel stripes; statically disconnected custom GenClosest candidates may be rejected before live reachability, while every surviving candidate still uses Vanilla CanReach and the original validator on the main thread. Worker count remains conservatively capped at 8 until runtime peakActive/pending data proves saturation. Persistent map search fabric, hauling accelerators, bounded path shadow validation, Butter++ logical-tick barriers and bounded JobGiver tracing are retained.");
             }
             catch (Exception ex)
             {
