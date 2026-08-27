@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>VSIE 1.5 WorkTime Null-Key Hotfix</name>
+  <author>ShangRuo Hotfix</author>
+  <packageId>shangruo.vsie.worktime.nullkey.hotfix</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li>
+    <li><packageId>VanillaExpanded.VanillaSocialInteractionsExpanded</packageId><displayName>Vanilla Social Interactions Expanded</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2439736083</steamWorkshopUrl></li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>VanillaExpanded.VanillaSocialInteractionsExpanded</li>
+  </loadAfter>
+  <description>RimWorld 1.5 narrow compatibility hotfix for the VSIE workersWithWorkingTicks null-Pawn load warning. Suppresses only the exact known-safe log line while RimWorld already skips the invalid dictionary entry.</description>
+</ModMetaData>
