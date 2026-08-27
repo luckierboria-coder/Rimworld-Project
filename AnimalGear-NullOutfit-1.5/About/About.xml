@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Animal Gear - Null Outfit 1.5</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>Allen.AnimalGearNullOutfit15</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>Dylan.AnimalGear</packageId>
+      <displayName>Animal Gear</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>Dylan.AnimalGear</li>
+  </loadAfter>
+  <description>RimWorld 1.5 compatibility tweak for Animal Gear. Player animals default to an animal-only None/无方案 outfit state. Animals with None do not run apparel optimization or search for apparel. Colonist outfit behavior is untouched.</description>
+</ModMetaData>
