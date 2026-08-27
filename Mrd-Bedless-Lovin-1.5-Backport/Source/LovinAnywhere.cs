@@ -71,6 +71,9 @@ namespace LovinAnywhere
     {
         internal const string SpotDefName = "InteracaoPrivada_Spot";
 
+        private static readonly FieldInfo OwnersField = AccessTools.Field(typeof(Building_Bed), "owners");
+        private static bool ownersFieldFailureLogged;
+
         internal static bool IsMeetingSpot(Thing thing)
         {
             return thing != null && IsMeetingSpot(thing.def);
@@ -79,6 +82,33 @@ namespace LovinAnywhere
         internal static bool IsMeetingSpot(ThingDef def)
         {
             return def != null && def.defName == SpotDefName;
+        }
+
+        internal static List<Pawn> GetOwners(Building_Bed bed)
+        {
+            if (bed == null || OwnersField == null)
+            {
+                if (OwnersField == null && !ownersFieldFailureLogged)
+                {
+                    ownersFieldFailureLogged = true;
+                    Log.Error("[Mrd Bedless Lovin 1.5] Could not resolve Building_Bed owners field. Meeting-point Lovin is disabled to protect normal bed ownership.");
+                }
+                return null;
+            }
+
+            try
+            {
+                return OwnersField.GetValue(bed) as List<Pawn>;
+            }
+            catch (Exception ex)
+            {
+                if (!ownersFieldFailureLogged)
+                {
+                    ownersFieldFailureLogged = true;
+                    Log.Error("[Mrd Bedless Lovin 1.5] Could not access Building_Bed owners field. Meeting-point Lovin is disabled: " + ex);
+                }
+                return null;
+            }
         }
 
         internal static Building_Bed GetMeetingSpotFromJob(Job job)
@@ -101,23 +131,62 @@ namespace LovinAnywhere
 
         internal static void PruneStaleOwners(Building_Bed bed)
         {
-            if (bed == null || bed.owners == null)
+            List<Pawn> owners = GetOwners(bed);
+            if (owners == null)
                 return;
 
-            for (int i = bed.owners.Count - 1; i >= 0; i--)
+            for (int i = owners.Count - 1; i >= 0; i--)
             {
-                Pawn owner = bed.owners[i];
+                Pawn owner = owners[i];
                 if (owner == null || owner.Destroyed || owner.Dead || !PawnIsActivelyUsing(owner, bed))
-                    bed.owners.RemoveAt(i);
+                    owners.RemoveAt(i);
             }
+        }
+
+        internal static bool HasFreeTemporarySlot(Building_Bed bed)
+        {
+            List<Pawn> owners = GetOwners(bed);
+            if (owners == null)
+                return false;
+
+            PruneStaleOwners(bed);
+            return owners.Count < bed.SleepingSlotsCount;
+        }
+
+        internal static bool AddTemporarySlot(Pawn pawn, Building_Bed bed)
+        {
+            if (pawn == null || bed == null)
+                return false;
+
+            List<Pawn> owners = GetOwners(bed);
+            if (owners == null)
+                return false;
+
+            PruneStaleOwners(bed);
+            if (owners.Contains(pawn))
+                return true;
+            if (owners.Count >= bed.SleepingSlotsCount)
+                return false;
+
+            owners.Add(pawn);
+            return true;
         }
 
         internal static void ReleaseTemporarySlot(Pawn pawn, Building_Bed bed)
         {
-            if (pawn == null || bed == null || bed.owners == null)
+            if (pawn == null || bed == null)
                 return;
 
-            bed.owners.Remove(pawn);
+            List<Pawn> owners = GetOwners(bed);
+            if (owners != null)
+                owners.Remove(pawn);
+        }
+
+        internal static void ClearTemporarySlots(Building_Bed bed)
+        {
+            List<Pawn> owners = GetOwners(bed);
+            if (owners != null)
+                owners.Clear();
         }
     }
 
@@ -141,14 +210,11 @@ namespace LovinAnywhere
 
         public override void SpawnSetup(Map map, bool respawningAfterLoad)
         {
-            if (owners != null)
-                owners.Clear();
-
+            MeetingSpotUtility.ClearTemporarySlots(this);
             base.SpawnSetup(map, respawningAfterLoad);
 
             // A romantic meeting point is never a medical or prisoner bed.
-            if (owners != null)
-                owners.Clear();
+            MeetingSpotUtility.ClearTemporarySlots(this);
             if (Medical)
                 Medical = false;
             if (ForPrisoners)
@@ -159,8 +225,7 @@ namespace LovinAnywhere
         {
             // Building_Bed.DeSpawn normally unclaims every listed owner. Our owners are
             // temporary Lovin slot markers and must never affect a pawn's real OwnedBed.
-            if (owners != null)
-                owners.Clear();
+            MeetingSpotUtility.ClearTemporarySlots(this);
             base.DeSpawn(mode);
         }
     }
@@ -204,8 +269,7 @@ namespace LovinAnywhere
                     if (bed == null || !bed.Spawned || bed.IsForbidden(pawn))
                         return false;
 
-                    MeetingSpotUtility.PruneStaleOwners(bed);
-                    if (bed.owners.Count >= bed.SleepingSlotsCount)
+                    if (!MeetingSpotUtility.HasFreeTemporarySlot(bed))
                         return false;
 
                     return pawn.CanReserve(bed, bed.SleepingSlotsCount, -1, null, false);
@@ -273,13 +337,9 @@ namespace LovinAnywhere
             if (pawn == null)
                 return false;
 
-            MeetingSpotUtility.PruneStaleOwners(newBed);
-
             // Emulate only the slot ownership expected by JobDriver_Lovin's bed toils.
             // Deliberately do NOT call UnclaimBed() and do NOT alter Pawn_Ownership.OwnedBed.
-            if (!newBed.owners.Contains(pawn) && newBed.owners.Count < newBed.SleepingSlotsCount)
-                newBed.owners.Add(pawn);
-
+            MeetingSpotUtility.AddTemporarySlot(pawn, newBed);
             return false;
         }
     }
