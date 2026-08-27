@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <DCP_Intro>征召状态下，玩家命令链拥有最高优先级。只有玩家命令真正执行完毕后，普通 AI 或自动近战才允许接入。</DCP_Intro>
+  <DCP_Enable>启用征召严格命令优先</DCP_Enable>
+  <DCP_EnableDesc>开启后，玩家下达命令后会进入命令锁定；在当前玩家命令链执行完毕且没有排队的玩家命令之前，普通自动 AI Job 不允许接管。</DCP_EnableDesc>
+  <DCP_MeleeAutoAttack>启用近战自动攻击功能</DCP_MeleeAutoAttack>
+  <DCP_MeleeAutoAttackDesc>全局启用近战自动攻击。实际战斗中，每个已征召的近战 Pawn 都有一个类似“自动开火”的独立开关。自动近战只会在玩家命令已经完成、Pawn 回到征召待命时启动。</DCP_MeleeAutoAttackDesc>
+  <DCP_MeleeAutoAttackRadius>近战自动攻击距离：{0} 格</DCP_MeleeAutoAttackRadius>
+  <DCP_MeleeAutoAttackRadiusDesc>决定自动近战索敌的最大直线距离。范围 1-20 格，默认 4 格。</DCP_MeleeAutoAttackRadiusDesc>
+  <DCP_MeleeAutoAttackToggleLabel>近战自动攻击</DCP_MeleeAutoAttackToggleLabel>
+  <DCP_MeleeAutoAttackToggleDesc>切换该 Pawn 的近战自动攻击。仅在征召待命且没有正在执行或排队的玩家命令时生效。快捷键与原版“自动开火”相同。</DCP_MeleeAutoAttackToggleDesc>
+  <DCP_LogBlocked>记录被阻止的自动 Job</DCP_LogBlocked>
+  <DCP_LogBlockedDesc>开发诊断选项。记录玩家命令锁定期间被阻止的自动 StartJob 请求。正常游玩建议关闭。</DCP_LogBlockedDesc>
+  <DCP_BlockedCount>本次游戏会话已阻止的自动 Job 替换：{0}</DCP_BlockedCount>
+  <DCP_AutoAttackCount>本次游戏会话已启动的自动近战攻击：{0}</DCP_AutoAttackCount>
+</LanguageData>
