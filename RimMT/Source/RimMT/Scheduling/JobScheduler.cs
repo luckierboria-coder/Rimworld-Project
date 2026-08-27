@@ -11,10 +11,9 @@ namespace RimMT
         private readonly ConcurrentQueue<WorkItem> normal = new ConcurrentQueue<WorkItem>();
         private readonly ConcurrentQueue<WorkItem> background = new ConcurrentQueue<WorkItem>();
 
-        // V0.4.15: AutoResetEvent collapsed a ParallelFor wake burst into one signal.
-        // A single worker could therefore drain dozens of short batches before the other
-        // workers' 5 ms polling timeout expired. SemaphoreSlim preserves wake credits so
-        // independent batches actually fan out across the worker pool.
+        // V0.4.15: one queued work item owns one semaphore credit. AutoResetEvent used by
+        // earlier builds collapsed a ParallelFor burst into a single wake, allowing one
+        // worker to drain dozens of short batches before peers woke on their 5 ms poll.
         private readonly SemaphoreSlim wakeSignal = new SemaphoreSlim(0, int.MaxValue);
         private readonly object enqueueSync = new object();
         private readonly Thread[] workers;
@@ -31,6 +30,7 @@ namespace RimMT
         private long wakeReleases;
         private long multiWakeCalls;
         private long parallelBatchesEnqueued;
+        private long suppressedWakeRetries;
 
         public int WorkerCount { get { return workers.Length; } }
         public int Pending { get { return Volatile.Read(ref pending); } }
@@ -44,6 +44,7 @@ namespace RimMT
         public long WakeReleases { get { return Interlocked.Read(ref wakeReleases); } }
         public long MultiWakeCalls { get { return Interlocked.Read(ref multiWakeCalls); } }
         public long ParallelBatchesEnqueued { get { return Interlocked.Read(ref parallelBatchesEnqueued); } }
+        public long SuppressedWakeRetries { get { return Interlocked.Read(ref suppressedWakeRetries); } }
 
         public JobScheduler(int workerCount, int maxPendingJobs)
         {
@@ -81,7 +82,7 @@ namespace RimMT
                 UpdateHighWater(nowPending);
                 EnqueueReserved(new WorkItem(featureId, action), priority);
             }
-            WakeWorkers(1);
+            ReleaseWakeCredits(1);
             return true;
         }
 
@@ -129,13 +130,13 @@ namespace RimMT
             if (Volatile.Read(ref remaining) == 0 && onComplete != null)
                 MainThreadDispatcher.TryEnqueue(onComplete);
 
-            // Wake enough distinct sleepers to service this batch concurrently. We cap wake
-            // credits at WorkerCount: workers that finish early keep draining the shared queue.
-            WakeWorkers(Math.Min(batches, workers.Length));
+            // One credit per batch guarantees all waiting workers can participate. Credits
+            // are consumed before work is dequeued, so no large stale wake count remains.
+            ReleaseWakeCredits(batches);
             return true;
         }
 
-        private void WakeWorkers(int count)
+        private void ReleaseWakeCredits(int count)
         {
             if (count <= 0)
                 return;
@@ -148,9 +149,7 @@ namespace RimMT
             }
             catch (SemaphoreFullException)
             {
-                // Intentionally fail-open: workers also poll every 5 ms and queued work remains
-                // intact. With maxPending bounded and int.MaxValue semaphore capacity this is
-                // defensive only.
+                // Defensive only: maxPending is far below SemaphoreSlim's capacity.
             }
         }
 
@@ -168,10 +167,20 @@ namespace RimMT
         {
             while (running)
             {
+                if (!wakeSignal.Wait(5))
+                    continue;
+
                 WorkItem item;
                 if (!TryTake(out item))
                 {
-                    wakeSignal.Wait(5);
+                    // A background item may be temporarily hidden by adaptiveBurst. Preserve
+                    // its credit and retry later instead of losing the wake permanently.
+                    if (Volatile.Read(ref pending) > 0)
+                    {
+                        Interlocked.Increment(ref suppressedWakeRetries);
+                        Thread.Sleep(1);
+                        ReleaseWakeCredits(1);
+                    }
                     continue;
                 }
 
