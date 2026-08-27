@@ -1,0 +1,29 @@
+name: Temporary RimMT V0.4.11 artifact bridge
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/export-rimmt-v0411-b64.yml'
+
+jobs:
+  export:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export ZIP as base64 text
+        shell: pwsh
+        run: |
+          $zip = 'dist-artifacts/RimMT_V0.4.11_Playtest.zip'
+          if (!(Test-Path $zip)) { throw "Missing $zip" }
+          $bytes = [System.IO.File]::ReadAllBytes($zip)
+          $b64 = [Convert]::ToBase64String($bytes)
+          [System.IO.File]::WriteAllText('dist-artifacts/RimMT_V0.4.11_Playtest.zip.b64', $b64, [System.Text.Encoding]::ASCII)
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'dist-artifacts/RimMT_V0.4.11_Playtest.zip.b64'
+          git commit -m 'Temporary RimMT V0.4.11 artifact bridge'
+          git push
