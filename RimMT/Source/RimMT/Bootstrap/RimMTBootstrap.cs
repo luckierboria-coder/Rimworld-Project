@@ -24,11 +24,11 @@ namespace RimMT
                 PathGridInvalidation.ApplyBulkGuard(harmony);
                 PathSnapshotSafetyPatches.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
-                SingleCallCandidatePartition.Apply(harmony);
+                AdaptiveGenClosestAssist.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.10 playtest initialized. General custom global Work searches can be spatially partitioned per call before Vanilla GenClosest; exact hauling fast paths remain separate. Reachability, WorkGiver validators, reservations and final Jobs remain main-thread authoritative. Butter++ logical-tick barriers and V0.4.8 bounded slow JobPackage tracing are retained.");
+                Log.Message("[RimMT] V0.4.11 playtest initialized. Job search spike reduction now uses pressure-adaptive nearest-first GenClosest candidate ordering with a non-blocking opportunistic worker assist. Candidate membership is unchanged; Reachability, WorkGiver validators, reservations and final Jobs remain main-thread authoritative. V0.4.6/V0.4.7 hauling accelerators, bounded path shadow validation, Butter++ logical-tick barriers and V0.4.8 bounded slow JobPackage tracing are retained.");
             }
             catch (Exception ex)
             {
