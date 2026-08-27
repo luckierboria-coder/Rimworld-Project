@@ -338,7 +338,7 @@ namespace RimMT
             internal readonly int MapId;
             internal readonly int Width;
             internal readonly int Height;
-            internal readonly HashSet<Thing> TrackedThings = new HashSet<Thing>();
+            internal readonly HashSet<Thing> TrackedThings = new HashSet<Thing>(ThingReferenceComparer.Instance);
             internal readonly HashSet<int> KnownSources = new HashSet<int>();
             internal readonly ConcurrentQueue<FabricEvent> Events = new ConcurrentQueue<FabricEvent>();
             internal readonly WorkerModel Model;
@@ -416,7 +416,8 @@ namespace RimMT
             private readonly int mapId;
             private readonly int width;
             private readonly int height;
-            private readonly Dictionary<Thing, PositionEntry> positions = new Dictionary<Thing, PositionEntry>();
+            private readonly Dictionary<Thing, PositionEntry> positions =
+                new Dictionary<Thing, PositionEntry>(ThingReferenceComparer.Instance);
             private readonly Dictionary<int, SourceModel> sources = new Dictionary<int, SourceModel>();
             private long appliedGeneration;
 
@@ -592,6 +593,7 @@ namespace RimMT
 
                 float maxDistanceSquared = maxDistance * maxDistance;
                 float bestDistanceSquared = float.MaxValue;
+                int bestSourceIndex = int.MaxValue;
                 int rootBucketX = root.x / BucketSize;
                 int rootBucketZ = root.z / BucketSize;
                 int maxRing = Math.Max(
@@ -615,10 +617,13 @@ namespace RimMT
                         Candidate candidate = ringCandidates[i];
                         if (candidate.DistanceSquared > bestDistanceSquared)
                             break;
+
+                        FabricEntry entry = candidate.Entry;
+                        if (candidate.DistanceSquared == bestDistanceSquared && entry.SourceIndex >= bestSourceIndex)
+                            continue;
                         if (visited >= maxLiveChecks)
                             return false;
 
-                        FabricEntry entry = candidate.Entry;
                         Thing thing = entry.Thing;
                         visited++;
                         if (thing == null || !thing.Spawned || thing.MapHeld != map)
@@ -648,6 +653,7 @@ namespace RimMT
 
                         chosen = thing;
                         bestDistanceSquared = candidate.DistanceSquared;
+                        bestSourceIndex = entry.SourceIndex;
                     }
 
                     float outsideMin = MinimumOutsideDistanceSquared(root, minBx, maxBx, minBz, maxBz);
@@ -750,6 +756,21 @@ namespace RimMT
                 X = x;
                 Z = z;
                 SourceIndex = sourceIndex;
+            }
+        }
+
+        private sealed class ThingReferenceComparer : IEqualityComparer<Thing>
+        {
+            internal static readonly ThingReferenceComparer Instance = new ThingReferenceComparer();
+
+            public bool Equals(Thing x, Thing y)
+            {
+                return ReferenceEquals(x, y);
+            }
+
+            public int GetHashCode(Thing obj)
+            {
+                return obj == null ? 0 : RuntimeHelpers.GetHashCode(obj);
             }
         }
 
