@@ -74,6 +74,12 @@ namespace DraftedCommandPriority
             {
                 Harmony harmony = new Harmony(HarmonyId);
 
+                MethodBase interruptible = AccessTools.Method(typeof(Pawn_JobTracker), "IsCurrentJobPlayerInterruptible");
+                if (interruptible == null)
+                    Log.Error("[Drafted Command Priority] Pawn_JobTracker.IsCurrentJobPlayerInterruptible not found; absolute drafted player override will remain inert.");
+                else
+                    harmony.Patch(interruptible, postfix: new HarmonyMethod(typeof(AbsolutePlayerInterrupt), "Postfix"));
+
                 MethodBase startJob = AccessTools.Method(typeof(Pawn_JobTracker), "StartJob");
                 if (startJob == null)
                     Log.Error("[Drafted Command Priority] Pawn_JobTracker.StartJob not found; strict command guard will remain inert.");
@@ -92,12 +98,44 @@ namespace DraftedCommandPriority
                 else
                     harmony.Patch(pawnGetGizmos, postfix: new HarmonyMethod(typeof(MeleeAutoAttackGizmo), "Postfix"));
 
-                Log.Message("[Drafted Command Priority] V0.1 active. Player command chains are authoritative until completion. Ordinary AI and melee auto attack are gated while a player command is active. Drafted melee pawns use a Fire-at-will style per-pawn toggle; auto attack only starts from drafted idle/Wait_Combat state.");
+                Log.Message("[Drafted Command Priority] V0.1 active. Drafted player orders have absolute job priority while the pawn remains player-controllable, including while burning. Player command chains remain authoritative until completion; autonomous AI and melee auto attack resume only afterwards.");
             }
             catch (Exception ex)
             {
                 Log.Error("[Drafted Command Priority] Failed to install patches. " + ex);
             }
+        }
+    }
+
+    internal static class DcpControlRules
+    {
+        internal static bool HasAbsolutePlayerControl(Pawn pawn)
+        {
+            return pawn != null && pawn.Spawned && pawn.Drafted && !pawn.Downed && !pawn.InMentalState && pawn.IsColonistPlayerControlled;
+        }
+    }
+
+    internal static class AbsolutePlayerInterrupt
+    {
+        public static void Postfix(Pawn ___pawn, ref bool __result)
+        {
+            if (__result)
+                return;
+
+            DcpSettings settings = DcpMod.Settings;
+            if (settings == null || !settings.enabled)
+                return;
+
+            Pawn pawn = ___pawn;
+            if (!DcpControlRules.HasAbsolutePlayerControl(pawn))
+                return;
+
+            // Vanilla deliberately makes a burning pawn non-player-interruptible by
+            // checking !pawn.HasAttachment(ThingDefOf.Fire). DCP overrides that rule,
+            // and also any ordinary job-level playerInterruptible=false state, while
+            // the pawn is drafted and still genuinely player-controllable.
+            // Physical hard control (downed/mental/uncontrollable) remains outside DCP.
+            __result = true;
         }
     }
 
@@ -140,7 +178,7 @@ namespace DraftedCommandPriority
             if (pawn == null || tracker == null)
                 return false;
 
-            if (!pawn.Drafted || pawn.Downed || pawn.InMentalState)
+            if (!DcpControlRules.HasAbsolutePlayerControl(pawn))
             {
                 Clear(pawn);
                 return true;
@@ -174,7 +212,7 @@ namespace DraftedCommandPriority
                 return true;
 
             Pawn pawn = ___pawn;
-            if (pawn == null || !pawn.Drafted || pawn.Downed || pawn.InMentalState || !pawn.IsColonistPlayerControlled)
+            if (!DcpControlRules.HasAbsolutePlayerControl(pawn))
             {
                 PlayerCommandGate.Clear(pawn);
                 return true;
@@ -197,9 +235,9 @@ namespace DraftedCommandPriority
             if (!PlayerCommandGate.IsActive(pawn))
                 return true;
 
-            // The player command chain is considered finished only when there is no
-            // queued player-forced order and the pawn has actually returned to idle /
-            // drafted Wait_Combat. Until then autonomous StartJob requests are rejected.
+            // While a player command chain is active, ALL non-player StartJob attempts
+            // are rejected: fire panic/extinguish, flee, ThinkTree AI, auto melee, etc.
+            // AI is released only after the player chain genuinely reaches drafted idle.
             if (PlayerCommandGate.ReleaseIfCommandFinished(pawn, __instance))
                 return true;
 
@@ -233,7 +271,7 @@ namespace DraftedCommandPriority
                 return;
 
             Pawn pawn = ___pawn;
-            if (pawn == null || !pawn.Spawned || pawn.Map == null || !pawn.Drafted || pawn.Downed || pawn.InMentalState || !pawn.IsColonistPlayerControlled)
+            if (!DcpControlRules.HasAbsolutePlayerControl(pawn) || pawn.Map == null)
             {
                 PlayerCommandGate.Clear(pawn);
                 return;
@@ -243,19 +281,14 @@ namespace DraftedCommandPriority
             if (primary == null || primary.def == null || !primary.def.IsMeleeWeapon)
                 return;
 
-            // Per-pawn combat toggle: reuse the drafter's persistent FireAtWill state.
-            // RimWorld resets this to true when the pawn is newly drafted, matching
-            // the vanilla ranged auto-fire control semantics.
             if (pawn.drafter == null || !pawn.drafter.FireAtWill)
                 return;
 
-            // Never enter during a player command chain. If the chain has just fully
-            // completed and the pawn is idle/Wait_Combat, release the gate here.
+            // Auto melee may not participate until the entire player command chain has
+            // completed. A new player order always takes control back immediately.
             if (PlayerCommandGate.IsActive(pawn) && !PlayerCommandGate.ReleaseIfCommandFinished(pawn, __instance))
                 return;
 
-            // Crucial priority rule: DCP auto melee is not allowed to interrupt ANY
-            // active job. It can start only from true drafted idle / Wait_Combat.
             Job current = __instance.curJob;
             if (current != null && current.def != JobDefOf.Wait_Combat)
                 return;
@@ -293,8 +326,6 @@ namespace DraftedCommandPriority
             if (!pawn.CanReach(nearest, PathEndMode.Touch, Danger.Deadly))
                 return;
 
-            // Re-check immediately before StartJob in case another patch inserted a
-            // player order or another active job during target/reachability evaluation.
             current = __instance.curJob;
             if ((current != null && current.def != JobDefOf.Wait_Combat) ||
                 PlayerCommandGate.IsActive(pawn) || PlayerCommandGate.HasQueuedPlayerOrder(__instance))
@@ -328,7 +359,7 @@ namespace DraftedCommandPriority
             if (settings == null || !settings.enabled || !settings.meleeAutoAttack)
                 yield break;
 
-            if (pawn == null || !pawn.Drafted || pawn.Downed || !pawn.IsColonistPlayerControlled || pawn.drafter == null)
+            if (!DcpControlRules.HasAbsolutePlayerControl(pawn) || pawn.drafter == null)
                 yield break;
 
             ThingWithComps primary = pawn.equipment == null ? null : pawn.equipment.Primary;
