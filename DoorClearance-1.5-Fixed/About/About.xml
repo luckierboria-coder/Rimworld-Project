@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Door Clearance 1.5 Fixed</name>
+  <author>Owlchemist / 1.5 compatibility fix</author>
+  <packageId>local.doorclearance15.fixed</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modVersion>1.0.4-fix1</modVersion>
+  <description>RimWorld 1.5 compatibility build of Door Clearance. Preserves original behavior while safely ignoring ThingDefs whose thingClass is null.</description>
+  <modDependencies><li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li></modDependencies>
+  <incompatibleWith><li>Owlchemist.DoorClearance</li><li>tikubonn.DontBlockDoor</li></incompatibleWith>
+</ModMetaData>
