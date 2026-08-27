@@ -6,26 +6,24 @@ Compatibility-first performance and multithreading runtime for **RimWorld 1.5.40
 
 RimMT's first performance objective is **reducing visible stutter and frame-time spikes**. Raising average TPS is secondary. A change that improves average throughput but introduces new main-thread variance, waits, GC pressure, or occasional multi-millisecond stalls is considered a regression for the target playtest environment.
 
-The preferred architecture remains immutable main-thread snapshot -> worker computation across spare cores -> main-thread validation/commit, but only when that pipeline actually removes or shrinks expensive foreground work. RimMT does not pursue worker utilization for its own sake. Unknown or unsafe live-state mutation remains fail-closed with Vanilla fallback.
+The preferred architecture is now explicit: **main-thread snapshot -> worker precomputation across spare cores -> later main-thread consumption/validation -> Vanilla commit**. Worker work should happen ahead of demand, not as a foreground task that the main thread waits for. Unknown or unsafe live-state mutation remains fail-closed with Vanilla fallback.
 
-## V0.4.12 Playtest — Stutter First
+## V0.4.13 Playtest — True Offload
 
-V0.4.11 proved that the GenClosest candidate-ordering path was thread-safe, but the target colony reported more noticeable stutter. Runtime telemetry also showed an approximately 15 ms assist outlier and no clear improvement in average `JobGiver_Work.TryIssueJobPackage` cost, even though the observed maximum fell from roughly 964 ms to roughly 790 ms.
+V0.4.12 removed the worst foreground-assist variance, but the target colony still showed substantial JobGiver stutter while RimMT workers were frequently idle. V0.4.13 therefore replaces request-time GenClosest reordering with reusable background precomputation:
 
-V0.4.12 therefore deliberately removes foreground variance before attempting any broader search-space reduction:
+- Repeated custom global searches backed by `IList<Thing>`, `IList<Pawn>` or `IList<Building>` can be indexed.
+- On a cache miss, the main thread only snapshots Thing references and integer X/Z positions.
+- A **normal-priority RimMT worker** builds the immutable bucket index. These builds are not suppressed merely because the main thread is under load.
+- The main thread never waits, spins, or blocks for an index. The triggering call falls back to Vanilla.
+- Later calls validate the published snapshot exactly: same object references in the same source positions and unchanged map positions.
+- Any membership or position change invalidates the cache, falls back to Vanilla for that call, and schedules a rebuild.
+- Accelerated calls traverse the worker-built spatial index and can avoid most of Vanilla's full-list distance pass while retaining live `Reachability.CanReach` and the original WorkGiver validator.
+- Equal-distance tie breaking preserves original list order.
+- Exact `ListerHaulables` searches continue to use the dedicated V0.4.6/V0.4.7 accelerators.
+- At most four generic index builds may be in flight at once.
 
-- Low-pressure GenClosest calls remain completely Vanilla.
-- Normal pressure only considers very large `IList<Thing>` candidate sets (512+).
-- High pressure threshold is 256 candidates; Critical is 192.
-- Unknown `IEnumerable<Thing>` and non-list collection shapes are **not materialized** by RimMT.
-- The V0.4.11 foreground worker assist and all `SpinWait` / micro-wait behavior are removed.
-- Thread-local integer scratch buffers replace per-call X/Z and worker-output arrays.
-- Candidate membership remains unchanged.
-- The assist has a 0.75 ms hard foreground budget. If the budget is exceeded, the reorder is abandoned before commit and Vanilla sees the original input.
-- Any assist taking at least 1.0 ms trips a 2-second cooldown so RimMT cannot repeatedly become its own stutter source.
-- Reentrant calls are bypassed.
-
-The runtime report exposes `budgetAbort`, `slowTrip`, `cooldownBypass`, `lowPressureBypass`, `nonListBypass`, `thresholdBypass(N/H/C)`, `avgAssistUs`, and `maxAssistUs` so the next playtest can judge **frame-time smoothness first**.
+The runtime report exposes cache hits/misses, builds scheduled/published/discarded, snapshot capture cost, snapshot validation cost, query cost, candidate visits/avoids, reachability checks and failures. The key test is whether JobGiver P95/max and visible stutter fall while worker utilization rises.
 
 ## V0.4.8 diagnostic foundation retained
 
@@ -40,11 +38,11 @@ All of these detours are diagnostic-only and are automatically unpatched after t
 
 ## Production hauling Work acceleration retained
 
-V0.4.6/V0.4.7 hauling fast paths remain present and fail-closed. The main thread snapshots haulable references/positions; workers may build immutable spatial indices; Vanilla reachability, validators, reservations and final jobs stay main-thread authoritative. Unsupported, stale, patched or ambiguous calls fall back immediately.
+V0.4.6/V0.4.7 hauling fast paths remain present and fail-closed. The main thread snapshots haulable references/positions; workers build immutable spatial indices; Vanilla reachability, validators, reservations and final jobs stay main-thread authoritative. Unsupported, stale, patched or ambiguous calls fall back immediately.
 
 ### Clean Pathfinding compatibility
 
-RimMT does **not** need Clean Pathfinding to be removed. Clean Pathfinding transpiles `PathFinder.FindPath`; current production Work accelerators act on hauling candidate search and do not bypass Clean Pathfinding's PathFinder semantics.
+RimMT does **not** need Clean Pathfinding to be removed. Clean Pathfinding transpiles `PathFinder.FindPath`; current production Work accelerators act on candidate search and do not bypass Clean Pathfinding's PathFinder semantics.
 
 ### Bounded Path shadow validation remains diagnostic-only
 
