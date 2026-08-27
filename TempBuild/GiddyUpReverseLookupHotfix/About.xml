@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Giddy-Up 2 1.5 ReverseLookup Hotfix</name>
+  <author>Allen / OpenAI</author>
+  <packageId>allen.giddyup2.15.reverselookuphotfix</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>Owlchemist.GiddyUp</packageId>
+      <displayName>Giddy-Up 2</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>Owlchemist.GiddyUp</li>
+  </loadAfter>
+  <description>RimWorld 1.5 hotfix for Giddy-Up 2 ReverseLookup warning spam. Preserves successful reservation lookups and the original false/fallback result on misses while avoiding repeated warning log spam. Fails closed to original Giddy-Up behavior if the target structure differs.</description>
+</ModMetaData>
