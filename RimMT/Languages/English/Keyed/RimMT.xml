@@ -13,6 +13,8 @@
   <RimMT_Production>Production optimization</RimMT_Production>
   <RimMT_WorkScanAcceleration>Accelerate safe Work searches (V0.4.6)</RimMT_WorkScanAcceleration>
   <RimMT_WorkScanAccelerationDesc>Production fast-path for a strict whitelist of Vanilla Work searches. V0.4.6 starts with non-prioritized hauling: a worker builds a spatial index of the live haulable list, then the main thread checks only nearby candidates with Vanilla reachability and WorkGiver validation. Eligible hits skip Vanilla's full haulable-list GenClosest scan. Unsupported, stale, patched or ambiguous calls fall back to Vanilla.</RimMT_WorkScanAccelerationDesc>
+  <RimMT_JobPartitionWorkerThreshold>Job partition worker threshold: {0} candidates</RimMT_JobPartitionWorkerThreshold>
+  <RimMT_JobPartitionWorkerThresholdDesc>When a supported V0.4.10 candidate set reaches this size, RimMT may ask a worker to compute the pure integer spatial ring keys. Default: 512. Lower values use workers more often; this can be slower if scheduling and synchronization cost more than the calculation itself.</RimMT_JobPartitionWorkerThresholdDesc>
   <RimMT_Experimental>Experimental</RimMT_Experimental>
   <RimMT_PathSnapshotWorker>Bounded Path snapshot parity validation (V0.4.5.2)</RimMT_PathSnapshotWorker>
   <RimMT_PathSnapshotWorkerDesc>Runs immutable worker A* only as a bounded shadow validator. V0.4.5.2 samples eligible medium-distance paths, permits at most one shadow task at a time, yields under high load, and stops after the validation quota. Vanilla PawnPath remains authoritative.</RimMT_PathSnapshotWorkerDesc>

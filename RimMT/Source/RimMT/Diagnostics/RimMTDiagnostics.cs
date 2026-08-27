@@ -85,6 +85,7 @@ namespace RimMT
             sb.AppendLine(HaulWorkAccelerator.Summary());
             sb.AppendLine(GlobalHaulAccelerator.Summary());
             sb.AppendLine(SingleCallCandidatePartition.Summary());
+            sb.AppendLine(MediumSetCandidateRefinement.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
             sb.AppendLine(PathSnapshotWorker.Summary());
