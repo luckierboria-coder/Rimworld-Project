@@ -25,11 +25,12 @@ namespace RimMT
                 PathSnapshotSafetyPatches.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
                 AdaptiveGenClosestAssist.Apply(harmony);
+                AggressiveReachabilityProfiles.Apply(harmony);
                 ParallelRegionConnectivity.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.15 playtest initialized. Scheduler policy: ParallelFor batches now carry independent semaphore wake credits so existing workers can fan out immediately instead of one worker draining short bursts. Region policy: a generation-bound permissive PathGrid connectivity snapshot is built in parallel stripes; statically disconnected custom GenClosest candidates may be rejected before live reachability, while every surviving candidate still uses Vanilla CanReach and the original validator on the main thread. Worker count remains conservatively capped at 8 until runtime peakActive/pending data proves saturation. Persistent map search fabric, hauling accelerators, bounded path shadow validation, Butter++ logical-tick barriers and bounded JobGiver tracing are retained.");
+                Log.Message("[RimMT] V0.4.16 aggressive-parallel playtest initialized. Scheduler fan-out from V0.4.15 is retained. New policy: live Region.Allows decisions are captured on the main thread into per-Pawn immutable profiles, worker threads build the Region connectivity result, and sampled profile predictions may bypass live Reachability/RegionTraverser. VFECore Phasing keeps earlier-prefix authority. Mismatches trigger per-profile cooldown and a global parity fuse. Persistent map search, hauling accelerators, path shadow validation, Butter++ logical-tick barriers and Vanilla main-thread Job/reservation commits are retained.");
             }
             catch (Exception ex)
             {
