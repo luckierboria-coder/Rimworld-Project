@@ -1,0 +1,63 @@
+name: Build Animal Gear Null Outfit 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'AnimalGear-NullOutfit-1.5/**'
+      - '.github/workflows/build-animalgear-nulloutfit-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore AnimalGear-NullOutfit-1.5/Source/AnimalGearNullOutfit15.csproj
+
+      - name: Build Release
+        run: dotnet build AnimalGear-NullOutfit-1.5/Source/AnimalGearNullOutfit15.csproj --configuration Release --no-restore
+
+      - name: Verify DLL
+        shell: pwsh
+        run: |
+          $dll = 'AnimalGear-NullOutfit-1.5\1.5\Assemblies\AnimalGearNullOutfit15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled hotfix DLL missing.' }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build\AnimalGear_NullOutfit_1.5'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'AnimalGear-NullOutfit-1.5\About' $stage -Recurse -Force
+          Copy-Item 'AnimalGear-NullOutfit-1.5\Languages' $stage -Recurse -Force
+          Copy-Item 'AnimalGear-NullOutfit-1.5\1.5' $stage -Recurse -Force
+          @'
+Animal Gear - Null Outfit 1.5
+
+Load after Animal Gear.
+
+Behavior:
+- Player animals default to None / 无方案.
+- None is an animal-only outfit selector entry; colonist outfit UI is unchanged.
+- While None is selected, JobGiver_OptimizeApparel is skipped for that animal, so it does not search for apparel.
+- Selecting a normal apparel policy re-enables Animal Gear apparel optimization normally.
+- On the first load of an existing save, player animals still using the vanilla default Anything policy are migrated to None. Custom animal policies are preserved.
+'@ | Set-Content "$stage\README.txt" -Encoding UTF8
+          Compress-Archive -Path $stage -DestinationPath 'build\AnimalGear_NullOutfit_1.5_DLL_READY.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnimalGear-NullOutfit-1.5-DLL-READY
+          path: build/AnimalGear_NullOutfit_1.5_DLL_READY.zip
+          if-no-files-found: error
