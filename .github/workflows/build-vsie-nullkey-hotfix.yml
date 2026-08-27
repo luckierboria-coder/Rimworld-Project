@@ -1,0 +1,46 @@
+name: Build VSIE 1.5 Null-Key Hotfix
+
+on:
+  push:
+    branches: [ build-vsie-nullkey-dll ]
+    paths:
+      - 'VSIE-1.5-WorkTime-NullKey-Hotfix/**'
+      - '.github/workflows/build-vsie-nullkey-hotfix.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore VSIE-1.5-WorkTime-NullKey-Hotfix/Source/VSIEWorkTimeNullKeyHotfix.csproj
+      - name: Build Release
+        run: dotnet build VSIE-1.5-WorkTime-NullKey-Hotfix/Source/VSIEWorkTimeNullKeyHotfix.csproj --configuration Release --no-restore
+      - name: Verify DLL
+        shell: pwsh
+        run: |
+          $dll = 'VSIE-1.5-WorkTime-NullKey-Hotfix/1.5/Assemblies/VSIEWorkTimeNullKeyHotfix.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+      - name: Package Mod
+        shell: pwsh
+        run: |
+          $src = 'VSIE-1.5-WorkTime-NullKey-Hotfix'
+          $stage = 'build/VSIE_1.5_WorkTime_NullKey_Hotfix_v0.2_DLL'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "$src/About" $stage -Recurse
+          Copy-Item "$src/1.5" $stage -Recurse
+          Copy-Item "$src/Source" $stage -Recurse
+          Compress-Archive -Path $stage -DestinationPath 'build/VSIE_1.5_WorkTime_NullKey_Hotfix_v0.2_DLL.zip' -Force
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSIE-1.5-WorkTime-NullKey-Hotfix-DLL
+          path: build/VSIE_1.5_WorkTime_NullKey_Hotfix_v0.2_DLL.zip
+          if-no-files-found: error
