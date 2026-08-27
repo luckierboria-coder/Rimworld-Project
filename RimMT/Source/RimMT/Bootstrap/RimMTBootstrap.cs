@@ -28,7 +28,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.12 playtest initialized. Performance policy is stutter-first: low-pressure GenClosest calls stay Vanilla, unknown enumerable inputs are not materialized, and foreground worker waiting/spinning has been removed. Only large counted-list searches under elevated pressure may receive a hard-budget nearest-first assist. Candidate membership is unchanged; Reachability, WorkGiver validators, reservations and final Jobs remain main-thread authoritative. V0.4.6/V0.4.7 hauling accelerators, bounded path shadow validation, Butter++ logical-tick barriers and V0.4.8 bounded slow JobPackage tracing are retained.");
+                Log.Message("[RimMT] V0.4.13 playtest initialized. True-offload policy: repeated IList-backed custom GenClosest searches may consume immutable spatial indexes built ahead of time on RimMT worker cores. The main thread never waits for an index build; missing or stale snapshots fall back to Vanilla for that call. Snapshot validation, live Reachability, WorkGiver validators, reservations and final Jobs remain main-thread authoritative. V0.4.6/V0.4.7 hauling accelerators, bounded path shadow validation, Butter++ logical-tick barriers and V0.4.8 bounded slow JobPackage tracing are retained.");
             }
             catch (Exception ex)
             {
