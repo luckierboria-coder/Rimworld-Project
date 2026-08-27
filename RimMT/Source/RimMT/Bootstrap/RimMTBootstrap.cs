@@ -28,7 +28,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.11 playtest initialized. Job search spike reduction now uses pressure-adaptive nearest-first GenClosest candidate ordering with a non-blocking opportunistic worker assist. Candidate membership is unchanged; Reachability, WorkGiver validators, reservations and final Jobs remain main-thread authoritative. V0.4.6/V0.4.7 hauling accelerators, bounded path shadow validation, Butter++ logical-tick barriers and V0.4.8 bounded slow JobPackage tracing are retained.");
+                Log.Message("[RimMT] V0.4.12 playtest initialized. Performance policy is stutter-first: low-pressure GenClosest calls stay Vanilla, unknown enumerable inputs are not materialized, and foreground worker waiting/spinning has been removed. Only large counted-list searches under elevated pressure may receive a hard-budget nearest-first assist. Candidate membership is unchanged; Reachability, WorkGiver validators, reservations and final Jobs remain main-thread authoritative. V0.4.6/V0.4.7 hauling accelerators, bounded path shadow validation, Butter++ logical-tick barriers and V0.4.8 bounded slow JobPackage tracing are retained.");
             }
             catch (Exception ex)
             {

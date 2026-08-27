@@ -51,14 +51,14 @@ jobs:
           Copy-Item "$src/1.5" $stage -Recurse
           Copy-Item "$src/LoadFolders.xml" $stage
           Copy-Item "$src/README.md" $stage
-          if (Test-Path "$src/V0.4.11_NOTES.md") { Copy-Item "$src/V0.4.11_NOTES.md" $stage }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.4.11_Playtest.zip' -Force
+          if (Test-Path "$src/V0.4.12_NOTES.md") { Copy-Item "$src/V0.4.12_NOTES.md" $stage }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.4.12_Playtest.zip' -Force
 
       - name: Upload playtest artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.4.11-Playtest
-          path: build/RimMT_V0.4.11_Playtest.zip
+          name: RimMT-V0.4.12-Playtest
+          path: build/RimMT_V0.4.12_Playtest.zip
           if-no-files-found: error
 
       - name: Publish downloadable artifact to repository
@@ -66,11 +66,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path 'dist-artifacts' | Out-Null
-          Copy-Item 'build/RimMT_V0.4.11_Playtest.zip' 'dist-artifacts/RimMT_V0.4.11_Playtest.zip' -Force
+          Copy-Item 'build/RimMT_V0.4.12_Playtest.zip' 'dist-artifacts/RimMT_V0.4.12_Playtest.zip' -Force
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add 'dist-artifacts/RimMT_V0.4.11_Playtest.zip'
+          git add 'dist-artifacts/RimMT_V0.4.12_Playtest.zip'
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 0) { exit 0 }
-          git commit -m 'Build RimMT V0.4.11 playtest artifact'
+          git commit -m 'Build RimMT V0.4.12 playtest artifact'
           git push
