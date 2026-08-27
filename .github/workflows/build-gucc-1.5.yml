@@ -43,7 +43,9 @@ jobs:
 
       - name: Apply RimWorld 1.5 backport
         shell: pwsh
-        run: ./GUCC-1.5-Backport/Apply_15_Backport.ps1 -ModRoot 'GUCC-1.5-Backport/work'
+        run: |
+          ./GUCC-1.5-Backport/Apply_15_Backport.ps1 -ModRoot 'GUCC-1.5-Backport/work'
+          ./GUCC-1.5-Backport/Fix_15_JobDriverAccess.ps1 -ModRoot 'GUCC-1.5-Backport/work'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
