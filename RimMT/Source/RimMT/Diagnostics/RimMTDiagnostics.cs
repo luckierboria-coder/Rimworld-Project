@@ -30,7 +30,9 @@ namespace RimMT
             sb.AppendLine(RuntimeCompatibility.Summary());
 
             JobScheduler scheduler = RimMTRuntime.Scheduler;
-            sb.AppendLine("Workers: " + (scheduler == null ? 0 : scheduler.WorkerCount));
+            sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
+                ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
+                ", workerCap=8 (V0.4.15 keeps the cap fixed while fan-out is runtime-validated)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -40,7 +42,11 @@ namespace RimMT
                     ", failures=" + scheduler.Failures +
                     ", active=" + scheduler.ActiveWorkers + "/" + scheduler.WorkerCount +
                     ", peakActive=" + scheduler.PeakActiveWorkers +
-                    ", highWater=" + scheduler.HighWaterPending);
+                    ", highWater=" + scheduler.HighWaterPending +
+                    ", wakeCredits=" + scheduler.WakeReleases +
+                    ", multiWakeCalls=" + scheduler.MultiWakeCalls +
+                    ", parallelBatches=" + scheduler.ParallelBatchesEnqueued +
+                    ", timeoutPollClaims=" + scheduler.TimeoutPollClaims);
             }
 
             sb.AppendLine(MainThreadDispatcher.Summary());
@@ -86,6 +92,7 @@ namespace RimMT
             sb.AppendLine(GlobalHaulAccelerator.Summary());
             sb.AppendLine(PersistentMapSearchFabric.Summary());
             sb.AppendLine(AdaptiveGenClosestAssist.Summary());
+            sb.AppendLine(ParallelRegionConnectivity.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
             sb.AppendLine(PathSnapshotWorker.Summary());
@@ -132,14 +139,17 @@ namespace RimMT
                 {
                     stopwatch.Stop();
                     JobScheduler currentScheduler = RimMTRuntime.Scheduler;
-                    Log.Message("[RimMT] Worker self-test passed: workers=" + currentScheduler.WorkerCount +
+                    Log.Message("[RimMT] Worker self-test passed: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
+                        ", workers=" + currentScheduler.WorkerCount +
                         ", elapsedMs=" + stopwatch.ElapsedMilliseconds +
                         ", checksum=" + total +
                         ", enqueued=" + currentScheduler.Enqueued +
                         ", completed=" + currentScheduler.Completed +
                         ", failures=" + currentScheduler.Failures +
                         ", peakActive=" + currentScheduler.PeakActiveWorkers +
-                        ", highWater=" + currentScheduler.HighWaterPending);
+                        ", highWater=" + currentScheduler.HighWaterPending +
+                        ", multiWakeCalls=" + currentScheduler.MultiWakeCalls +
+                        ", parallelBatches=" + currentScheduler.ParallelBatchesEnqueued);
                 },
                 JobPriority.High);
 
