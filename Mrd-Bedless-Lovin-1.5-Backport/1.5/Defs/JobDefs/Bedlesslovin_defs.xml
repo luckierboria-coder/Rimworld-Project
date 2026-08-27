@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <Defs>
+  <!-- Legacy JobDef retained for save compatibility. New interactions are dispatched
+       as vanilla JobDefOf.Lovin by JoyGiver_InteracaoPrivada so RJW can patch them. -->
   <JobDef>
     <defName>InteracaoPrivada_Ato</defName>
-    <driverClass>LovinAnywhere.JobDriver_InteracaoPrivada</driverClass>
+    <driverClass>RimWorld.JobDriver_Lovin</driverClass>
     <reportString>Looking to have a date</reportString>
     <allowOpportunisticPrefix>false</allowOpportunisticPrefix>
     <joyKind>Social</joyKind>
@@ -20,11 +22,15 @@
     </requiredCapacities>
   </JoyGiverDef>
 
+  <!-- The meeting point is deliberately a Building_Bed-compatible target because
+       vanilla JobDriver_Lovin (and therefore RJW's Lovin Harmony patch) requires
+       TargetIndex.B to be Building_Bed. C# patches keep it out of normal sleep AI
+       and emulate only temporary Lovin slot ownership. -->
   <ThingDef ParentName="BuildingBase">
     <defName>InteracaoPrivada_Spot</defName>
     <label>Romantic meeting point</label>
     <description>A designated space for couples seeking privacy. It doesn't offer comfort, but it guarantees a fixed location away from shared barracks.</description>
-    <thingClass>Building</thingClass>
+    <thingClass>LovinAnywhere.Building_RomanticMeetingSpot</thingClass>
     <category>Building</category>
     <graphicData>
       <texPath>spt</texPath>
@@ -34,15 +40,23 @@
     <altitudeLayer>FloorEmplacement</altitudeLayer>
     <statBases>
       <WorkToBuild>0</WorkToBuild>
+      <BedRestEffectiveness>0</BedRestEffectiveness>
+      <Comfort>0</Comfort>
     </statBases>
     <scatterableOnMapGen>false</scatterableOnMapGen>
     <useHitPoints>false</useHitPoints>
     <size>(2,1)</size>
     <designationCategory>Misc</designationCategory>
-    <passability>Standable</passability>
+    <passability>PassThroughOnly</passability>
+    <fillPercent>0</fillPercent>
     <building>
       <sowTag>SupportPlantsOnly</sowTag>
       <canPlaceOverWall>false</canPlaceOverWall>
+      <isEdifice>false</isEdifice>
+      <bed_humanlike>true</bed_humanlike>
+      <bed_maxBodySize>2.0</bed_maxBodySize>
+      <bed_showSleeperBody>true</bed_showSleeperBody>
+      <bed_healPerDay>0</bed_healPerDay>
     </building>
   </ThingDef>
 </Defs>
