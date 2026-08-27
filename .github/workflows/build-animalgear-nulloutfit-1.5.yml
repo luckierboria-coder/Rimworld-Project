@@ -44,20 +44,21 @@ jobs:
           Copy-Item 'AnimalGear-NullOutfit-1.5\About' $stage -Recurse -Force
           Copy-Item 'AnimalGear-NullOutfit-1.5\Languages' $stage -Recurse -Force
           Copy-Item 'AnimalGear-NullOutfit-1.5\1.5' $stage -Recurse -Force
-          @'
-Animal Gear - Null Outfit 1.5
-
-Load after Animal Gear.
-
-Behavior:
-- Player animals default to None / 无方案.
-- None / 无方案 is a permanent animal-only outfit selector entry and can always be selected again after choosing another policy by mistake.
-- Colonist outfit UI and policies are untouched; colonists never see this option.
-- While None / 无方案 is selected, JobGiver_OptimizeApparel is skipped for that animal, so it does not search for, optimize, replace, or automatically wear apparel.
-- Selecting a normal apparel policy re-enables Animal Gear apparel optimization normally.
-- On the first load of an existing save, player animals still using the vanilla default Anything policy are migrated once to None. Custom animal policies are preserved.
-- After that one-time migration, explicitly selecting Anything remains respected.
-'@ | Set-Content "$stage\README.txt" -Encoding UTF8
+          $readme = @(
+            'Animal Gear - Null Outfit 1.5',
+            '',
+            'Load after Animal Gear.',
+            '',
+            'Behavior:',
+            '- Player animals default to None / 无方案.',
+            '- None / 无方案 is a permanent animal-only outfit selector entry and can always be selected again after choosing another policy by mistake.',
+            '- Colonist outfit UI and policies are untouched; colonists never see this option.',
+            '- While None / 无方案 is selected, JobGiver_OptimizeApparel is skipped for that animal, so it does not search for, optimize, replace, or automatically wear apparel.',
+            '- Selecting a normal apparel policy re-enables Animal Gear apparel optimization normally.',
+            '- On the first load of an existing save, player animals still using the vanilla default Anything policy are migrated once to None. Custom animal policies are preserved.',
+            '- After that one-time migration, explicitly selecting Anything remains respected.'
+          )
+          $readme | Set-Content "$stage\README.txt" -Encoding UTF8
           Compress-Archive -Path $stage -DestinationPath 'build\AnimalGear_NullOutfit_1.5_DLL_READY.zip' -Force
 
       - name: Upload artifact
