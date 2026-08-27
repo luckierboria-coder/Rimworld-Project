@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Privacy Please - RJW 1.5 Hotfix</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>Allen.PrivacyPleaseRJW15Hotfix</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>rim.job.world</packageId><displayName>RimJobWorld</displayName></li>
+    <li><packageId>abscon.privacy.please</packageId><displayName>Privacy, Please!</displayName></li>
+  </modDependencies>
+  <loadAfter><li>rim.job.world</li><li>abscon.privacy.please</li></loadAfter>
+  <description>Compatibility guard for Privacy Please + current RJW on RimWorld 1.5. It catches the specific NullReferenceException thrown inside Privacy Please's JobDriver_Sex setup_ticks / SexTick postfixes so RJW job setup can continue.</description>
+</ModMetaData>
