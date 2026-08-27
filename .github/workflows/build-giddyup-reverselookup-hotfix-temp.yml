@@ -1,0 +1,65 @@
+name: Build Giddy-Up ReverseLookup Hotfix Temp
+
+on:
+  push:
+    branches:
+      - build-giddyup-hotfix-temp
+    paths:
+      - 'TempBuild/GiddyUpReverseLookupHotfix/**'
+      - '.github/workflows/build-giddyup-reverselookup-hotfix-temp.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download Giddy-Up 1.5 reference assembly
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path TempBuild/GiddyUpReverseLookupHotfix/BuildRefs | Out-Null
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/dav9670/GiddyUp2/master/ModFolder/1.5/Assemblies/GiddyUpCore.dll' -OutFile 'TempBuild/GiddyUpReverseLookupHotfix/BuildRefs/GiddyUpCore.dll'
+
+      - name: Build
+        shell: pwsh
+        run: dotnet build TempBuild/GiddyUpReverseLookupHotfix/GiddyUpReverseLookupHotfix.csproj -c Release
+
+      - name: Package complete mod
+        shell: pwsh
+        run: |
+          $root = 'artifact/GiddyUp2_1.5_ReverseLookup_Hotfix_v1'
+          New-Item -ItemType Directory -Force -Path "$root/About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$root/1.5/Assemblies" | Out-Null
+          Copy-Item 'TempBuild/GiddyUpReverseLookupHotfix/About.xml' "$root/About/About.xml"
+          Copy-Item 'TempBuild/GiddyUpReverseLookupHotfix/bin/Release/GiddyUp15ReverseLookupHotfix.dll' "$root/1.5/Assemblies/GiddyUp15ReverseLookupHotfix.dll"
+          @'
+          Giddy-Up 2 1.5 ReverseLookup Hotfix v1
+
+          PRECOMPILED COMPLETE VERSION.
+          No build step is required.
+
+          Install:
+          1. Extract the folder into RimWorld/Mods.
+          2. Enable after Giddy-Up 2.
+          3. Start RimWorld 1.5.
+
+          Expected startup log:
+          [Giddy-Up 2 1.5 ReverseLookup Hotfix] ACTIVE:
+
+          The patch keeps Giddy-Up reservation behavior unchanged.
+          ReverseLookup hits return original data; expected misses still return false with fallback data but no longer spam warnings.
+          If the target structure changes, the patch fails closed and lets original Giddy-Up execute.
+          '@ | Set-Content -Encoding UTF8 "$root/README.txt"
+          Compress-Archive -Path $root -DestinationPath 'artifact/GiddyUp2_1.5_ReverseLookup_Hotfix_v1.zip' -Force
+
+      - name: Upload complete mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: GiddyUp2_1.5_ReverseLookup_Hotfix_v1
+          path: artifact/GiddyUp2_1.5_ReverseLookup_Hotfix_v1.zip
+          if-no-files-found: error
