@@ -30,7 +30,7 @@ namespace RimMT
         private long wakeReleases;
         private long multiWakeCalls;
         private long parallelBatchesEnqueued;
-        private long suppressedWakeRetries;
+        private long timeoutPollClaims;
 
         public int WorkerCount { get { return workers.Length; } }
         public int Pending { get { return Volatile.Read(ref pending); } }
@@ -44,7 +44,7 @@ namespace RimMT
         public long WakeReleases { get { return Interlocked.Read(ref wakeReleases); } }
         public long MultiWakeCalls { get { return Interlocked.Read(ref multiWakeCalls); } }
         public long ParallelBatchesEnqueued { get { return Interlocked.Read(ref parallelBatchesEnqueued); } }
-        public long SuppressedWakeRetries { get { return Interlocked.Read(ref suppressedWakeRetries); } }
+        public long TimeoutPollClaims { get { return Interlocked.Read(ref timeoutPollClaims); } }
 
         public JobScheduler(int workerCount, int maxPendingJobs)
         {
@@ -130,8 +130,8 @@ namespace RimMT
             if (Volatile.Read(ref remaining) == 0 && onComplete != null)
                 MainThreadDispatcher.TryEnqueue(onComplete);
 
-            // One credit per batch guarantees all waiting workers can participate. Credits
-            // are consumed before work is dequeued, so no large stale wake count remains.
+            // One credit per batch lets sleeping workers fan out immediately. A worker consumes
+            // one credit per claimed item, so burst credits do not remain after the queue drains.
             ReleaseWakeCredits(batches);
             return true;
         }
@@ -167,22 +167,16 @@ namespace RimMT
         {
             while (running)
             {
-                if (!wakeSignal.Wait(5))
-                    continue;
-
+                bool signaled = wakeSignal.Wait(5);
                 WorkItem item;
                 if (!TryTake(out item))
-                {
-                    // A background item may be temporarily hidden by adaptiveBurst. Preserve
-                    // its credit and retry later instead of losing the wake permanently.
-                    if (Volatile.Read(ref pending) > 0)
-                    {
-                        Interlocked.Increment(ref suppressedWakeRetries);
-                        Thread.Sleep(1);
-                        ReleaseWakeCredits(1);
-                    }
                     continue;
-                }
+
+                // When a background credit was consumed while adaptiveBurst hid the background
+                // queue, the 5 ms timeout path can later claim that pending work after pressure
+                // falls. This is a fail-open recovery path, not a spin loop.
+                if (!signaled)
+                    Interlocked.Increment(ref timeoutPollClaims);
 
                 int active = Interlocked.Increment(ref activeWorkers);
                 UpdatePeakActive(active);
