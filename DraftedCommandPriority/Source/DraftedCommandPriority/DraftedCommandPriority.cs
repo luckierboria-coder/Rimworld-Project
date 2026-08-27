@@ -28,6 +28,40 @@ namespace DraftedCommandPriority
         }
     }
 
+    public sealed class DcpGameState : GameComponent
+    {
+        private Dictionary<int, bool> meleeAutoAttackByPawn = new Dictionary<int, bool>();
+
+        public DcpGameState(Game game)
+        {
+        }
+
+        public override void ExposeData()
+        {
+            Scribe_Collections.Look(ref meleeAutoAttackByPawn, "meleeAutoAttackByPawn", LookMode.Value, LookMode.Value);
+            if (meleeAutoAttackByPawn == null)
+                meleeAutoAttackByPawn = new Dictionary<int, bool>();
+            base.ExposeData();
+        }
+
+        internal bool GetMeleeAutoAttack(Pawn pawn)
+        {
+            if (pawn == null)
+                return true;
+
+            bool enabled;
+            if (meleeAutoAttackByPawn.TryGetValue(pawn.thingIDNumber, out enabled))
+                return enabled;
+            return true;
+        }
+
+        internal void SetMeleeAutoAttack(Pawn pawn, bool enabled)
+        {
+            if (pawn != null)
+                meleeAutoAttackByPawn[pawn.thingIDNumber] = enabled;
+        }
+    }
+
     public sealed class DcpMod : Mod
     {
         internal static DcpSettings Settings;
@@ -57,7 +91,7 @@ namespace DraftedCommandPriority
             listing.GapLine();
             listing.CheckboxLabeled("DCP_LogBlocked".Translate(), ref Settings.logBlockedJobs, "DCP_LogBlockedDesc".Translate());
             listing.GapLine();
-            listing.Label("DCP_BlockedCount".Translate(DraftedOrderGuard.BlockedJobs));
+            listing.Label("DCP_BlockedCount".Translate(ThinkTreeCommandGate.BlockedJobs));
             listing.Label("DCP_AutoAttackCount".Translate(MeleeAutoAttack.AutoAttackJobs));
             listing.End();
         }
@@ -76,15 +110,35 @@ namespace DraftedCommandPriority
 
                 MethodBase interruptible = AccessTools.Method(typeof(Pawn_JobTracker), "IsCurrentJobPlayerInterruptible");
                 if (interruptible == null)
-                    Log.Error("[Drafted Command Priority] Pawn_JobTracker.IsCurrentJobPlayerInterruptible not found; absolute drafted player override will remain inert.");
+                {
+                    Log.Error("[Drafted Command Priority] Pawn_JobTracker.IsCurrentJobPlayerInterruptible not found; burning-order override will remain inert.");
+                }
                 else
-                    harmony.Patch(interruptible, postfix: new HarmonyMethod(typeof(AbsolutePlayerInterrupt), "Postfix"));
+                {
+                    HarmonyMethod interruptPostfix = new HarmonyMethod(typeof(BurningPlayerInterrupt), "Postfix");
+                    // Run early among postfixes. Other mods that deliberately veto later
+                    // still retain the final say, reducing compatibility risk.
+                    interruptPostfix.priority = Priority.First;
+                    harmony.Patch(interruptible, postfix: interruptPostfix);
+                }
 
                 MethodBase startJob = AccessTools.Method(typeof(Pawn_JobTracker), "StartJob");
                 if (startJob == null)
-                    Log.Error("[Drafted Command Priority] Pawn_JobTracker.StartJob not found; strict command guard will remain inert.");
+                    Log.Error("[Drafted Command Priority] Pawn_JobTracker.StartJob not found; player-command tracking will remain inert.");
                 else
-                    harmony.Patch(startJob, prefix: new HarmonyMethod(typeof(DraftedOrderGuard), "Prefix"));
+                    harmony.Patch(startJob, prefix: new HarmonyMethod(typeof(PlayerCommandObserver), "Prefix"));
+
+                MethodBase shouldStart = AccessTools.Method(typeof(Pawn_JobTracker), "ShouldStartJobFromThinkTree");
+                if (shouldStart == null)
+                    Log.Error("[Drafted Command Priority] Pawn_JobTracker.ShouldStartJobFromThinkTree not found; autonomous ThinkTree gate will remain inert.");
+                else
+                    harmony.Patch(shouldStart, prefix: new HarmonyMethod(typeof(ThinkTreeCommandGate), "Prefix"));
+
+                MethodBase tryFind = AccessTools.Method(typeof(Pawn_JobTracker), "TryFindAndStartJob");
+                if (tryFind == null)
+                    Log.Warning("[Drafted Command Priority] Pawn_JobTracker.TryFindAndStartJob not found; command gate will rely on drafted idle release.");
+                else
+                    harmony.Patch(tryFind, prefix: new HarmonyMethod(typeof(AiHandoffGate), "Prefix"));
 
                 MethodBase jobTrackerTick = AccessTools.Method(typeof(Pawn_JobTracker), "JobTrackerTick");
                 if (jobTrackerTick == null)
@@ -98,7 +152,7 @@ namespace DraftedCommandPriority
                 else
                     harmony.Patch(pawnGetGizmos, postfix: new HarmonyMethod(typeof(MeleeAutoAttackGizmo), "Postfix"));
 
-                Log.Message("[Drafted Command Priority] V0.1 active. Drafted player orders have absolute job priority while the pawn remains player-controllable, including while burning. Player command chains remain authoritative until completion; autonomous AI and melee auto attack resume only afterwards.");
+                Log.Message("[Drafted Command Priority] V0.1 compatibility-safe mode active. Burning no longer blocks drafted player orders; player command chains gate ordinary ThinkTree AI until handoff. No ThinkTree replacement, PathFinder patch, or broad StartJob veto is installed.");
             }
             catch (Exception ex)
             {
@@ -109,13 +163,69 @@ namespace DraftedCommandPriority
 
     internal static class DcpControlRules
     {
+        internal static bool IsHardControlled(Pawn pawn)
+        {
+            if (pawn == null || pawn.Dead || pawn.Downed || pawn.InMentalState)
+                return true;
+
+            if (pawn.stances != null && pawn.stances.stunner != null && pawn.stances.stunner.Stunned)
+                return true;
+
+            return false;
+        }
+
         internal static bool HasAbsolutePlayerControl(Pawn pawn)
         {
-            return pawn != null && pawn.Spawned && pawn.Drafted && !pawn.Downed && !pawn.InMentalState && pawn.IsColonistPlayerControlled;
+            return pawn != null && pawn.Spawned && pawn.Drafted && !IsHardControlled(pawn) && pawn.IsColonistPlayerControlled;
         }
     }
 
-    internal static class AbsolutePlayerInterrupt
+    internal static class DcpPerPawnState
+    {
+        internal static DcpGameState GameState
+        {
+            get
+            {
+                if (Verse.Current.Game == null)
+                    return null;
+                return Verse.Current.Game.GetComponent<DcpGameState>();
+            }
+        }
+
+        internal static bool GetMeleeAutoAttack(Pawn pawn)
+        {
+            DcpGameState state = GameState;
+            return state == null || state.GetMeleeAutoAttack(pawn);
+        }
+
+        internal static void ToggleMeleeAutoAttack(Pawn pawn)
+        {
+            DcpGameState state = GameState;
+            if (state != null)
+                state.SetMeleeAutoAttack(pawn, !state.GetMeleeAutoAttack(pawn));
+        }
+    }
+
+    internal static class DcpKeyBindings
+    {
+        private static KeyBindingDef toggleMeleeAutoAttack;
+        private static bool resolved;
+
+        internal static KeyBindingDef ToggleMeleeAutoAttack
+        {
+            get
+            {
+                if (!resolved)
+                {
+                    resolved = true;
+                    toggleMeleeAutoAttack = DefDatabase<KeyBindingDef>.GetNamedSilentFail("DCP_ToggleMeleeAutoAttack");
+                }
+                return toggleMeleeAutoAttack;
+            }
+        }
+    }
+
+    internal static class BurningPlayerInterrupt
     {
         public static void Postfix(Pawn ___pawn, ref bool __result)
         {
@@ -130,12 +240,14 @@ namespace DraftedCommandPriority
             if (!DcpControlRules.HasAbsolutePlayerControl(pawn))
                 return;
 
-            // Vanilla deliberately makes a burning pawn non-player-interruptible by
-            // checking !pawn.HasAttachment(ThingDefOf.Fire). DCP overrides that rule,
-            // and also any ordinary job-level playerInterruptible=false state, while
-            // the pawn is drafted and still genuinely player-controllable.
-            // Physical hard control (downed/mental/uncontrollable) remains outside DCP.
-            __result = true;
+            // Narrow compatibility override: only remove Vanilla's special rule that
+            // makes an otherwise player-interruptible job non-interruptible because the
+            // pawn has a Fire attachment. Do NOT globally rewrite foreign/noninterruptible
+            // jobs; other mods can still impose their own restrictions after this postfix.
+            Job current = pawn.jobs == null ? null : pawn.jobs.curJob;
+            bool jobNormallyInterruptible = current == null || (current.def != null && current.def.playerInterruptible);
+            if (jobNormallyInterruptible && pawn.HasAttachment(ThingDefOf.Fire))
+                __result = true;
         }
     }
 
@@ -197,7 +309,29 @@ namespace DraftedCommandPriority
         }
     }
 
-    internal static class DraftedOrderGuard
+    internal static class PlayerCommandObserver
+    {
+        // Observation only. Never veto StartJob here; broad StartJob prefixes are a
+        // high-risk compatibility surface for modded finalizer/continuation jobs.
+        public static void Prefix(Pawn ___pawn, Job newJob)
+        {
+            DcpSettings settings = DcpMod.Settings;
+            if (settings == null || !settings.enabled || newJob == null)
+                return;
+
+            Pawn pawn = ___pawn;
+            if (!DcpControlRules.HasAbsolutePlayerControl(pawn))
+            {
+                PlayerCommandGate.Clear(pawn);
+                return;
+            }
+
+            if (newJob.playerForced)
+                PlayerCommandGate.Mark(pawn);
+        }
+    }
+
+    internal static class ThinkTreeCommandGate
     {
         private static long blockedJobs;
         internal static long BlockedJobs
@@ -205,10 +339,13 @@ namespace DraftedCommandPriority
             get { return Interlocked.Read(ref blockedJobs); }
         }
 
-        public static bool Prefix(Pawn_JobTracker __instance, Pawn ___pawn, Job newJob)
+        // Veto only ordinary ThinkTree AI while a player command chain owns the pawn.
+        // Mod-internal direct StartJob continuation/finalizer calls are intentionally
+        // left untouched for compatibility.
+        public static bool Prefix(Pawn ___pawn, ThinkResult thinkResult, ref bool __result)
         {
             DcpSettings settings = DcpMod.Settings;
-            if (settings == null || !settings.enabled || __instance == null || newJob == null)
+            if (settings == null || !settings.enabled)
                 return true;
 
             Pawn pawn = ___pawn;
@@ -218,40 +355,38 @@ namespace DraftedCommandPriority
                 return true;
             }
 
-            // Any explicit player command starts/refreshes the command gate.
-            if (newJob.playerForced)
-            {
-                PlayerCommandGate.Mark(pawn);
-                return true;
-            }
-
-            Job current = __instance.curJob;
-
-            // Recover the gate after loading a save or if another mod created the
-            // player-forced job before DCP observed its StartJob call.
-            if (current != null && current.playerForced)
-                PlayerCommandGate.Mark(pawn);
-
             if (!PlayerCommandGate.IsActive(pawn))
                 return true;
 
-            // While a player command chain is active, ALL non-player StartJob attempts
-            // are rejected: fire panic/extinguish, flee, ThinkTree AI, auto melee, etc.
-            // AI is released only after the player chain genuinely reaches drafted idle.
-            if (PlayerCommandGate.ReleaseIfCommandFinished(pawn, __instance))
+            if (!thinkResult.IsValid || thinkResult.Job == null || thinkResult.Job.playerForced)
                 return true;
 
             Interlocked.Increment(ref blockedJobs);
-            if (settings.logBlockedJobs)
+            __result = false;
+            return false;
+        }
+    }
+
+    internal static class AiHandoffGate
+    {
+        // Vanilla calls this when the current command has actually finished and it is
+        // ready to ask AI for a new job. That is the clean handoff point: release DCP
+        // ownership here instead of blocking arbitrary StartJob calls from other mods.
+        public static void Prefix(Pawn_JobTracker __instance, Pawn ___pawn)
+        {
+            DcpSettings settings = DcpMod.Settings;
+            if (settings == null || !settings.enabled || __instance == null)
+                return;
+
+            Pawn pawn = ___pawn;
+            if (!DcpControlRules.HasAbsolutePlayerControl(pawn))
             {
-                string pawnLabel = pawn.LabelShortCap;
-                string currentDef = current == null || current.def == null ? "<null>" : current.def.defName;
-                string incomingDef = newJob.def == null ? "<null>" : newJob.def.defName;
-                Log.Message("[Drafted Command Priority] Blocked autonomous StartJob during active player command chain for " + pawnLabel +
-                    ": incoming=" + incomingDef + ", current=" + currentDef + ".");
+                PlayerCommandGate.Clear(pawn);
+                return;
             }
 
-            return false;
+            if (PlayerCommandGate.IsActive(pawn) && __instance.curJob == null && !PlayerCommandGate.HasQueuedPlayerOrder(__instance))
+                PlayerCommandGate.Clear(pawn);
         }
     }
 
@@ -281,11 +416,9 @@ namespace DraftedCommandPriority
             if (primary == null || primary.def == null || !primary.def.IsMeleeWeapon)
                 return;
 
-            if (pawn.drafter == null || !pawn.drafter.FireAtWill)
+            if (!DcpPerPawnState.GetMeleeAutoAttack(pawn))
                 return;
 
-            // Auto melee may not participate until the entire player command chain has
-            // completed. A new player order always takes control back immediately.
             if (PlayerCommandGate.IsActive(pawn) && !PlayerCommandGate.ReleaseIfCommandFinished(pawn, __instance))
                 return;
 
@@ -359,7 +492,7 @@ namespace DraftedCommandPriority
             if (settings == null || !settings.enabled || !settings.meleeAutoAttack)
                 yield break;
 
-            if (!DcpControlRules.HasAbsolutePlayerControl(pawn) || pawn.drafter == null)
+            if (!DcpControlRules.HasAbsolutePlayerControl(pawn))
                 yield break;
 
             ThingWithComps primary = pawn.equipment == null ? null : pawn.equipment.Primary;
@@ -367,13 +500,9 @@ namespace DraftedCommandPriority
                 yield break;
 
             Command_Toggle toggle = new Command_Toggle();
-            toggle.hotKey = KeyBindingDefOf.Misc6;
-            toggle.isActive = delegate { return pawn.drafter != null && pawn.drafter.FireAtWill; };
-            toggle.toggleAction = delegate
-            {
-                if (pawn.drafter != null)
-                    pawn.drafter.FireAtWill = !pawn.drafter.FireAtWill;
-            };
+            toggle.hotKey = DcpKeyBindings.ToggleMeleeAutoAttack;
+            toggle.isActive = delegate { return DcpPerPawnState.GetMeleeAutoAttack(pawn); };
+            toggle.toggleAction = delegate { DcpPerPawnState.ToggleMeleeAutoAttack(pawn); };
             toggle.icon = TexCommand.AttackMelee;
             toggle.defaultLabel = "DCP_MeleeAutoAttackToggleLabel".Translate();
             toggle.defaultDesc = "DCP_MeleeAutoAttackToggleDesc".Translate();
