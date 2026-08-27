@@ -1,0 +1,60 @@
+name: Build Door Clearance and Privacy RJW 1.5 Hotfixes
+
+on:
+  push:
+    branches: [ build-vsie-nullkey-dll ]
+    paths:
+      - 'DoorClearance-1.5-Fixed/**'
+      - 'PrivacyPlease-RJW-1.5-Hotfix/**'
+      - '.github/workflows/build-door-rjw-hotfixes.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore and build Door Clearance
+        run: |
+          dotnet restore DoorClearance-1.5-Fixed/Source/DoorClearance15Fixed.csproj
+          dotnet build DoorClearance-1.5-Fixed/Source/DoorClearance15Fixed.csproj --configuration Release --no-restore
+      - name: Restore and build Privacy RJW
+        run: |
+          dotnet restore PrivacyPlease-RJW-1.5-Hotfix/Source/PrivacyPleaseRJWHotfix.csproj
+          dotnet build PrivacyPlease-RJW-1.5-Hotfix/Source/PrivacyPleaseRJWHotfix.csproj --configuration Release --no-restore
+      - name: Verify DLLs
+        shell: pwsh
+        run: |
+          $dlls = @(
+            'DoorClearance-1.5-Fixed/1.5/Assemblies/DoorClearance15Fixed.dll',
+            'PrivacyPlease-RJW-1.5-Hotfix/1.5/Assemblies/PrivacyPleaseRJWHotfix.dll'
+          )
+          foreach ($dll in $dlls) { if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }; Get-Item $dll | Format-List FullName,Length }
+      - name: Package mods
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          foreach ($name in @('DoorClearance-1.5-Fixed','PrivacyPlease-RJW-1.5-Hotfix')) {
+            $stage = "build/$name"
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+            Copy-Item "$name/About" $stage -Recurse
+            Copy-Item "$name/1.5" $stage -Recurse
+            Copy-Item "$name/Source" $stage -Recurse
+          }
+          Compress-Archive -Path 'build/DoorClearance-1.5-Fixed' -DestinationPath 'build/DoorClearance_1.5_Fixed_v1_DLL.zip' -Force
+          Compress-Archive -Path 'build/PrivacyPlease-RJW-1.5-Hotfix' -DestinationPath 'build/PrivacyPlease_RJW_1.5_Hotfix_v1_DLL.zip' -Force
+      - name: Upload Door artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoorClearance-1.5-Fixed-DLL
+          path: build/DoorClearance_1.5_Fixed_v1_DLL.zip
+      - name: Upload Privacy RJW artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrivacyPlease-RJW-1.5-Hotfix-DLL
+          path: build/PrivacyPlease_RJW_1.5_Hotfix_v1_DLL.zip
