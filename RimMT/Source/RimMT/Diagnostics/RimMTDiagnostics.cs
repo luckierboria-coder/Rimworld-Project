@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.18.3 keeps the validated cap; reach capture is frame-budgeted and graph builds remain worker-side)");
+                ", workerCap=8 (V0.4.18.3 keeps the validated cap; reach capture is frame-budgeted and spatial source publication remains worker-side)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -91,10 +91,10 @@ namespace RimMT
             sb.AppendLine(HaulWorkAccelerator.Summary());
             sb.AppendLine(GlobalHaulAccelerator.Summary());
             sb.AppendLine(PersistentMapSearchFabric.Summary());
-            sb.AppendLine(AdaptiveGenClosestAssist.Summary());
+            sb.AppendLine(StableGenClosestAssist04183.Summary());
             sb.AppendLine(BroadGenClosestOrder0418.Summary());
             sb.AppendLine(JobGiverGlobalNearest04181.Summary());
-            sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED in V0.4.18.3 after identity/root-sensitive reuse produced negligible hot-path benefit. Persistent spatial source ownership is the replacement direction.");
+            sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED. V0.4.18.3 replaces exact IList/root identity with reference-validated stable source signatures backed by PersistentMapSearchFabric.");
             sb.AppendLine(AggressiveReachabilityProfiles04183.Summary());
             sb.AppendLine("Reach-profile V0.4.18.3 policy: generation-owned validity, 900-frame soft refresh while old profiles remain usable, 3600-frame hard safety fuse, 0.80 ms capture-pump budget, sampled positive/negative authority after warmup.");
             sb.AppendLine("Parallel region connectivity V0.4.15: RETIRED/OFF in V0.4.18.3 because measured builds consumed worker/capture time while producing zero accelerations; per-Pawn reach profiles own connectivity offload.");
