@@ -28,15 +28,11 @@ namespace RimMT
             RuntimeCompatibility.Initialize();
 
             detectedProcessorCount = Math.Max(1, Environment.ProcessorCount);
-            // V0.4.15 proved that the fixed pool can fan out to all eight workers on the
-            // user's 12-logical-processor CPU. V0.4.17 feeds substantially more useful Work
-            // classification into that validated pool; the cap stays at eight until real
-            // gameplay telemetry shows queue saturation rather than a lack of useful jobs.
             int workers = Math.Max(1, Math.Min(detectedProcessorCount - 1, 8));
             scheduler = new JobScheduler(workers, 100000);
 
             FeatureGate.Register("runtime.scheduler", true, "Core bounded worker scheduler; semaphore work credits preserve ParallelFor fan-out");
-            FeatureGate.Register("runtime.dispatcher", true, "Worker-to-main-thread dispatcher; AdaptiveTPS and Butter++ TickManagerUpdate coexistence supported");
+            FeatureGate.Register("runtime.dispatcher", true, "Worker-to-main-thread dispatcher; TickManagerUpdate bracket owns frame-boundary commits");
             FeatureGate.Register("runtime.adaptiveBurst", true, "Pressure-aware scheduler; samples Butter++ TickManagerUpdate slices when Butter++ is active");
             FeatureGate.Register("diagnostics.selfTest", true, "Pure CPU worker self-test");
             FeatureGate.Register("diagnostics.hotPaths", true, "PathFinder / JobGiver / tick hot-path profiler");
@@ -50,9 +46,9 @@ namespace RimMT
             FeatureGate.Register("parallel.pathSnapshot", true, "Bounded worker-side immutable path parity validation; Vanilla authoritative");
             FeatureGate.Register("parallel.jobScan", true, "V0.4.6 Work scanner accelerator: worker-built hauling spatial index plus main-thread revalidation");
             FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
-            FeatureGate.Register("parallel.jobPartition", true, "V0.4.14 persistent-map-fabric GenClosest accelerator; Vanilla live validation/final authority retained");
-            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "V0.4.16 sampled per-Pawn Region connectivity profiles; bounded-risk CanReach bypass with parity fuse");
-            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, true, "V0.4.15 permissive connectivity fallback; disconnected candidates pruned before live Vanilla CanReach");
+            FeatureGate.Register("parallel.jobPartition", true, "Persistent-map-fabric GenClosest foundation; identity-keyed V0.4.18.2 candidate plan retired in V0.4.18.3");
+            FeatureGate.Register(AggressiveReachabilityProfiles04183.FeatureId, true, "V0.4.18.3 generation-owned sampled per-Pawn reachability profiles with budgeted capture and parity fuse");
+            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "V0.4.18.3 retired zero-yield regionHint builder; reach profiles own connectivity offload");
             FeatureGate.Register(ParallelWorkPrefilter.FeatureId, true, "V0.4.17 worker-side read-only Grower/Harvest/BuildRoof negative prefilter with sampled false-negative fuse");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
@@ -74,8 +70,8 @@ namespace RimMT
             FeatureGate.SetEnabled("parallel.jobScan", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled("parallel.haulGlobal", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled("parallel.jobPartition", settings.WorkScanAcceleration);
-            FeatureGate.SetEnabled(AggressiveReachabilityProfiles.FeatureId, settings.WorkScanAcceleration);
-            FeatureGate.SetEnabled(ParallelRegionConnectivity.FeatureId, settings.WorkScanAcceleration);
+            FeatureGate.SetEnabled(AggressiveReachabilityProfiles04183.FeatureId, settings.WorkScanAcceleration);
+            FeatureGate.SetEnabled(ParallelRegionConnectivity.FeatureId, false);
             FeatureGate.SetEnabled(ParallelWorkPrefilter.FeatureId, settings.WorkScanAcceleration);
         }
 
@@ -115,8 +111,7 @@ namespace RimMT
                 HaulWorkAccelerator.MarkCompatibilityReady();
                 GlobalHaulAccelerator.MarkCompatibilityReady();
                 AdaptiveGenClosestAssist.MarkCompatibilityReady();
-                AggressiveReachabilityProfiles.MarkCompatibilityReady();
-                ParallelRegionConnectivity.MarkCompatibilityReady();
+                AggressiveReachabilityProfiles04183.MarkCompatibilityReady();
                 ParallelWorkPrefilter.MarkCompatibilityReady();
                 RimMTDiagnostics.LogStartupReport();
             }
