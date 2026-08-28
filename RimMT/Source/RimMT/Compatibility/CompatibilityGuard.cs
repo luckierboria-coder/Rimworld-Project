@@ -171,6 +171,26 @@ namespace RimMT
                     return true;
             }
 
+            // Pathfinding Framework v0.5.x attaches a diagnostics-only Postfix to this exact
+            // Reachability overload. It does not mutate __result; it only stores the final
+            // result/arguments in LastReachabilityResult for later error reports. Allow only
+            // that exact owner + declaring type + method name. PF's gameplay-authoritative
+            // Region.Allows transpiler is intentionally NOT whitelisted here: V0.4.16 calls
+            // live Region.Allows on the main thread while capturing profiles, so its custom
+            // movement semantics are naturally included in the captured permission arrays.
+            if (string.Equals(featureId, AggressiveReachabilityProfiles.FeatureId, StringComparison.Ordinal) &&
+                target != null && target.DeclaringType == typeof(Reachability) && target.Name == nameof(Reachability.CanReach) &&
+                string.Equals(patchKind, "postfix", StringComparison.Ordinal))
+            {
+                string owner = patch == null ? string.Empty : patch.owner;
+                MethodInfo method = patch == null ? null : patch.PatchMethod;
+                string declaring = method == null || method.DeclaringType == null ? string.Empty : method.DeclaringType.FullName;
+                if (string.Equals(owner, "pathfinding.framework", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(declaring, "PathfindingFramework.Patches.DevTool.PathDebugging.Reachability_CanReach_DebugPatch", StringComparison.Ordinal) &&
+                    method != null && string.Equals(method.Name, "Postfix", StringComparison.Ordinal))
+                    return true;
+            }
+
             return false;
         }
 
