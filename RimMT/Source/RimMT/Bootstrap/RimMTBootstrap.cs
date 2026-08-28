@@ -30,7 +30,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.16.2 aggressive-parallel playtest initialized. Exact coexistence is enabled for VFE Phasing, Pathfinding Framework's diagnostics-only Reachability Postfix, and Hospitality's guest-area restriction Postfix. Hospitality remains downstream authority and may only tighten a profile true result to false for arrived guests outside GuestArea. Scheduler fan-out from V0.4.15 is retained. Per-Pawn immutable profiles are built on workers, sampled predictions may bypass live Reachability/RegionTraverser, and parity mismatches trigger per-profile cooldown plus a global fuse. Persistent map search, hauling accelerators, path shadow validation, Butter++ logical-tick barriers and Vanilla main-thread Job/reservation commits are retained.");
+                Log.Message("[RimMT] V0.4.16.3 aggressive-parallel playtest initialized. Full runtime Harmony census for the exact Reachability.CanReach overload is enabled and will print every foreign Prefix/Postfix/Transpiler/Finalizer owner plus exact PatchMethod after entering Playing. VFE Phasing, Pathfinding Framework diagnostics and Hospitality guest-area authority remain exact-coexistence cases. Scheduler fan-out, sampled parity validation, per-profile cooldown, the global fuse, persistent map search, hauling accelerators, path shadow validation, Butter++ logical-tick barriers and Vanilla main-thread Job/reservation commits are retained.");
             }
             catch (Exception ex)
             {
