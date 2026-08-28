@@ -1,66 +1,67 @@
 # RimMT
 
-Compatibility-first performance and multithreading runtime for **RimWorld 1.5.4063**.
+Compatibility-aware multithreading runtime for **RimWorld 1.5.4063**.
 
 ## Design goal
 
-RimMT's first performance objective is **reducing visible stutter and frame-time spikes**. Stability/compatibility is second. Raising average TPS is third. A change that improves average throughput but introduces new main-thread variance, waits, GC pressure, or occasional multi-millisecond stalls is a regression.
+RimMT's primary objective is **reducing visible stutter and frame-time spikes**. Average TPS is secondary. A change that raises throughput but introduces foreground waits, worker spin, GC churn, or new main-thread spikes is treated as a regression.
 
-Preferred architecture: **main-thread snapshot/event capture -> worker precomputation across spare cores -> later main-thread consumption/validation -> Vanilla commit**. Worker work should happen ahead of demand, never as a foreground job the main thread waits for.
+Preferred architecture:
 
-## V0.4.14 Playtest — Persistent Map Search Fabric
+**main-thread capture -> worker computation across spare cores -> later main-thread consumption/validation -> Vanilla commit**
 
-V0.4.13 proved that true worker offload works in the target 1.5 environment: worker builds completed cleanly and all eight workers could be used. It also proved the per-IList position-snapshot design was the wrong cache layer. Position churn invalidated source caches and broad no-result queries still performed hundreds of live `Reachability.CanReach`/validator calls, producing a performance regression.
+The main thread must never wait for a worker result. If a worker result is missing, stale, unsupported, incompatible, or ambiguous, RimMT falls back to Vanilla.
 
-V0.4.14 keeps true offload but changes the search-data ownership model:
+## V0.4.17 — Parallel Work Prefilter
 
-- Repeated custom global searches backed by `IList<Thing>` / `IList<Building>` cache only **membership and original list order** on the main thread.
-- Candidate positions are owned by a **persistent per-map search fabric**.
-- `ThingGrid.RegisterInCell` / `DeregisterInCell` events update tracked positions incrementally.
-- Worker cores consume only immutable event payloads: Thing references plus primitive X/Z/source-order values. Workers do not dereference Verse/Map/Pawn state.
-- Workers publish immutable source bucket snapshots; the main thread never waits for publication.
-- Moving a tracked Thing no longer rebuilds an entire source membership snapshot.
-- Source membership/order is still compared exactly on the main thread so Vanilla equal-distance tie behavior remains reproducible.
-- Mobile Pawn-backed sources and unspawned/inventory sources remain fail-closed for this generic path.
+The current target save showed that V0.4.16 aggressive Reachability successfully moved large volumes of `CanReach` work off the main thread, while JobGiver long-tail spikes still concentrated in `GenClosest` and expensive WorkGiver scans.
 
-### Stutter-first admission
+V0.4.17 adds `parallel.workPrefilter` for exact Vanilla:
 
-The V0.4.13 runtime showed an average accelerated query cost of roughly 35 ms because most accelerated calls were broad no-result searches. V0.4.14 therefore adds a hard admission rule:
+- `WorkGiver_GrowerSow`
+- `WorkGiver_GrowerHarvest`
+- `WorkGiver_BuildRoof`
 
-- The already-built fabric first estimates the number of structurally relevant live candidates.
-- If the estimate exceeds **64**, RimMT performs **no** live Reachability/validator work and immediately lets Vanilla execute the call.
-- Accepted calls are bounded to at most 64 live candidate checks.
-- Any stale fabric observation, publication lag, unsupported source shape or ambiguity falls back to Vanilla.
+RimMT records the exact cells Vanilla already enumerates. The current scan stays unchanged. After enumeration, those cells are classified on the validated eight-worker scheduler, and a later scan may consume only **hard-negative** hints.
 
-This version is deliberately conservative. The goal is to preserve worker utilization while removing V0.4.13's self-inflicted main-thread stalls. Region/Reachability structural offload will only expand after this persistent-fabric baseline proves non-regressive.
+Workers may perform a narrow whitelist of live read-only Verse checks in this experimental module. They do **not** create Jobs, reserve targets, change WorkGiver priority/order, or mutate Pawn/Thing/Map state. Unknown/positive candidates always run Vanilla.
 
-Runtime diagnostics now report both the map fabric and its consumer: source registrations, grid updates, worker batches/events, publication cost, snapshot hits/misses, broad-query bypasses, live-check caps, query cost, candidates visited/avoided and failures.
+Negative hints use warmup parity validation, continuing sampled validation, per-kind cooldown, a short authority lifetime, and a global false-negative fuse.
 
-## V0.4.8 diagnostic foundation retained
+BuildRoof deliberately does not run Vanilla roof-support flood-fill on workers because `Map.floodFiller` is shared mutable scratch state.
 
-The bounded JobGiver capture remains available. It instruments useful WorkGiver callbacks plus selected infrastructure while the capture is active:
+## V0.4.16 — Aggressive Reachability
 
-- `GenClosest.ClosestThing*` search calls;
-- `Reachability.CanReach`;
-- `RegionTraverser.BreadthFirstTraverse` when available;
-- concrete `WorkGiver_Scanner` `PotentialWorkThingsGlobal` / `PotentialWorkCellsGlobal` getters.
+`parallel.reachProfile` captures live `Region.Allows(TraverseParms)` decisions on the main thread and builds per-Pawn connectivity profiles on workers. Validated profiles may bypass live `RegionTraverser`/`Reachability` work.
 
-All detours are diagnostic-only and automatically unpatched after the bounded capture completes.
+The target V0.4.16.3 run produced more than 874k profile hits and roughly 792k authoritative profile results. 82,106 sampled comparisons produced one `predTrue/liveFalse` mismatch and zero `predFalse/liveTrue` mismatches. Per-profile cooldown and the global parity fuse remain active.
 
-## Production hauling acceleration retained
+Runtime Harmony census support records every foreign Prefix/Postfix/Transpiler/Finalizer on the exact `Reachability.CanReach` overload. Current reviewed coexistence cases include VFECore Phasing, Pathfinding Framework diagnostics, and Hospitality guest-area authority.
 
-V0.4.6/V0.4.7 hauling fast paths remain fail-closed. Vanilla reachability, validators, reservations and final jobs stay main-thread authoritative.
+## Scheduler
 
-### Clean Pathfinding compatibility
+V0.4.15 replaced the old AutoResetEvent wake path with independent SemaphoreSlim work credits. On the target 12-logical-processor system, the fixed eight-worker pool has been proven to reach `peakActive=8`.
 
-RimMT does **not** require Clean Pathfinding to be removed. Current Work-search accelerators do not bypass `PathFinder.FindPath` semantics.
+The worker cap remains eight until real gameplay telemetry shows sustained queue/capacity pressure. Adding workers before there is enough useful parallel work would only add contention.
 
-### Path shadow validation remains diagnostic-only
+## Retained production modules
 
-Path worker validation uses immutable snapshots and **Vanilla PawnPath remains authoritative**. Unsupported or stale requests fall back immediately.
+- V0.4.6 hauling Work-search accelerator
+- V0.4.7 exact ListerHaulables global-search accelerator
+- V0.4.14 persistent map search fabric
+- V0.4.15 permissive Region connectivity fallback
+- Path snapshot parity validation (Vanilla PawnPath remains authoritative)
+- Text metric cache
+- Butter++ logical-tick dispatcher barrier
 
-## Butter++ compatibility baseline
+Unsafe state-parallel modules remain disabled by default:
 
-- `ButterPlusPlus.TickManagerPatch._midTickStarted` remains the logical-tick commit boundary.
-- Worker-to-main-thread callbacks drain only at a safe logical-tick boundary.
-- Butter++ mode samples `TickManagerUpdate` slices rather than split `DoSingleTick` wall time.
+- `parallel.pawnTick`
+- `parallel.reservations`
+- `parallel.thingTick`
+
+## Compatibility principles
+
+RimMT prefers narrow exact-method compatibility decisions over broad mod-name allowlists. A foreign Harmony owner on a V0.4.17 authoritative WorkGiver method disables only that WorkGiver kind. Clean Pathfinding does not need to be removed. Butter++ uses its manager-level logical-tick probe as the dispatcher commit boundary.
+
+See `V0.4.17_NOTES.md` for the current playtest metrics and acceptance checklist.
