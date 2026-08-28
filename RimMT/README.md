@@ -12,21 +12,35 @@ Preferred architecture:
 
 The main thread must never wait for a worker result. If a worker result is missing, stale, unsupported, incompatible, or ambiguous, RimMT falls back to Vanilla.
 
+## V0.4.17.2 — ReGrowth-safe Sow coexistence
+
+The V0.4.17.1 loaded-save test correctly re-enabled Humanoid Alien Races Harvest, but GrowerSow remained fail-closed because ReGrowth Core also patches `WorkGiver_GrowerSow.JobOnCell`.
+
+The ReGrowth 1.5 source shows that its exact Prefix/Postfix bracket a shared `isJobSearchingNow` flag so its `PlantUtility.GrowthSeasonNow` Prefix can apply per-plant `PlantExtension` temperature semantics. Outside that bracket the same Prefix can read `PlantExpandable.allPlants`, a normal dictionary maintained by main-thread Spawn/DeSpawn.
+
+V0.4.17.2 therefore adds exact-method coexistence for the reviewed ReGrowth Prefix and Postfix, but makes restricted Sow mode stricter: **worker Sow classification never executes `PlantUtility.GrowthSeasonNow` at all**. The worker keeps only `NoDesiredPlant` and `SameDesiredPlantPresent` hard negatives. Live Vanilla `JobOnCell` remains authoritative for every growth-season decision, including Biomes and ReGrowth semantics.
+
+Expected target-modlist state after entering Playing:
+
+- GrowerSow: enabled in restricted season mode when only the reviewed Biomes/ReGrowth patches are present.
+- GrowerHarvest: enabled through the exact Humanoid Alien Races downstream restriction Postfix.
+- BuildRoof: still fail-closed while Watchtowers owns its authoritative method.
+
+Any additional unknown Prefix/Postfix/Transpiler/Finalizer still disables the affected Work kind.
+
 ## V0.4.17.1 — Work Prefilter compatibility hotfix
 
 The first V0.4.17 playtest on the target large mod list showed that all three Work kinds were correctly fail-closed by foreign Harmony owners: Biomes! Core on GrowerSow, Humanoid Alien Races on GrowerHarvest, and Watchtowers on BuildRoof.
 
-V0.4.17.1 source-reviews and re-enables only two exact cases:
+V0.4.17.1 source-reviewed and re-enabled only two exact cases:
 
 - **GrowerHarvest + Humanoid Alien Races:** the exact `AlienRace.HarmonyPatches.HasJobOnCellHarvestPostfix` is a downstream restriction that only preserves false or changes true to false. RimMT hard-negative false results therefore remain safe.
-- **GrowerSow + Biomes! Core:** the exact Biomes prefix changes growth-season semantics through shared per-plant context. RimMT does not reproduce that shared-static protocol off-thread. Sow prefiltering is re-enabled in restricted mode, but any worker prediction containing `OutOfGrowthSeason` is forced back to live Vanilla.
+- **GrowerSow + Biomes! Core:** source-reviewed as custom growth-season semantics; V0.4.17.2 supersedes the original consume-time fallback with a stricter worker-side season bypass.
 - **BuildRoof + Watchtowers:** remains fail-closed because the Watchtowers Postfix semantics have not yet been source-reviewed.
-
-Compatibility is still exact-method based. Any additional unknown Prefix/Postfix/Transpiler/Finalizer on the authoritative target keeps that Work kind Vanilla.
 
 ## V0.4.17 — Parallel Work Prefilter
 
-The current target save showed that V0.4.16 aggressive Reachability successfully moved large volumes of `CanReach` work off the main thread, while JobGiver long-tail spikes still concentrated in `GenClosest` and expensive WorkGiver scans.
+The target save showed that V0.4.16 aggressive Reachability successfully moved large volumes of `CanReach` work off the main thread, while JobGiver long-tail spikes still concentrated in `GenClosest` and expensive WorkGiver scans.
 
 V0.4.17 adds `parallel.workPrefilter` for exact Vanilla:
 
@@ -74,6 +88,6 @@ Unsafe state-parallel modules remain disabled by default:
 
 ## Compatibility principles
 
-RimMT prefers narrow exact-method compatibility decisions over broad mod-name allowlists. A foreign Harmony owner on a V0.4.17 authoritative WorkGiver method disables only that WorkGiver kind unless a later compatibility shim has source-reviewed that exact patch method and preserved its authority. Clean Pathfinding does not need to be removed. Butter++ uses its manager-level logical-tick probe as the dispatcher commit boundary.
+RimMT prefers narrow exact-method compatibility decisions over broad mod-name allowlists. A foreign Harmony owner on a V0.4.17 authoritative WorkGiver method disables only that WorkGiver kind unless a later compatibility layer has source-reviewed that exact patch method and preserved its authority. Clean Pathfinding does not need to be removed. Butter++ uses its manager-level logical-tick probe as the dispatcher commit boundary.
 
-See `V0.4.17.1_NOTES.md` for the current playtest acceptance checklist.
+See `V0.4.17.2_NOTES.md` for the current playtest acceptance checklist.

@@ -31,7 +31,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.17.1 Work-prefilter compatibility playtest initialized. V0.4.17 asynchronous GrowerSow/GrowerHarvest/BuildRoof negative prefiltering is retained; the V0.4.17.1 compatibility shim may re-enable exact source-reviewed Biomes Core sow and Humanoid Alien Races harvest cases while preserving Vanilla fallback for ambiguous semantics. BuildRoof remains fail-closed when Watchtowers owns its authoritative method. Workers never create jobs, reserve targets or mutate game state. Aggressive Reachability, scheduler fan-out, Harmony census, persistent map search, hauling accelerators, path shadow validation and Butter++ logical-tick barriers are retained.");
+                Log.Message("[RimMT] V0.4.17.2 Work-prefilter compatibility playtest initialized. V0.4.17 asynchronous Work hard-negative prefiltering is retained; V0.4.17.1 exact Humanoid Alien Races Harvest coexistence remains active, while V0.4.17.2 adds source-reviewed ReGrowth Core GrowerSow coexistence. In Biomes/ReGrowth restricted Sow mode workers never execute GrowthSeasonNow, so modded per-plant/shared-static season semantics remain live Vanilla main-thread authority. Watchtowers BuildRoof stays fail-closed. Workers never create jobs, reserve targets or mutate game state. Aggressive Reachability, scheduler fan-out, Harmony census, persistent map search, hauling accelerators, path shadow validation and Butter++ logical-tick barriers are retained.");
             }
             catch (Exception ex)
             {
