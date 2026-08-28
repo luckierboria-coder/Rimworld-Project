@@ -46,7 +46,7 @@ namespace RimMT
             FeatureGate.Register("parallel.pathSnapshot", true, "Bounded worker-side immutable path parity validation; Vanilla authoritative");
             FeatureGate.Register("parallel.jobScan", true, "V0.4.6 Work scanner accelerator: worker-built hauling spatial index plus main-thread revalidation");
             FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
-            FeatureGate.Register("parallel.jobPartition", true, "Persistent-map-fabric GenClosest foundation; identity-keyed V0.4.18.2 candidate plan retired in V0.4.18.3");
+            FeatureGate.Register("parallel.jobPartition", true, "V0.4.18.3 stable-signature GenClosest consumer backed by PersistentMapSearchFabric; broad searches fail closed before live checks");
             FeatureGate.Register(AggressiveReachabilityProfiles04183.FeatureId, true, "V0.4.18.3 generation-owned sampled per-Pawn reachability profiles with budgeted capture and parity fuse");
             FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "V0.4.18.3 retired zero-yield regionHint builder; reach profiles own connectivity offload");
             FeatureGate.Register(ParallelWorkPrefilter.FeatureId, true, "V0.4.17 worker-side read-only Grower/Harvest/BuildRoof negative prefilter with sampled false-negative fuse");
@@ -110,7 +110,7 @@ namespace RimMT
                 CompatibilityGuard.RunBaselineScan();
                 HaulWorkAccelerator.MarkCompatibilityReady();
                 GlobalHaulAccelerator.MarkCompatibilityReady();
-                AdaptiveGenClosestAssist.MarkCompatibilityReady();
+                StableGenClosestAssist04183.MarkCompatibilityReady();
                 AggressiveReachabilityProfiles04183.MarkCompatibilityReady();
                 ParallelWorkPrefilter.MarkCompatibilityReady();
                 RimMTDiagnostics.LogStartupReport();
