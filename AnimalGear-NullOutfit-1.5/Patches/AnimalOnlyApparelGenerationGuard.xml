@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Patch>
+  <!--
+    Animal Equipment reuses RimWorld's normal Apparel defs. Some animal-only items inherit
+    defaultOutfitTags such as Anything/Soldier, which allows human Pawn generators to consider
+    them as starting apparel. Remove those human generation tags from every strict Animal-tagged
+    apparel def. Animal Gear's animal outfit system uses apparel.tags, not defaultOutfitTags.
+  -->
+  <Operation Class="PatchOperationRemove">
+    <xpath>Defs/ThingDef[apparel/tags/li="Animal"]/apparel/defaultOutfitTags</xpath>
+  </Operation>
+</Patch>
