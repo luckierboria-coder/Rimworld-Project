@@ -28,10 +28,10 @@ namespace RimMT
             RuntimeCompatibility.Initialize();
 
             detectedProcessorCount = Math.Max(1, Environment.ProcessorCount);
-            // V0.4.15 proved that the fixed pool can now fan out to all eight workers on the
-            // user's 12-logical-processor CPU. V0.4.16 keeps that cap while increasing useful
-            // work supplied to the pool; raising the cap before workload saturation would only
-            // add cache/scheduling contention.
+            // V0.4.15 proved that the fixed pool can fan out to all eight workers on the
+            // user's 12-logical-processor CPU. V0.4.17 feeds substantially more useful Work
+            // classification into that validated pool; the cap stays at eight until real
+            // gameplay telemetry shows queue saturation rather than a lack of useful jobs.
             int workers = Math.Max(1, Math.Min(detectedProcessorCount - 1, 8));
             scheduler = new JobScheduler(workers, 100000);
 
@@ -53,6 +53,7 @@ namespace RimMT
             FeatureGate.Register("parallel.jobPartition", true, "V0.4.14 persistent-map-fabric GenClosest accelerator; Vanilla live validation/final authority retained");
             FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "V0.4.16 sampled per-Pawn Region connectivity profiles; bounded-risk CanReach bypass with parity fuse");
             FeatureGate.Register(ParallelRegionConnectivity.FeatureId, true, "V0.4.15 permissive connectivity fallback; disconnected candidates pruned before live Vanilla CanReach");
+            FeatureGate.Register(ParallelWorkPrefilter.FeatureId, true, "V0.4.17 worker-side read-only Grower/Harvest/BuildRoof negative prefilter with sampled false-negative fuse");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.thingTick", false, "Whitelist module not implemented");
@@ -75,6 +76,7 @@ namespace RimMT
             FeatureGate.SetEnabled("parallel.jobPartition", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled(AggressiveReachabilityProfiles.FeatureId, settings.WorkScanAcceleration);
             FeatureGate.SetEnabled(ParallelRegionConnectivity.FeatureId, settings.WorkScanAcceleration);
+            FeatureGate.SetEnabled(ParallelWorkPrefilter.FeatureId, settings.WorkScanAcceleration);
         }
 
         internal static void OnMainThreadFrame()
@@ -115,6 +117,7 @@ namespace RimMT
                 AdaptiveGenClosestAssist.MarkCompatibilityReady();
                 AggressiveReachabilityProfiles.MarkCompatibilityReady();
                 ParallelRegionConnectivity.MarkCompatibilityReady();
+                ParallelWorkPrefilter.MarkCompatibilityReady();
                 RimMTDiagnostics.LogStartupReport();
             }
         }
