@@ -9,9 +9,16 @@ namespace RimMT
 {
     internal static class PathSnapshotSafetyPatches
     {
-        private const int ValidationQuota = 64;
-        private const int SampleEveryEligible = 4;
-        private const int MaxValidationDistance = 96;
+        // V0.4.17.2 produced only 37 paired validations in ~15 minutes. V0.4.18 raises the
+        // evidence budget while keeping shadow pathing strictly non-authoritative. Low-load
+        // frames sample more aggressively; High/Critical frames still admit no shadow work.
+        private const int ValidationQuota = 512;
+        private const int NormalSampleEveryEligible = 4;
+        private const int LowSampleEveryEligible = 2;
+        private const int NormalMaxValidationDistance = 96;
+        private const int LowMaxValidationDistance = 128;
+        private const int NormalMaxConcurrent = 1;
+        private const int LowMaxConcurrent = 2;
 
         private static readonly Type RequestType = typeof(PathSnapshotWorker).GetNestedType("PathRequest", BindingFlags.NonPublic);
         private static readonly Type SnapshotType = typeof(PathSnapshotWorker).GetNestedType("PathSnapshot", BindingFlags.NonPublic);
@@ -26,6 +33,8 @@ namespace RimMT
         private static long lateStaleCorrections;
         private static long probeFailures;
         private static long eligibleScheduleCalls;
+        private static long lowPressureEligible;
+        private static long normalPressureEligible;
         private static long cadenceSkipped;
         private static long distanceBudgetSkipped;
         private static long pressureSkipped;
@@ -47,7 +56,7 @@ namespace RimMT
             if (schedule == null)
             {
                 Interlocked.Increment(ref probeFailures);
-                Log.Warning("[RimMT] parallel.pathSnapshot V0.4.5.2 schedule budget unavailable; legacy shadow scheduling remains.");
+                Log.Warning("[RimMT] parallel.pathSnapshot V0.4.18 schedule budget unavailable; legacy shadow scheduling remains.");
                 return;
             }
 
@@ -56,15 +65,15 @@ namespace RimMT
                 HarmonyMethod prefix = new HarmonyMethod(typeof(PathSnapshotSafetyPatches), nameof(ScheduleBudgetPrefix));
                 prefix.priority = Priority.First;
                 harmony.Patch(schedule, prefix: prefix);
-                Log.Message("[RimMT] parallel.pathSnapshot V0.4.5.2 bounded validation active: quota=" + ValidationQuota +
-                    ", sampleEvery=" + SampleEveryEligible +
-                    ", maxDistance=" + MaxValidationDistance +
-                    ", maxConcurrent=1, high-load admission=off. Vanilla pathing is never skipped.");
+                Log.Message("[RimMT] parallel.pathSnapshot V0.4.18 adaptive parity campaign active: quota=" + ValidationQuota +
+                    ", low(sampleEvery=" + LowSampleEveryEligible + ", maxDistance=" + LowMaxValidationDistance + ", maxConcurrent=" + LowMaxConcurrent + ")" +
+                    ", normal(sampleEvery=" + NormalSampleEveryEligible + ", maxDistance=" + NormalMaxValidationDistance + ", maxConcurrent=" + NormalMaxConcurrent + ")" +
+                    ", high/critical admission=off. Vanilla pathing is never skipped.");
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref probeFailures);
-                Log.Warning("[RimMT] parallel.pathSnapshot V0.4.5.2 schedule budget patch failed; legacy shadow scheduling remains. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] parallel.pathSnapshot V0.4.18 schedule budget patch failed; legacy shadow scheduling remains. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -74,7 +83,7 @@ namespace RimMT
             if (finalize == null || RequestType == null || SnapshotField == null || WorkerField == null || HasWorkerField == null || GenerationField == null || StaleField == null)
             {
                 Interlocked.Increment(ref probeFailures);
-                Log.Warning("[RimMT] parallel.pathSnapshot V0.4.5 finalize-generation safety probe unavailable; existing worker-time stale check remains active.");
+                Log.Warning("[RimMT] parallel.pathSnapshot finalize-generation safety probe unavailable; existing worker-time stale check remains active.");
                 return;
             }
 
@@ -83,7 +92,7 @@ namespace RimMT
                 HarmonyMethod prefix = new HarmonyMethod(typeof(PathSnapshotSafetyPatches), nameof(FinalizePrefix));
                 prefix.priority = Priority.First;
                 harmony.Patch(finalize, prefix: prefix);
-                Log.Message("[RimMT] parallel.pathSnapshot V0.4.5 finalize-generation recheck active. Topology changes after worker completion are marked stale before paired validation finalizes.");
+                Log.Message("[RimMT] parallel.pathSnapshot finalize-generation recheck active. Topology changes after worker completion are marked stale before paired validation finalizes.");
             }
             catch (Exception ex)
             {
@@ -106,14 +115,19 @@ namespace RimMT
                 return false;
             }
 
-            if (FeatureGate.IsEnabled("runtime.adaptiveBurst") && !AdaptiveLoadBalancer.AllowBackground)
+            LoadPressure pressure = FeatureGate.IsEnabled("runtime.adaptiveBurst")
+                ? AdaptiveLoadBalancer.Pressure
+                : LoadPressure.Normal;
+            if (pressure == LoadPressure.High || pressure == LoadPressure.Critical)
             {
                 Interlocked.Increment(ref pressureSkipped);
                 __result = 0;
                 return false;
             }
 
-            if (PathSnapshotWorker.InFlight >= 1)
+            bool low = pressure == LoadPressure.Low;
+            int maxConcurrent = low ? LowMaxConcurrent : NormalMaxConcurrent;
+            if (PathSnapshotWorker.InFlight >= maxConcurrent)
             {
                 Interlocked.Increment(ref concurrencySkipped);
                 __result = 0;
@@ -132,7 +146,8 @@ namespace RimMT
                 {
                     int dx = Math.Abs(start.x - dest.Cell.x);
                     int dz = Math.Abs(start.z - dest.Cell.z);
-                    if (Math.Max(dx, dz) > MaxValidationDistance)
+                    int maxDistance = low ? LowMaxValidationDistance : NormalMaxValidationDistance;
+                    if (Math.Max(dx, dz) > maxDistance)
                     {
                         Interlocked.Increment(ref distanceBudgetSkipped);
                         __result = 0;
@@ -146,7 +161,13 @@ namespace RimMT
             }
 
             long sequence = Interlocked.Increment(ref eligibleScheduleCalls);
-            if ((sequence % SampleEveryEligible) != 0)
+            if (low)
+                Interlocked.Increment(ref lowPressureEligible);
+            else
+                Interlocked.Increment(ref normalPressureEligible);
+
+            int sampleEvery = low ? LowSampleEveryEligible : NormalSampleEveryEligible;
+            if ((sequence % sampleEvery) != 0)
             {
                 Interlocked.Increment(ref cadenceSkipped);
                 __result = 0;
@@ -198,17 +219,19 @@ namespace RimMT
         internal static string Summary()
         {
             bool validationComplete = PathSnapshotWorker.Completed >= ValidationQuota;
-            return "Path shadow budget V0.4.5.2: quota=" + ValidationQuota +
+            return "Path shadow budget V0.4.18: quota=" + ValidationQuota +
                 ", complete=" + validationComplete +
-                ", sampleEvery=" + SampleEveryEligible +
-                ", maxDistance=" + MaxValidationDistance +
+                ", low(sampleEvery=" + LowSampleEveryEligible + ",maxDistance=" + LowMaxValidationDistance + ",maxConcurrent=" + LowMaxConcurrent + ")" +
+                ", normal(sampleEvery=" + NormalSampleEveryEligible + ",maxDistance=" + NormalMaxValidationDistance + ",maxConcurrent=" + NormalMaxConcurrent + ")" +
                 ", eligible=" + Interlocked.Read(ref eligibleScheduleCalls) +
+                ", lowEligible=" + Interlocked.Read(ref lowPressureEligible) +
+                ", normalEligible=" + Interlocked.Read(ref normalPressureEligible) +
                 ", cadenceSkipped=" + Interlocked.Read(ref cadenceSkipped) +
                 ", distanceSkipped=" + Interlocked.Read(ref distanceBudgetSkipped) +
                 ", pressureSkipped=" + Interlocked.Read(ref pressureSkipped) +
                 ", concurrencySkipped=" + Interlocked.Read(ref concurrencySkipped) +
                 ", quotaSkipped=" + Interlocked.Read(ref quotaSkipped) +
-                "\nPath finalize generation recheck V0.4.5: lateStaleCorrections=" + Interlocked.Read(ref lateStaleCorrections) +
+                "\nPath finalize generation recheck: lateStaleCorrections=" + Interlocked.Read(ref lateStaleCorrections) +
                 ", probeFailures=" + Interlocked.Read(ref probeFailures);
         }
     }
