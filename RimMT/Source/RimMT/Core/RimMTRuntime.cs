@@ -46,9 +46,9 @@ namespace RimMT
             FeatureGate.Register("parallel.pathSnapshot", true, "Bounded worker-side immutable path parity validation; Vanilla authoritative");
             FeatureGate.Register("parallel.jobScan", true, "V0.4.6 Work scanner accelerator: worker-built hauling spatial index plus main-thread revalidation");
             FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
-            FeatureGate.Register("parallel.jobPartition", true, "V0.4.18.3 stable-signature GenClosest consumer backed by PersistentMapSearchFabric; broad searches fail closed before live checks");
-            FeatureGate.Register(AggressiveReachabilityProfiles04183.FeatureId, true, "V0.4.18.3 generation-owned sampled per-Pawn reachability profiles with budgeted capture and parity fuse");
-            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "V0.4.18.3 retired zero-yield regionHint builder; reach profiles own connectivity offload");
+            FeatureGate.Register("parallel.jobPartition", true, "Candidate-plan/spatial acceleration gate; V0.4.18.3.2 leaves experimental consumers retired");
+            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "V0.4.18.3.2 rollback path: validated V0.4.16/V0.4.18.2 sampled per-Pawn reachability profiles");
+            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "Retired zero-yield regionHint builder; reach profiles own connectivity offload");
             FeatureGate.Register(ParallelWorkPrefilter.FeatureId, true, "V0.4.17 worker-side read-only Grower/Harvest/BuildRoof negative prefilter with sampled false-negative fuse");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
@@ -70,7 +70,7 @@ namespace RimMT
             FeatureGate.SetEnabled("parallel.jobScan", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled("parallel.haulGlobal", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled("parallel.jobPartition", settings.WorkScanAcceleration);
-            FeatureGate.SetEnabled(AggressiveReachabilityProfiles04183.FeatureId, settings.WorkScanAcceleration);
+            FeatureGate.SetEnabled(AggressiveReachabilityProfiles.FeatureId, settings.WorkScanAcceleration);
             FeatureGate.SetEnabled(ParallelRegionConnectivity.FeatureId, false);
             FeatureGate.SetEnabled(ParallelWorkPrefilter.FeatureId, settings.WorkScanAcceleration);
         }
@@ -110,8 +110,16 @@ namespace RimMT
                 CompatibilityGuard.RunBaselineScan();
                 HaulWorkAccelerator.MarkCompatibilityReady();
                 GlobalHaulAccelerator.MarkCompatibilityReady();
-                StableGenClosestAssist04183.MarkCompatibilityReady();
-                AggressiveReachabilityProfiles04183.MarkCompatibilityReady();
+
+                // V0.4.18.3.2 hotfix: V0.4.18.3.1 restored the legacy reach-profile
+                // implementation in Bootstrap but accidentally left readiness wired only to
+                // AggressiveReachabilityProfiles04183. That kept the active V0.4.16 path at
+                // compatibilityReady=false, so every CanReach call fell back to Vanilla.
+                AggressiveReachabilityProfiles.MarkCompatibilityReady();
+
+                // The experimental V0.4.18.3 stable-spatial consumer and 04183 capture pump are
+                // not installed in this rollback build. Their readiness calls are intentionally
+                // omitted so diagnostics cannot suggest they are active.
                 ParallelWorkPrefilter.MarkCompatibilityReady();
                 RimMTDiagnostics.LogStartupReport();
             }
