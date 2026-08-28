@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using Verse;
+using Verse.AI;
 
 namespace RimMT
 {
