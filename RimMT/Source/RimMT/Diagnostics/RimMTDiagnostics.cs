@@ -100,6 +100,7 @@ namespace RimMT
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
             sb.AppendLine(PathSnapshotWorker.Summary());
+            sb.AppendLine(SafePathClassTelemetry0418.Summary());
             sb.AppendLine(HotPathProfiler.Summary("TickManager.DoSingleTick"));
             if (RuntimeCompatibility.ButterPlusPlusActive)
                 sb.AppendLine(HotPathProfiler.Summary("TickManager.TickManagerUpdate[ButterSlice]"));
