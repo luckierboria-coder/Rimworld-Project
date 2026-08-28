@@ -40,6 +40,7 @@ namespace RimMT
             FeatureGate.Register("runtime.adaptiveBurst", true, "Pressure-aware scheduler; samples Butter++ TickManagerUpdate slices when Butter++ is active");
             FeatureGate.Register("diagnostics.selfTest", true, "Pure CPU worker self-test");
             FeatureGate.Register("diagnostics.hotPaths", true, "PathFinder / JobGiver / tick hot-path profiler");
+            FeatureGate.Register("diagnostics.tickLayers", true, "V0.4.18.2-P1 diagnostic-only hierarchical tick/frame profiler; sampled Pawn detail");
             FeatureGate.Register("diagnostics.pathFinder", true, "PathFinder.FindPath overload probes");
             FeatureGate.Register("diagnostics.jobGiver", true, "JobGiver_Work.TryIssueJobPackage probes");
             FeatureGate.Register("diagnostics.jobGiverDetail", false, "Temporary on-demand per-WorkGiver phase capture; no resident detail detours during normal play");
@@ -65,6 +66,7 @@ namespace RimMT
             if (!initialized || settings == null) return;
             FeatureGate.SetEnabled("runtime.adaptiveBurst", settings.AdaptiveBurst);
             FeatureGate.SetEnabled("diagnostics.hotPaths", settings.HotPathDiagnostics);
+            FeatureGate.SetEnabled("diagnostics.tickLayers", settings.HotPathDiagnostics);
             FeatureGate.SetEnabled("diagnostics.pathFinder", settings.HotPathDiagnostics);
             FeatureGate.SetEnabled("diagnostics.jobGiver", settings.HotPathDiagnostics);
             FeatureGate.SetEnabled("ui.textCache", settings.TextCache);
