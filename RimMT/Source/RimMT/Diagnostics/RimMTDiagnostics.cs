@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.18.2 keeps the validated cap while hot GenClosest planning and reachability classification move off the main thread)");
+                ", workerCap=8 (V0.4.18.3 keeps the validated cap; reach capture is frame-budgeted and graph builds remain worker-side)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -94,10 +94,10 @@ namespace RimMT
             sb.AppendLine(AdaptiveGenClosestAssist.Summary());
             sb.AppendLine(BroadGenClosestOrder0418.Summary());
             sb.AppendLine(JobGiverGlobalNearest04181.Summary());
-            sb.AppendLine(AsyncJobCandidatePlan04182.Summary());
-            sb.AppendLine(AggressiveReachabilityProfiles.Summary());
-            sb.AppendLine("Reach-profile V0.4.18.2 aggressive policy: sampled positive authority ENABLED. V0.4.18 force-positive-to-Vanilla guard is not installed; the native V0.4.16 warmup, shadow sampling, per-profile cooldown and global mismatch fuse remain active.");
-            sb.AppendLine(ParallelRegionConnectivity.Summary());
+            sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED in V0.4.18.3 after identity/root-sensitive reuse produced negligible hot-path benefit. Persistent spatial source ownership is the replacement direction.");
+            sb.AppendLine(AggressiveReachabilityProfiles04183.Summary());
+            sb.AppendLine("Reach-profile V0.4.18.3 policy: generation-owned validity, 900-frame soft refresh while old profiles remain usable, 3600-frame hard safety fuse, 0.80 ms capture-pump budget, sampled positive/negative authority after warmup.");
+            sb.AppendLine("Parallel region connectivity V0.4.15: RETIRED/OFF in V0.4.18.3 because measured builds consumed worker/capture time while producing zero accelerations; per-Pawn reach profiles own connectivity offload.");
             sb.AppendLine(ParallelWorkPrefilter.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
