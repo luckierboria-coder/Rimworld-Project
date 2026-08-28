@@ -29,22 +29,21 @@ namespace RimMT
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
 
-                // JS1.1 Lean preserves the successful JS1 nearest-order semantics, but
-                // narrows boolean memoization to a bucketed HasJobOnThing cache only.
-                JobPackageLocalSearch0419.Apply(harmony);
+                // JS1.2 Lean Pool keeps JS1.1 search semantics exactly, but recycles the
+                // one-package HasJobOnThing storage and removes object[] hot-path allocation.
+                JobPackageLocalSearch041912.Apply(harmony);
 
                 AggressiveReachabilityProfiles.Apply(harmony);
 
-                // V0.4.15 RegionHint is retired in JS1.1 Lean. Long-run JS2 telemetry saw
-                // 157k observations for only 11 accelerations, so its worker snapshots and
-                // Harmony surface are not justified. ReachProfile remains the connectivity path.
+                // V0.4.15 RegionHint remains retired. Its long-run acceleration yield was
+                // effectively zero compared with its worker/Harmony maintenance cost.
                 // ParallelRegionConnectivity.Apply(harmony); intentionally not installed.
 
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1.1 Lean initialized from the successful JS1 baseline. JS1 nearest-order reuse is preserved unchanged. ShouldSkip and HasJobOnCell memoization are removed; HasJobOnThing uses a lighter per-method/giver bucket so Pawn/Method/Giver are not re-hashed for every Thing target. ParallelRegionConnectivity/RegionHint is retired due near-zero yield. ReachProfile authority, WorkPrefilter, haul accelerators and Path shadow policy remain unchanged.");
+                Log.Message("[RimMT] V0.4.19-JS1.2 Lean Pool initialized from JS1.1 Lean. Search semantics and JS1 nearest-order reuse are unchanged. PackageContext/ThingBucket dictionaries are recycled on the main thread, oversized buckets are not retained, HasJobOnThing Harmony hooks use typed arguments instead of __args, and low-reuse buckets may suppress only NEW stores late in the same JobPackage. ReachProfile authority, WorkPrefilter, haul accelerators and Path shadow policy remain unchanged; RegionHint stays retired.");
             }
             catch (Exception ex)
             {
