@@ -25,14 +25,13 @@ namespace RimMT
                 PathSnapshotSafetyPatches.Apply(harmony);
                 SafePathClassTelemetry0418.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
-                AdaptiveGenClosestAssist.Apply(harmony);
+                StableGenClosestAssist04183.Apply(harmony);
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
 
                 // V0.4.18.3 retires the identity-keyed V0.4.18.2 AsyncJobCandidatePlan.
-                // Runtime telemetry showed almost no reusable plans because JobGiver source-list
-                // identity and root positions churn. The persistent-map fabric remains active and
-                // will be the base for the next stable spatial candidate layer.
+                // StableGenClosestAssist04183 now reuses ephemeral source lists by an exact,
+                // order-sensitive reference signature backed by the persistent worker fabric.
                 AggressiveReachabilityProfiles04183.Apply(harmony);
 
                 // V0.4.15 regionHint produced zero authoritative accelerations in the measured
@@ -42,7 +41,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.18.3 AI stutter-reduction playtest initialized. ReachProfile validity is generation-owned with 900-frame soft refresh, 3600-frame defensive hard age and a 0.80 ms main-thread capture budget. Old profiles remain authoritative during soft refresh after their normal parity gate. The V0.4.18.2 identity-keyed async candidate plan and zero-yield V0.4.15 regionHint are retired from the active patch chain. Final WorkGiver predicates, reservations, Job commits, mutable Verse state and Unity state remain main-thread owned. Path worker remains shadow-only.");
+                Log.Message("[RimMT] V0.4.18.3 AI stutter-reduction playtest initialized. ReachProfile validity is generation-owned with 900-frame soft refresh, 3600-frame defensive hard age and a 0.80 ms main-thread capture budget. Old profiles remain authoritative during soft refresh after their normal parity gate. Stable spatial GenClosest reuse now keys temporary source lists by exact member signature and uses the persistent worker fabric with a 128-candidate stutter admission cap. The V0.4.18.2 identity-keyed async candidate plan and zero-yield V0.4.15 regionHint are retired from the active patch chain. Final WorkGiver predicates, reservations, Job commits, mutable Verse state and Unity state remain main-thread owned. Path worker remains shadow-only.");
             }
             catch (Exception ex)
             {
