@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.18.3 keeps the validated cap; reach capture is frame-budgeted and spatial source publication remains worker-side)");
+                ", workerCap=8 (V0.4.18.3.1 regression rollback; V0.4.18.2/V0.4.16 ReachProfile path restored)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -91,13 +91,13 @@ namespace RimMT
             sb.AppendLine(HaulWorkAccelerator.Summary());
             sb.AppendLine(GlobalHaulAccelerator.Summary());
             sb.AppendLine(PersistentMapSearchFabric.Summary());
-            sb.AppendLine(StableGenClosestAssist04183.Summary());
+            sb.AppendLine("Stable spatial GenClosest V0.4.18.3: RETIRED/OFF in V0.4.18.3.1 after the first runtime sample produced 61% signature reuse but zero accelerated calls.");
             sb.AppendLine(BroadGenClosestOrder0418.Summary());
             sb.AppendLine(JobGiverGlobalNearest04181.Summary());
-            sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED. V0.4.18.3 replaces exact IList/root identity with reference-validated stable source signatures backed by PersistentMapSearchFabric.");
-            sb.AppendLine(AggressiveReachabilityProfiles04183.Summary());
-            sb.AppendLine("Reach-profile V0.4.18.3 policy: generation-owned validity, 900-frame soft refresh while old profiles remain usable, 3600-frame hard safety fuse, 0.80 ms capture-pump budget, sampled positive/negative authority after warmup.");
-            sb.AppendLine("Parallel region connectivity V0.4.15: RETIRED/OFF in V0.4.18.3 because measured builds consumed worker/capture time while producing zero accelerations; per-Pawn reach profiles own connectivity offload.");
+            sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED/OFF; exact IList/root reuse remains disabled.");
+            sb.AppendLine(AggressiveReachabilityProfiles.Summary());
+            sb.AppendLine("Reach-profile V0.4.18.3.1 policy: V0.4.18.2/V0.4.16 synchronous capture restored with sampled positive/negative authority, per-profile cooldown and global mismatch fuse. The V0.4.18.3 frame-budgeted capture pump is not installed.");
+            sb.AppendLine("Parallel region connectivity V0.4.15: RETIRED/OFF; measured builds produced zero accelerations.");
             sb.AppendLine(ParallelWorkPrefilter.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
