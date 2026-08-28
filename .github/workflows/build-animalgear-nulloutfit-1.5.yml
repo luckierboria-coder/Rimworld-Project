@@ -39,15 +39,16 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $stage = 'build\AnimalGear_NullOutfit_1.5'
+          $stage = 'build\AnimalGear_NullOutfit_HumanGuard_1.5'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item 'AnimalGear-NullOutfit-1.5\About' $stage -Recurse -Force
           Copy-Item 'AnimalGear-NullOutfit-1.5\Languages' $stage -Recurse -Force
+          Copy-Item 'AnimalGear-NullOutfit-1.5\Patches' $stage -Recurse -Force
           Copy-Item 'AnimalGear-NullOutfit-1.5\1.5' $stage -Recurse -Force
           $readme = @(
-            'Animal Gear - Null Outfit 1.5',
+            'Animal Gear - Null Outfit & Human Guard 1.5 v2',
             '',
-            'Load after Animal Gear.',
+            'Load after Animal Gear and Animal Equipment.',
             '',
             'Behavior:',
             '- Player animals default to None / 无方案.',
@@ -56,29 +57,33 @@ jobs:
             '- While None / 无方案 is selected, JobGiver_OptimizeApparel is skipped for that animal, so it does not search for, optimize, replace, or automatically wear apparel.',
             '- Selecting a normal apparel policy re-enables Animal Gear apparel optimization normally.',
             '- On the first load of an existing save, player animals still using the vanilla default Anything policy are migrated once to None. Custom animal policies are preserved.',
-            '- After that one-time migration, explicitly selecting Anything remains respected.'
+            '- After that one-time migration, explicitly selecting Anything remains respected.',
+            '- Strict apparel with the Animal tag is removed from human defaultOutfitTags.',
+            '- Humanlike pawns cannot wear strict Animal-tagged apparel through ApparelUtility.HasPartsToWear.',
+            '- After starting-apparel generation, any strict Animal-tagged apparel directly injected onto a Humanlike pawn is removed as a final safeguard.',
+            '- Shared/AnimalCompatible equipment is not blocked; only strict Animal-tagged apparel is guarded.'
           )
           $readme | Set-Content "$stage\README.txt" -Encoding UTF8
-          Compress-Archive -Path $stage -DestinationPath 'build\AnimalGear_NullOutfit_1.5_DLL_READY.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build\AnimalGear_NullOutfit_HumanGuard_1.5_v2_DLL_READY.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AnimalGear-NullOutfit-1.5-DLL-READY
-          path: build/AnimalGear_NullOutfit_1.5_DLL_READY.zip
+          name: AnimalGear-NullOutfit-HumanGuard-1.5-v2-DLL-READY
+          path: build/AnimalGear_NullOutfit_HumanGuard_1.5_v2_DLL_READY.zip
           if-no-files-found: error
 
       - name: Publish stable ZIP to repository
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path 'dist-artifacts' | Out-Null
-          Copy-Item 'build\AnimalGear_NullOutfit_1.5_DLL_READY.zip' 'dist-artifacts\AnimalGear_NullOutfit_1.5_DLL_READY.zip' -Force
+          Copy-Item 'build\AnimalGear_NullOutfit_HumanGuard_1.5_v2_DLL_READY.zip' 'dist-artifacts\AnimalGear_NullOutfit_HumanGuard_1.5_v2_DLL_READY.zip' -Force
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add 'dist-artifacts/AnimalGear_NullOutfit_1.5_DLL_READY.zip'
+          git add 'dist-artifacts/AnimalGear_NullOutfit_HumanGuard_1.5_v2_DLL_READY.zip'
           if (git diff --cached --quiet) {
             Write-Host 'Published ZIP is already current.'
           } else {
-            git commit -m 'Publish Animal Gear Null Outfit 1.5 DLL-ready build'
+            git commit -m 'Publish Animal Gear Null Outfit Human Guard 1.5 v2 build'
             git push
           }
