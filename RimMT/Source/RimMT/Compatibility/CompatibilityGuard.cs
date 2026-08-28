@@ -39,7 +39,7 @@ namespace RimMT
             {
                 ReportLines.Clear();
                 ReportLines.Add("Loaded mods: " + LoadedModManager.RunningModsListForReading.Count);
-                ReportLines.Add("Policy: whitelist-only, fail-closed, vanilla fallback.");
+                ReportLines.Add("Policy: bounded-risk whitelist, sampled validation, Vanilla state commit.");
                 ReportLines.Add(RuntimeCompatibility.Summary());
             }
 
@@ -135,22 +135,41 @@ namespace RimMT
 
         private static bool IsAllowedCoexistence(string featureId, MethodBase target, Patch patch, string patchKind)
         {
-            if (!string.Equals(featureId, "runtime.dispatcher", StringComparison.Ordinal))
+            if (string.Equals(featureId, "runtime.dispatcher", StringComparison.Ordinal))
+            {
+                if (target == null || target.DeclaringType != typeof(TickManager) || target.Name != "TickManagerUpdate")
+                    return false;
+
+                string runtimeOwner = patch == null ? string.Empty : patch.owner;
+                if (string.Equals(patchKind, "transpiler", StringComparison.Ordinal) &&
+                    !string.IsNullOrEmpty(runtimeOwner) && runtimeOwner.IndexOf("adaptivetps", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+
+                if (RuntimeCompatibility.IsButterPatch(patch) &&
+                    (string.Equals(patchKind, "prefix", StringComparison.Ordinal) ||
+                     string.Equals(patchKind, "postfix", StringComparison.Ordinal) ||
+                     string.Equals(patchKind, "finalizer", StringComparison.Ordinal)))
+                    return true;
                 return false;
-            if (target == null || target.DeclaringType != typeof(TickManager) || target.Name != "TickManagerUpdate")
-                return false;
+            }
 
-            string owner = patch == null ? string.Empty : patch.owner;
-
-            if (string.Equals(patchKind, "transpiler", StringComparison.Ordinal) &&
-                !string.IsNullOrEmpty(owner) && owner.IndexOf("adaptivetps", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-
-            if (RuntimeCompatibility.IsButterPatch(patch) &&
-                (string.Equals(patchKind, "prefix", StringComparison.Ordinal) ||
-                 string.Equals(patchKind, "postfix", StringComparison.Ordinal) ||
-                 string.Equals(patchKind, "finalizer", StringComparison.Ordinal)))
-                return true;
+            // Vanilla Expanded Framework's PhasingPatches.AllReachable prefix grants true
+            // reachability to phasing pawns. V0.4.16 deliberately runs after it and respects
+            // __runOriginal=false, so this exact known prefix is safe to coexist with. Current
+            // VEF uses OskarPotocki.VEF; VFECore is retained as a legacy-compatible owner ID.
+            // Any other foreign Reachability patch remains blocking.
+            if (string.Equals(featureId, AggressiveReachabilityProfiles.FeatureId, StringComparison.Ordinal) &&
+                target != null && target.DeclaringType == typeof(Reachability) && target.Name == nameof(Reachability.CanReach) &&
+                string.Equals(patchKind, "prefix", StringComparison.Ordinal))
+            {
+                string owner = patch == null ? string.Empty : patch.owner;
+                MethodInfo method = patch == null ? null : patch.PatchMethod;
+                string declaring = method == null || method.DeclaringType == null ? string.Empty : method.DeclaringType.FullName;
+                bool knownVefOwner = string.Equals(owner, "OskarPotocki.VEF", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(owner, "OskarPotocki.VFECore", StringComparison.OrdinalIgnoreCase);
+                if (knownVefOwner && declaring.IndexOf("PhasingPatches", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
 
             return false;
         }
@@ -163,6 +182,8 @@ namespace RimMT
             FeatureGate.Suppress("parallel.jobScan", reason);
             FeatureGate.Suppress("parallel.haulGlobal", reason);
             FeatureGate.Suppress("parallel.jobPartition", reason);
+            FeatureGate.Suppress(AggressiveReachabilityProfiles.FeatureId, reason);
+            FeatureGate.Suppress(ParallelRegionConnectivity.FeatureId, reason);
         }
 
         private static bool HasLoadedModName(string token)
