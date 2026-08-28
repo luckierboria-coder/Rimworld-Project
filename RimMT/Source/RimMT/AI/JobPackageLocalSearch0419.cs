@@ -11,14 +11,22 @@ using Verse.AI;
 
 namespace RimMT
 {
-    // V0.4.19-JS1
-    // Scope every cache to one synchronous JobGiver_Work.TryIssueJobPackage call.
-    // No entry survives the package boundary and no worker wait is introduced.
+    // V0.4.19-JS1.1 Lean
+    //
+    // Keep the successful JS1 search semantics, but remove low-yield bool memoization.
+    // Only HasJobOnThing is memoized, and its per-target cache is bucketed by
+    // (method, WorkGiver instance, forced) so Pawn/Method/Giver are not hashed for every Thing.
+    // The Pawn is implicit in the one synchronous TryIssueJobPackage lifetime.
+    //
+    // JS1 nearest-order reuse is intentionally preserved unchanged:
+    // key = exact source IList identity + root + maxDistance + reachable-mode.
+    // No cache survives the JobPackage boundary; no worker wait is introduced.
     internal static class JobPackageLocalSearch0419
     {
         internal const string FeatureId = "ai.jobPackageLocal";
 
-        private const int MaxWorkEntriesPerPackage = 16384;
+        private const int MaxThingEntriesPerPackage = 8192;
+        private const int MaxThingEntriesPerBucket = 4096;
         private const int MaxOrderEntriesPerPackage = 512;
         private const int WarmupVerifyHitsPerMethod = 4;
         private const int VerifyMask = 31; // 1/32 after warmup
@@ -29,7 +37,7 @@ namespace RimMT
         private static readonly Dictionary<MethodBase, MethodParityState> MethodParity =
             new Dictionary<MethodBase, MethodParityState>();
 
-        private static int patchedWorkQueries;
+        private static int patchedHasThingQueries;
         private static int patchFailures;
         private static bool scopePatched;
         private static bool globalHookPatched;
@@ -37,17 +45,15 @@ namespace RimMT
 
         private static long packages;
         private static long nestedPackages;
-        private static long workObserved;
-        private static long workHits;
-        private static long workMisses;
-        private static long workStores;
-        private static long workVerifyRuns;
-        private static long workVerifyMatches;
-        private static long workMismatches;
-        private static long workCapBypass;
-        private static long shouldSkipHits;
-        private static long hasThingHits;
-        private static long hasCellHits;
+        private static long thingObserved;
+        private static long thingHits;
+        private static long thingMisses;
+        private static long thingStores;
+        private static long thingVerifyRuns;
+        private static long thingVerifyMatches;
+        private static long thingMismatches;
+        private static long thingCapBypass;
+        private static long thingBucketCreates;
         private static long disabledMethodBypass;
 
         private static long orderObserved;
@@ -57,7 +63,9 @@ namespace RimMT
         private static long orderMutationBypass;
         private static long orderCapBypass;
 
-        private static long maxWorkEntries;
+        private static long maxThingEntries;
+        private static long maxThingBuckets;
+        private static long maxThingBucketEntries;
         private static long maxOrderEntries;
         private static int mismatchLogs;
 
@@ -76,7 +84,7 @@ namespace RimMT
                 if (jobGiver == null)
                 {
                     FeatureGate.Suppress(FeatureId, "TryIssueJobPackage(Pawn, JobIssueParams) not found");
-                    Log.Warning("[RimMT] V0.4.19-JS1 unavailable: JobGiver_Work.TryIssueJobPackage target not found.");
+                    Log.Warning("[RimMT] V0.4.19-JS1.1 Lean unavailable: JobGiver_Work.TryIssueJobPackage target not found.");
                     return;
                 }
 
@@ -87,28 +95,28 @@ namespace RimMT
                 harmony.Patch(jobGiver, prefix: enter, finalizer: exit);
                 scopePatched = true;
 
-                PatchWorkQueries(harmony);
+                PatchHasJobOnThingQueries(harmony);
                 PatchNearestOrderHooks(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1 JobPackage-local search active: scope=" + scopePatched +
-                    ", workQueries=" + patchedWorkQueries +
+                Log.Message("[RimMT] V0.4.19-JS1.1 Lean active: scope=" + scopePatched +
+                    ", HasJobOnThing=" + patchedHasThingQueries +
                     ", nearestHooks(global/reachable)=" + globalHookPatched + "/" + reachableHookPatched +
-                    ". Only ShouldSkip/HasJobOnThing/HasJobOnCell bool results are memoized. JobOnThing/JobOnCell, Jobs and reservations remain Vanilla-authoritative. Cache lifetime is one TryIssueJobPackage call; sampled mismatches fuse only the offending method.");
+                    ". ShouldSkip and HasJobOnCell memoization are removed. HasJobOnThing uses per-method/giver buckets inside one TryIssueJobPackage; JS1 nearest-order semantics are unchanged. Vanilla retains JobOnThing/JobOnCell, Jobs, reservations and final selection.");
             }
             catch (Exception ex)
             {
                 patchFailures++;
                 FeatureGate.Suppress(FeatureId, "installation failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] V0.4.19-JS1 install failed; V0.4.18.2 behavior remains. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] V0.4.19-JS1.1 Lean install failed; JS1/V0.4.18.2 behavior remains. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
-        private static void PatchWorkQueries(Harmony harmony)
+        private static void PatchHasJobOnThingQueries(Harmony harmony)
         {
             HashSet<MethodBase> unique = new HashSet<MethodBase>();
             List<Type> allTypes = GenTypes.AllTypes;
-            MethodInfo prefixMethod = AccessTools.Method(typeof(JobPackageLocalSearch0419), nameof(WorkQueryPrefix));
-            MethodInfo postfixMethod = AccessTools.Method(typeof(JobPackageLocalSearch0419), nameof(WorkQueryPostfix));
+            MethodInfo prefixMethod = AccessTools.Method(typeof(JobPackageLocalSearch0419), nameof(HasThingPrefix));
+            MethodInfo postfixMethod = AccessTools.Method(typeof(JobPackageLocalSearch0419), nameof(HasThingPostfix));
 
             for (int i = 0; i < allTypes.Count; i++)
             {
@@ -129,8 +137,7 @@ namespace RimMT
                 for (int m = 0; m < methods.Length; m++)
                 {
                     MethodInfo method = methods[m];
-                    QueryKind ignored;
-                    if (!TryClassifyWorkQuery(method, out ignored) || !unique.Add(method))
+                    if (!IsSupportedHasThing(method) || !unique.Add(method))
                         continue;
 
                     try
@@ -138,13 +145,13 @@ namespace RimMT
                         HarmonyMethod prefix = new HarmonyMethod(prefixMethod) { priority = Priority.First + 50 };
                         HarmonyMethod postfix = new HarmonyMethod(postfixMethod) { priority = Priority.Last - 50 };
                         harmony.Patch(method, prefix: prefix, postfix: postfix);
-                        patchedWorkQueries++;
+                        patchedHasThingQueries++;
                     }
                     catch (Exception ex)
                     {
                         patchFailures++;
                         if (patchFailures <= 8)
-                            Log.Warning("[RimMT] V0.4.19-JS1 skipped WorkGiver query " + method + ": " + ex.GetType().Name + ": " + ex.Message);
+                            Log.Warning("[RimMT] V0.4.19-JS1.1 Lean skipped HasJobOnThing query " + method + ": " + ex.GetType().Name + ": " + ex.Message);
                     }
                 }
             }
@@ -169,7 +176,7 @@ namespace RimMT
                 catch (Exception ex)
                 {
                     patchFailures++;
-                    Log.Warning("[RimMT] V0.4.19-JS1 GlobalPrefix hook failed: " + ex.GetType().Name + ": " + ex.Message);
+                    Log.Warning("[RimMT] V0.4.19-JS1.1 Lean GlobalPrefix hook failed: " + ex.GetType().Name + ": " + ex.Message);
                 }
             }
 
@@ -187,7 +194,7 @@ namespace RimMT
                 catch (Exception ex)
                 {
                     patchFailures++;
-                    Log.Warning("[RimMT] V0.4.19-JS1 GlobalReachablePrefix hook failed: " + ex.GetType().Name + ": " + ex.Message);
+                    Log.Warning("[RimMT] V0.4.19-JS1.1 Lean GlobalReachablePrefix hook failed: " + ex.GetType().Name + ": " + ex.Message);
                 }
             }
         }
@@ -228,7 +235,8 @@ namespace RimMT
                 PackageContext context = __state.Context;
                 if (context != null)
                 {
-                    UpdateMax(ref maxWorkEntries, context.WorkResults.Count);
+                    UpdateMax(ref maxThingEntries, context.TotalThingEntries);
+                    UpdateMax(ref maxThingBuckets, context.ThingBuckets.Count);
                     UpdateMax(ref maxOrderEntries, context.Ordered.Count);
                 }
                 if (ReferenceEquals(current, context))
@@ -238,24 +246,25 @@ namespace RimMT
             return __exception;
         }
 
-        public static bool WorkQueryPrefix(
+        public static bool HasThingPrefix(
             WorkGiver __instance,
             MethodBase __originalMethod,
             object[] __args,
             ref bool __result,
-            ref WorkQueryState __state)
+            ref HasThingState __state)
         {
-            __state = default(WorkQueryState);
+            __state = default(HasThingState);
             PackageContext context = current;
             if (context == null || packageDepth <= 0 || __instance == null || __originalMethod == null || __args == null)
                 return true;
 
-            QueryKind kind;
-            WorkQueryKey key;
-            if (!TryBuildWorkKey(__instance, __originalMethod, __args, out kind, out key))
+            Pawn pawn = __args.Length > 0 ? __args[0] as Pawn : null;
+            Thing thing = __args.Length > 1 ? __args[1] as Thing : null;
+            if (pawn == null || thing == null || context.Pawn == null || !ReferenceEquals(context.Pawn, pawn))
                 return true;
 
-            Interlocked.Increment(ref workObserved);
+            bool forced = __args.Length > 2 && __args[2] is bool && (bool)__args[2];
+            Interlocked.Increment(ref thingObserved);
 
             MethodParityState parity = GetParityState(__originalMethod);
             if (parity.Disabled)
@@ -264,30 +273,40 @@ namespace RimMT
                 return true;
             }
 
-            bool cached;
-            if (!context.WorkResults.TryGetValue(key, out cached))
+            BucketKey bucketKey = new BucketKey(__originalMethod, __instance, forced);
+            ThingBucket bucket;
+            if (!context.ThingBuckets.TryGetValue(bucketKey, out bucket))
             {
-                Interlocked.Increment(ref workMisses);
+                bucket = new ThingBucket();
+                context.ThingBuckets.Add(bucketKey, bucket);
+                Interlocked.Increment(ref thingBucketCreates);
+            }
+
+            bool cached;
+            if (!bucket.Results.TryGetValue(thing, out cached))
+            {
+                Interlocked.Increment(ref thingMisses);
                 __state.Context = context;
-                __state.Key = key;
-                __state.Store = context.WorkResults.Count < MaxWorkEntriesPerPackage;
+                __state.Bucket = bucket;
+                __state.Thing = thing;
+                __state.Method = __originalMethod;
+                __state.Store = context.TotalThingEntries < MaxThingEntriesPerPackage &&
+                    bucket.Results.Count < MaxThingEntriesPerBucket;
                 if (!__state.Store)
-                    Interlocked.Increment(ref workCapBypass);
+                    Interlocked.Increment(ref thingCapBypass);
                 return true;
             }
 
-            Interlocked.Increment(ref workHits);
-            if (kind == QueryKind.ShouldSkip) Interlocked.Increment(ref shouldSkipHits);
-            else if (kind == QueryKind.HasThing) Interlocked.Increment(ref hasThingHits);
-            else if (kind == QueryKind.HasCell) Interlocked.Increment(ref hasCellHits);
-
+            Interlocked.Increment(ref thingHits);
             long methodHit = ++parity.Hits;
             bool verify = methodHit <= WarmupVerifyHitsPerMethod || (methodHit & VerifyMask) == 0;
             if (verify)
             {
-                Interlocked.Increment(ref workVerifyRuns);
+                Interlocked.Increment(ref thingVerifyRuns);
                 __state.Context = context;
-                __state.Key = key;
+                __state.Bucket = bucket;
+                __state.Thing = thing;
+                __state.Method = __originalMethod;
                 __state.Parity = parity;
                 __state.Verify = true;
                 __state.Cached = cached;
@@ -299,7 +318,7 @@ namespace RimMT
             return false;
         }
 
-        public static void WorkQueryPostfix(bool __result, WorkQueryState __state)
+        public static void HasThingPostfix(bool __result, HasThingState __state)
         {
             if (__state.AuthoritativeHit)
                 return;
@@ -309,27 +328,33 @@ namespace RimMT
                 if (__result == __state.Cached)
                 {
                     __state.Parity.Matches++;
-                    Interlocked.Increment(ref workVerifyMatches);
+                    Interlocked.Increment(ref thingVerifyMatches);
                 }
                 else
                 {
                     __state.Parity.Mismatches++;
                     __state.Parity.Disabled = true;
-                    Interlocked.Increment(ref workMismatches);
+                    Interlocked.Increment(ref thingMismatches);
                     if (Interlocked.Increment(ref mismatchLogs) <= 8)
                     {
-                        Log.Warning("[RimMT] V0.4.19-JS1 bool-query parity mismatch; caching disabled for " +
-                            __state.Key.Method + ". cached=" + __state.Cached + ", live=" + __result +
+                        Log.Warning("[RimMT] V0.4.19-JS1.1 Lean HasJobOnThing parity mismatch; caching disabled for " +
+                            __state.Method + ". cached=" + __state.Cached + ", live=" + __result +
                             ". Vanilla is authoritative for this sample and all future calls to that method.");
                     }
                 }
                 return;
             }
 
-            if (__state.Store && __state.Context != null && ReferenceEquals(current, __state.Context))
+            if (__state.Store && __state.Context != null && __state.Bucket != null && __state.Thing != null &&
+                ReferenceEquals(current, __state.Context))
             {
-                __state.Context.WorkResults[__state.Key] = __result;
-                Interlocked.Increment(ref workStores);
+                if (!__state.Bucket.Results.ContainsKey(__state.Thing))
+                {
+                    __state.Bucket.Results.Add(__state.Thing, __result);
+                    __state.Context.TotalThingEntries++;
+                    UpdateMax(ref maxThingBucketEntries, __state.Bucket.Results.Count);
+                    Interlocked.Increment(ref thingStores);
+                }
             }
         }
 
@@ -441,100 +466,17 @@ namespace RimMT
             Interlocked.Increment(ref orderStores);
         }
 
-        private static bool TryClassifyWorkQuery(MethodInfo method, out QueryKind kind)
+        private static bool IsSupportedHasThing(MethodInfo method)
         {
-            kind = QueryKind.None;
-            if (method == null || method.IsAbstract || method.ContainsGenericParameters || method.ReturnType != typeof(bool))
+            if (method == null || method.IsAbstract || method.ContainsGenericParameters || method.ReturnType != typeof(bool) ||
+                !string.Equals(method.Name, "HasJobOnThing", StringComparison.Ordinal))
                 return false;
 
             ParameterInfo[] p = method.GetParameters();
-            if (p.Length == 0 || p[0].ParameterType != typeof(Pawn))
-                return false;
-
-            if (method.Name == "ShouldSkip")
-            {
-                if (p.Length == 1 || (p.Length == 2 && p[1].ParameterType == typeof(bool)))
-                {
-                    kind = QueryKind.ShouldSkip;
-                    return true;
-                }
-                return false;
-            }
-
-            if (method.Name == "HasJobOnThing")
-            {
-                if ((p.Length == 2 || p.Length == 3) &&
-                    typeof(Thing).IsAssignableFrom(p[1].ParameterType) &&
-                    (p.Length == 2 || p[2].ParameterType == typeof(bool)))
-                {
-                    kind = QueryKind.HasThing;
-                    return true;
-                }
-                return false;
-            }
-
-            if (method.Name == "HasJobOnCell")
-            {
-                if ((p.Length == 2 || p.Length == 3) &&
-                    p[1].ParameterType == typeof(IntVec3) &&
-                    (p.Length == 2 || p[2].ParameterType == typeof(bool)))
-                {
-                    kind = QueryKind.HasCell;
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static bool TryBuildWorkKey(
-            WorkGiver giver,
-            MethodBase method,
-            object[] args,
-            out QueryKind kind,
-            out WorkQueryKey key)
-        {
-            kind = QueryKind.None;
-            key = default(WorkQueryKey);
-
-            Pawn pawn = args.Length > 0 ? args[0] as Pawn : null;
-            if (pawn == null || (current != null && current.Pawn != null && !ReferenceEquals(current.Pawn, pawn)))
-                return false;
-
-            bool forced = false;
-            if (method.Name == "ShouldSkip")
-            {
-                kind = QueryKind.ShouldSkip;
-                if (args.Length > 1 && args[1] is bool)
-                    forced = (bool)args[1];
-                key = new WorkQueryKey(method, giver, pawn, null, IntVec3.Invalid, forced, kind);
-                return true;
-            }
-
-            if (method.Name == "HasJobOnThing")
-            {
-                Thing thing = args.Length > 1 ? args[1] as Thing : null;
-                if (thing == null)
-                    return false;
-                kind = QueryKind.HasThing;
-                if (args.Length > 2 && args[2] is bool)
-                    forced = (bool)args[2];
-                key = new WorkQueryKey(method, giver, pawn, thing, IntVec3.Invalid, forced, kind);
-                return true;
-            }
-
-            if (method.Name == "HasJobOnCell")
-            {
-                if (args.Length <= 1 || !(args[1] is IntVec3))
-                    return false;
-                kind = QueryKind.HasCell;
-                if (args.Length > 2 && args[2] is bool)
-                    forced = (bool)args[2];
-                key = new WorkQueryKey(method, giver, pawn, null, (IntVec3)args[1], forced, kind);
-                return true;
-            }
-
-            return false;
+            return (p.Length == 2 || p.Length == 3) &&
+                p[0].ParameterType == typeof(Pawn) &&
+                typeof(Thing).IsAssignableFrom(p[1].ParameterType) &&
+                (p.Length == 2 || p[2].ParameterType == typeof(bool));
         }
 
         private static MethodParityState GetParityState(MethodBase method)
@@ -603,11 +545,11 @@ namespace RimMT
 
         internal static string Summary()
         {
-            long observed = Interlocked.Read(ref workObserved);
-            long hits = Interlocked.Read(ref workHits);
+            long observed = Interlocked.Read(ref thingObserved);
+            long hits = Interlocked.Read(ref thingHits);
             long orderObs = Interlocked.Read(ref orderObserved);
             long orderHit = Interlocked.Read(ref orderHits);
-            double workHitPct = observed == 0 ? 0.0 : hits * 100.0 / observed;
+            double thingHitPct = observed == 0 ? 0.0 : hits * 100.0 / observed;
             double orderHitPct = orderObs == 0 ? 0.0 : orderHit * 100.0 / orderObs;
 
             int disabled = 0;
@@ -617,23 +559,24 @@ namespace RimMT
                     disabled++;
             }
 
-            return "JobPackage-local search V0.4.19-JS1: patched(scope/work/global/reachable)=" +
-                scopePatched + "/" + patchedWorkQueries + "/" + globalHookPatched + "/" + reachableHookPatched +
+            return "JobPackage-local search V0.4.19-JS1.1 Lean: patched(scope/hasThing/global/reachable)=" +
+                scopePatched + "/" + patchedHasThingQueries + "/" + globalHookPatched + "/" + reachableHookPatched +
                 ", patchFailures=" + patchFailures +
                 ", packages=" + Interlocked.Read(ref packages) +
                 ", nested=" + Interlocked.Read(ref nestedPackages) +
-                ", workObserved=" + observed +
-                ", workHits=" + hits + " (" + workHitPct.ToString("F1") + "%)" +
-                ", workMisses=" + Interlocked.Read(ref workMisses) +
-                ", workStores=" + Interlocked.Read(ref workStores) +
-                ", verify=" + Interlocked.Read(ref workVerifyRuns) + "/" + Interlocked.Read(ref workVerifyMatches) +
-                ", mismatches=" + Interlocked.Read(ref workMismatches) +
+                ", hasThingObserved=" + observed +
+                ", hasThingHits=" + hits + " (" + thingHitPct.ToString("F1") + "%)" +
+                ", hasThingMisses=" + Interlocked.Read(ref thingMisses) +
+                ", hasThingStores=" + Interlocked.Read(ref thingStores) +
+                ", verify=" + Interlocked.Read(ref thingVerifyRuns) + "/" + Interlocked.Read(ref thingVerifyMatches) +
+                ", mismatches=" + Interlocked.Read(ref thingMismatches) +
                 ", disabledMethods=" + disabled +
                 ", disabledBypass=" + Interlocked.Read(ref disabledMethodBypass) +
-                ", capBypass=" + Interlocked.Read(ref workCapBypass) +
-                ", hitsByKind(skip/thing/cell)=" + Interlocked.Read(ref shouldSkipHits) + "/" +
-                    Interlocked.Read(ref hasThingHits) + "/" + Interlocked.Read(ref hasCellHits) +
-                ", maxWorkEntries=" + Interlocked.Read(ref maxWorkEntries) +
+                ", capBypass=" + Interlocked.Read(ref thingCapBypass) +
+                ", bucketCreates=" + Interlocked.Read(ref thingBucketCreates) +
+                ", maxThingEntries=" + Interlocked.Read(ref maxThingEntries) +
+                ", maxBuckets=" + Interlocked.Read(ref maxThingBuckets) +
+                ", maxBucketEntries=" + Interlocked.Read(ref maxThingBucketEntries) +
                 ", orderObserved=" + orderObs +
                 ", orderHits=" + orderHit + " (" + orderHitPct.ToString("F1") + "%)" +
                 ", orderMisses=" + Interlocked.Read(ref orderMisses) +
@@ -641,7 +584,7 @@ namespace RimMT
                 ", orderMutationBypass=" + Interlocked.Read(ref orderMutationBypass) +
                 ", orderCapBypass=" + Interlocked.Read(ref orderCapBypass) +
                 ", maxOrderEntries=" + Interlocked.Read(ref maxOrderEntries) +
-                ". Lifetime is one synchronous JobPackage; sampled mismatches fuse only the offending boolean method.";
+                ". Lifetime is one synchronous JobPackage. Pawn is implicit in the package scope; Thing lookups are bucketed by method/giver/forced. JS1 nearest-order key semantics are unchanged.";
         }
 
         internal struct PackageScope
@@ -651,10 +594,12 @@ namespace RimMT
             internal PackageContext Context;
         }
 
-        internal struct WorkQueryState
+        internal struct HasThingState
         {
             internal PackageContext Context;
-            internal WorkQueryKey Key;
+            internal ThingBucket Bucket;
+            internal Thing Thing;
+            internal MethodBase Method;
             internal MethodParityState Parity;
             internal bool Store;
             internal bool Verify;
@@ -677,13 +622,20 @@ namespace RimMT
         internal sealed class PackageContext
         {
             internal readonly Pawn Pawn;
-            internal readonly Dictionary<WorkQueryKey, bool> WorkResults = new Dictionary<WorkQueryKey, bool>();
-            internal readonly Dictionary<OrderKey, OrderedEntry> Ordered = new Dictionary<OrderKey, OrderedEntry>();
+            internal readonly Dictionary<BucketKey, ThingBucket> ThingBuckets = new Dictionary<BucketKey, ThingBucket>(32);
+            internal readonly Dictionary<OrderKey, OrderedEntry> Ordered = new Dictionary<OrderKey, OrderedEntry>(16);
+            internal int TotalThingEntries;
 
             internal PackageContext(Pawn pawn)
             {
                 Pawn = pawn;
             }
+        }
+
+        internal sealed class ThingBucket
+        {
+            internal readonly Dictionary<Thing, bool> Results =
+                new Dictionary<Thing, bool>(ThingReferenceComparer.Instance);
         }
 
         internal sealed class MethodParityState
@@ -712,49 +664,29 @@ namespace RimMT
             }
         }
 
-        internal enum QueryKind : byte
-        {
-            None = 0,
-            ShouldSkip = 1,
-            HasThing = 2,
-            HasCell = 3
-        }
-
-        internal struct WorkQueryKey : IEquatable<WorkQueryKey>
+        internal struct BucketKey : IEquatable<BucketKey>
         {
             internal readonly MethodBase Method;
             internal readonly WorkGiver Giver;
-            internal readonly Pawn Pawn;
-            internal readonly Thing Thing;
-            internal readonly IntVec3 Cell;
             internal readonly bool Forced;
-            internal readonly QueryKind Kind;
 
-            internal WorkQueryKey(MethodBase method, WorkGiver giver, Pawn pawn, Thing thing, IntVec3 cell, bool forced, QueryKind kind)
+            internal BucketKey(MethodBase method, WorkGiver giver, bool forced)
             {
                 Method = method;
                 Giver = giver;
-                Pawn = pawn;
-                Thing = thing;
-                Cell = cell;
                 Forced = forced;
-                Kind = kind;
             }
 
-            public bool Equals(WorkQueryKey other)
+            public bool Equals(BucketKey other)
             {
                 return ReferenceEquals(Method, other.Method) &&
                     ReferenceEquals(Giver, other.Giver) &&
-                    ReferenceEquals(Pawn, other.Pawn) &&
-                    ReferenceEquals(Thing, other.Thing) &&
-                    Cell.Equals(other.Cell) &&
-                    Forced == other.Forced &&
-                    Kind == other.Kind;
+                    Forced == other.Forced;
             }
 
             public override bool Equals(object obj)
             {
-                return obj is WorkQueryKey && Equals((WorkQueryKey)obj);
+                return obj is BucketKey && Equals((BucketKey)obj);
             }
 
             public override int GetHashCode()
@@ -763,11 +695,7 @@ namespace RimMT
                 {
                     int hash = Method == null ? 0 : RuntimeHelpers.GetHashCode(Method);
                     hash = hash * 397 ^ (Giver == null ? 0 : RuntimeHelpers.GetHashCode(Giver));
-                    hash = hash * 397 ^ (Pawn == null ? 0 : RuntimeHelpers.GetHashCode(Pawn));
-                    hash = hash * 397 ^ (Thing == null ? 0 : RuntimeHelpers.GetHashCode(Thing));
-                    hash = hash * 397 ^ Cell.GetHashCode();
                     hash = hash * 397 ^ (Forced ? 1 : 0);
-                    hash = hash * 397 ^ (int)Kind;
                     return hash;
                 }
             }
@@ -814,6 +742,21 @@ namespace RimMT
                     hash = hash * 397 ^ (Reachable ? 1 : 0);
                     return hash;
                 }
+            }
+        }
+
+        private sealed class ThingReferenceComparer : IEqualityComparer<Thing>
+        {
+            internal static readonly ThingReferenceComparer Instance = new ThingReferenceComparer();
+
+            public bool Equals(Thing x, Thing y)
+            {
+                return ReferenceEquals(x, y);
+            }
+
+            public int GetHashCode(Thing obj)
+            {
+                return obj == null ? 0 : RuntimeHelpers.GetHashCode(obj);
             }
         }
     }
