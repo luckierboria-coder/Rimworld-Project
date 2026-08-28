@@ -29,21 +29,22 @@ namespace RimMT
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
 
-                // V0.4.19-JS1 replaces the low-yield cross-package V0.4.18.2 async
-                // candidate-plan experiment with a strictly synchronous JobPackage-local
-                // cache. No cache survives TryIssueJobPackage and no worker wait exists.
+                // JS1.1 Lean preserves the successful JS1 nearest-order semantics, but
+                // narrows boolean memoization to a bucketed HasJobOnThing cache only.
                 JobPackageLocalSearch0419.Apply(harmony);
 
                 AggressiveReachabilityProfiles.Apply(harmony);
-                // V0.4.18.2 deliberately does not install ReachProfileSafety0418.
-                // The V0.4.16 profile's own warmup, sampled parity, per-profile cooldown and
-                // global mismatch fuse remain the validated reachability authority path.
-                ParallelRegionConnectivity.Apply(harmony);
+
+                // V0.4.15 RegionHint is retired in JS1.1 Lean. Long-run JS2 telemetry saw
+                // 157k observations for only 11 accelerations, so its worker snapshots and
+                // Harmony surface are not justified. ReachProfile remains the connectivity path.
+                // ParallelRegionConnectivity.Apply(harmony); intentionally not installed.
+
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1 initialized from the V0.4.18.2 stable baseline. JobGiver boolean queries and nearest-first source ordering may now be reused only inside one synchronous TryIssueJobPackage call. ShouldSkip/HasJobOnThing/HasJobOnCell cache hits are parity-sampled and fuse only the offending method on mismatch. JobOnThing/JobOnCell, Jobs, reservations, mutable Verse state and Unity state remain main-thread Vanilla-authoritative. Cross-package AsyncJobCandidatePlan04182 is retired in this build; Path worker remains shadow-only.");
+                Log.Message("[RimMT] V0.4.19-JS1.1 Lean initialized from the successful JS1 baseline. JS1 nearest-order reuse is preserved unchanged. ShouldSkip and HasJobOnCell memoization are removed; HasJobOnThing uses a lighter per-method/giver bucket so Pawn/Method/Giver are not re-hashed for every Thing target. ParallelRegionConnectivity/RegionHint is retired due near-zero yield. ReachProfile authority, WorkPrefilter, haul accelerators and Path shadow policy remain unchanged.");
             }
             catch (Exception ex)
             {
