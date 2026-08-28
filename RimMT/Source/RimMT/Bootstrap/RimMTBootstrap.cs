@@ -25,23 +25,28 @@ namespace RimMT
                 PathSnapshotSafetyPatches.Apply(harmony);
                 SafePathClassTelemetry0418.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
-                StableGenClosestAssist04183.Apply(harmony);
+
+                // V0.4.18.3.1 regression rollback:
+                // - Do not install the V0.4.18.3 stable-spatial consumer. Its first runtime
+                //   sample produced signature reuse but zero authoritative accelerations.
+                // - Do not restore the low-yield V0.4.18.2 identity-keyed async plan.
+                // Broad/JobGiver nearest ordering remains the measured synchronous layer.
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
 
-                // V0.4.18.3 retires the identity-keyed V0.4.18.2 AsyncJobCandidatePlan.
-                // StableGenClosestAssist04183 now reuses ephemeral source lists by an exact,
-                // order-sensitive reference signature backed by the persistent worker fabric.
-                AggressiveReachabilityProfiles04183.Apply(harmony);
+                // Restore the V0.4.18.2/V0.4.16 ReachProfile implementation. The V0.4.18.3
+                // frame-budgeted capture pump dramatically increased cold profile misses in the
+                // measured 390-mod workload, exposing live Vanilla Reachability/RegionTraverser
+                // again. Sampled positive/negative authority, cooldown and the global fuse stay on.
+                AggressiveReachabilityProfiles.Apply(harmony);
 
-                // V0.4.15 regionHint produced zero authoritative accelerations in the measured
-                // workload while repeatedly building snapshots that went stale. V0.4.18.3 does
-                // not install it; sampled per-Pawn reach profiles now own connectivity offload.
+                // RegionHint remains retired: prior measurements showed zero acceleration while
+                // consuming snapshot/worker work. ReachProfile remains the connectivity offload.
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.18.3 AI stutter-reduction playtest initialized. ReachProfile validity is generation-owned with 900-frame soft refresh, 3600-frame defensive hard age and a 0.80 ms main-thread capture budget. Old profiles remain authoritative during soft refresh after their normal parity gate. Stable spatial GenClosest reuse now keys temporary source lists by exact member signature and uses the persistent worker fabric with a 128-candidate stutter admission cap. The V0.4.18.2 identity-keyed async candidate plan and zero-yield V0.4.15 regionHint are retired from the active patch chain. Final WorkGiver predicates, reservations, Job commits, mutable Verse state and Unity state remain main-thread owned. Path worker remains shadow-only.");
+                Log.Message("[RimMT] V0.4.18.3.1 reachability regression rollback initialized. The V0.4.18.3 frame-budgeted ReachProfile capture pump and stable-spatial GenClosest consumer are disabled. V0.4.18.2/V0.4.16 synchronous ReachProfile capture with sampled positive/negative authority is restored; the zero-yield RegionHint and low-yield identity-keyed async candidate plan remain retired. Final WorkGiver predicates, reservations, Job commits, mutable Verse state and Unity state remain main-thread owned. Path worker remains shadow-only.");
             }
             catch (Exception ex)
             {
@@ -98,7 +103,6 @@ namespace RimMT
             }
 
             RimMTRuntime.OnMainThreadFrame();
-            AggressiveReachabilityProfiles04183.PumpMainThreadBudget();
         }
     }
 }
