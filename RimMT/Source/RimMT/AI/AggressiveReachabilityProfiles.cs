@@ -753,7 +753,7 @@ namespace RimMT
             }
         }
 
-        private enum Prediction
+        internal enum Prediction
         {
             Unknown,
             Reachable,
@@ -803,7 +803,7 @@ namespace RimMT
             internal ProfileSnapshot Published;
         }
 
-        private struct TraverseKey : IEquatable<TraverseKey>
+        internal struct TraverseKey : IEquatable<TraverseKey>
         {
             internal readonly TraverseMode Mode;
             internal readonly Danger MaxDanger;
