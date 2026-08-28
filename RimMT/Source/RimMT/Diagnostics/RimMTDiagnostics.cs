@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.17 keeps the validated cap while Work candidate classification is added)");
+                ", workerCap=8 (V0.4.18.2 baseline behavior; P1 adds diagnostics only)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -66,7 +66,7 @@ namespace RimMT
                     ", tickListProbe=" + RuntimeCompatibility.ButterTickListProbeDescription);
             }
 
-            sb.AppendLine("Policy: bounded-risk whitelist / sampled parity / automatic fuse / Vanilla state commit");
+            sb.AppendLine("Policy: V0.4.18.2 gameplay baseline + diagnostic-only tick/frame decomposition");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
                 ", sampleSource=" + AdaptiveLoadBalancer.SampleSource +
                 ", EMA ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
@@ -92,13 +92,19 @@ namespace RimMT
             sb.AppendLine(GlobalHaulAccelerator.Summary());
             sb.AppendLine(PersistentMapSearchFabric.Summary());
             sb.AppendLine(AdaptiveGenClosestAssist.Summary());
+            sb.AppendLine(BroadGenClosestOrder0418.Summary());
+            sb.AppendLine(JobGiverGlobalNearest04181.Summary());
+            sb.AppendLine(AsyncJobCandidatePlan04182.Summary());
             sb.AppendLine(AggressiveReachabilityProfiles.Summary());
+            sb.AppendLine("Reach-profile V0.4.18.2 aggressive policy: sampled positive authority ENABLED. V0.4.18 force-positive-to-Vanilla guard is not installed; the native V0.4.16 warmup, shadow sampling, per-profile cooldown and global mismatch fuse remain active.");
             sb.AppendLine(ParallelRegionConnectivity.Summary());
             sb.AppendLine(ParallelWorkPrefilter.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
             sb.AppendLine(PathSnapshotWorker.Summary());
+            sb.AppendLine(SafePathClassTelemetry0418.Summary());
             sb.AppendLine(HotPathProfiler.Summary("TickManager.DoSingleTick"));
+            sb.AppendLine(TickLayerProfiler04182P1.Summary());
             if (RuntimeCompatibility.ButterPlusPlusActive)
                 sb.AppendLine(HotPathProfiler.Summary("TickManager.TickManagerUpdate[ButterSlice]"));
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath"));
