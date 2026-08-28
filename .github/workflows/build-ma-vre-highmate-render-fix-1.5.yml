@@ -1,0 +1,71 @@
+name: Build MA VRE Highmate Render Fix 1.5
+
+on:
+  push:
+    branches:
+      - main
+      - ma-vre-highmate-render-fix-1.5
+    paths:
+      - 'MA-VRE-Highmate-Render-Fix-1.5/**'
+      - '.github/workflows/build-ma-vre-highmate-render-fix-1.5.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore MA-VRE-Highmate-Render-Fix-1.5/Source/MAVREHighmateRenderFix15.csproj
+
+      - name: Build Release
+        run: dotnet build MA-VRE-Highmate-Render-Fix-1.5/Source/MAVREHighmateRenderFix15.csproj --configuration Release --no-restore
+
+      - name: Verify DLL
+        shell: pwsh
+        run: |
+          $dll = 'MA-VRE-Highmate-Render-Fix-1.5\1.5\Assemblies\MAVREHighmateRenderFix15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled hotfix DLL missing.' }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build\MA - VRE Highmate Render Fix 1.5'
+          $assemblies = "$stage\1.5\Assemblies"
+          New-Item -ItemType Directory -Force -Path $assemblies | Out-Null
+          Copy-Item 'MA-VRE-Highmate-Render-Fix-1.5\About' $stage -Recurse -Force
+          Copy-Item 'MA-VRE-Highmate-Render-Fix-1.5\1.5\Assemblies\MAVREHighmateRenderFix15.dll' $assemblies -Force
+          if (Test-Path 'MA-VRE-Highmate-Render-Fix-1.5\1.5\Assemblies\MAVREHighmateRenderFix15.pdb') {
+            Copy-Item 'MA-VRE-Highmate-Render-Fix-1.5\1.5\Assemblies\MAVREHighmateRenderFix15.pdb' $assemblies -Force
+          }
+          @(
+            'MA - VRE Highmate Render Fix 1.5',
+            '',
+            'Load after Melee Animation and Vanilla Races Expanded - Highmate.',
+            '',
+            'Fix:',
+            '- Guards VRE Highmate HeadgearVisible postfix when Melee Animation supplies incomplete temporary PawnDrawParms.',
+            '- Suppresses only NullReferenceException thrown by that exact Highmate postfix while inside AM.AnimRenderer.DrawPawns.',
+            '- Does not suppress unrelated Melee Animation, VFE, hair, apparel, mesh or renderer exceptions.',
+            '- Does not modify the existing MA 1.5 HasActiveGene Hotfix.',
+            '- Bundled Harmony is intentionally excluded; RimWorld uses the existing Harmony dependency.'
+          ) | Set-Content "$stage\README.txt" -Encoding UTF8
+          Compress-Archive -Path $stage -DestinationPath 'build\MA_VRE_Highmate_Render_Fix_1.5.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MA-VRE-Highmate-Render-Fix-1.5
+          path: build/MA_VRE_Highmate_Render_Fix_1.5.zip
+          if-no-files-found: error
