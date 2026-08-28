@@ -42,9 +42,13 @@ jobs:
         shell: pwsh
         run: |
           $stage = 'build\MA - VRE Highmate Render Fix 1.5'
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $assemblies = "$stage\1.5\Assemblies"
+          New-Item -ItemType Directory -Force -Path $assemblies | Out-Null
           Copy-Item 'MA-VRE-Highmate-Render-Fix-1.5\About' $stage -Recurse -Force
-          Copy-Item 'MA-VRE-Highmate-Render-Fix-1.5\1.5' $stage -Recurse -Force
+          Copy-Item 'MA-VRE-Highmate-Render-Fix-1.5\1.5\Assemblies\MAVREHighmateRenderFix15.dll' $assemblies -Force
+          if (Test-Path 'MA-VRE-Highmate-Render-Fix-1.5\1.5\Assemblies\MAVREHighmateRenderFix15.pdb') {
+            Copy-Item 'MA-VRE-Highmate-Render-Fix-1.5\1.5\Assemblies\MAVREHighmateRenderFix15.pdb' $assemblies -Force
+          }
           @(
             'MA - VRE Highmate Render Fix 1.5',
             '',
@@ -54,7 +58,8 @@ jobs:
             '- Guards VRE Highmate HeadgearVisible postfix when Melee Animation supplies incomplete temporary PawnDrawParms.',
             '- Suppresses only NullReferenceException thrown by that exact Highmate postfix while inside AM.AnimRenderer.DrawPawns.',
             '- Does not suppress unrelated Melee Animation, VFE, hair, apparel, mesh or renderer exceptions.',
-            '- Does not modify the existing MA 1.5 HasActiveGene Hotfix.'
+            '- Does not modify the existing MA 1.5 HasActiveGene Hotfix.',
+            '- Bundled Harmony is intentionally excluded; RimWorld uses the existing Harmony dependency.'
           ) | Set-Content "$stage\README.txt" -Encoding UTF8
           Compress-Archive -Path $stage -DestinationPath 'build\MA_VRE_Highmate_Render_Fix_1.5.zip' -Force
 
