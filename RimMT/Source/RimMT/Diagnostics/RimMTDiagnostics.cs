@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.18.2 keeps the validated cap while hot GenClosest planning and reachability classification move off the main thread)");
+                ", workerCap=8 (V0.4.18.2 baseline behavior; P1 adds diagnostics only)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -66,7 +66,7 @@ namespace RimMT
                     ", tickListProbe=" + RuntimeCompatibility.ButterTickListProbeDescription);
             }
 
-            sb.AppendLine("Policy: aggressive hotspot parallelism / sampled parity + fuse / main-thread mutable-state commit");
+            sb.AppendLine("Policy: V0.4.18.2 gameplay baseline + diagnostic-only tick/frame decomposition");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
                 ", sampleSource=" + AdaptiveLoadBalancer.SampleSource +
                 ", EMA ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
@@ -104,6 +104,7 @@ namespace RimMT
             sb.AppendLine(PathSnapshotWorker.Summary());
             sb.AppendLine(SafePathClassTelemetry0418.Summary());
             sb.AppendLine(HotPathProfiler.Summary("TickManager.DoSingleTick"));
+            sb.AppendLine(TickLayerProfiler04182P1.Summary());
             if (RuntimeCompatibility.ButterPlusPlusActive)
                 sb.AppendLine(HotPathProfiler.Summary("TickManager.TickManagerUpdate[ButterSlice]"));
             sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath"));
