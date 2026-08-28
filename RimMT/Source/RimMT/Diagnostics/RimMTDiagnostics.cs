@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.17 keeps the validated cap while Work candidate classification is added)");
+                ", workerCap=8 (V0.4.18.3.1 regression rollback; V0.4.18.2/V0.4.16 ReachProfile path restored)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -66,7 +66,7 @@ namespace RimMT
                     ", tickListProbe=" + RuntimeCompatibility.ButterTickListProbeDescription);
             }
 
-            sb.AppendLine("Policy: bounded-risk whitelist / sampled parity / automatic fuse / Vanilla state commit");
+            sb.AppendLine("Policy: aggressive hotspot parallelism / sampled parity + fuse / main-thread mutable-state commit");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
                 ", sampleSource=" + AdaptiveLoadBalancer.SampleSource +
                 ", EMA ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
@@ -91,13 +91,18 @@ namespace RimMT
             sb.AppendLine(HaulWorkAccelerator.Summary());
             sb.AppendLine(GlobalHaulAccelerator.Summary());
             sb.AppendLine(PersistentMapSearchFabric.Summary());
-            sb.AppendLine(AdaptiveGenClosestAssist.Summary());
+            sb.AppendLine("Stable spatial GenClosest V0.4.18.3: RETIRED/OFF in V0.4.18.3.1 after the first runtime sample produced 61% signature reuse but zero accelerated calls.");
+            sb.AppendLine(BroadGenClosestOrder0418.Summary());
+            sb.AppendLine(JobGiverGlobalNearest04181.Summary());
+            sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED/OFF; exact IList/root reuse remains disabled.");
             sb.AppendLine(AggressiveReachabilityProfiles.Summary());
-            sb.AppendLine(ParallelRegionConnectivity.Summary());
+            sb.AppendLine("Reach-profile V0.4.18.3.1 policy: V0.4.18.2/V0.4.16 synchronous capture restored with sampled positive/negative authority, per-profile cooldown and global mismatch fuse. The V0.4.18.3 frame-budgeted capture pump is not installed.");
+            sb.AppendLine("Parallel region connectivity V0.4.15: RETIRED/OFF; measured builds produced zero accelerations.");
             sb.AppendLine(ParallelWorkPrefilter.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
             sb.AppendLine(PathSnapshotSafetyPatches.Summary());
             sb.AppendLine(PathSnapshotWorker.Summary());
+            sb.AppendLine(SafePathClassTelemetry0418.Summary());
             sb.AppendLine(HotPathProfiler.Summary("TickManager.DoSingleTick"));
             if (RuntimeCompatibility.ButterPlusPlusActive)
                 sb.AppendLine(HotPathProfiler.Summary("TickManager.TickManagerUpdate[ButterSlice]"));

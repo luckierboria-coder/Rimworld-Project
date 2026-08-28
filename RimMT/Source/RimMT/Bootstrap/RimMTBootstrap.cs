@@ -23,15 +23,30 @@ namespace RimMT
                 RimMTPatches.Apply(harmony);
                 PathGridInvalidation.ApplyBulkGuard(harmony);
                 PathSnapshotSafetyPatches.Apply(harmony);
+                SafePathClassTelemetry0418.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
-                AdaptiveGenClosestAssist.Apply(harmony);
+
+                // V0.4.18.3.1 regression rollback:
+                // - Do not install the V0.4.18.3 stable-spatial consumer. Its first runtime
+                //   sample produced signature reuse but zero authoritative accelerations.
+                // - Do not restore the low-yield V0.4.18.2 identity-keyed async plan.
+                // Broad/JobGiver nearest ordering remains the measured synchronous layer.
+                BroadGenClosestOrder0418.Apply(harmony);
+                JobGiverGlobalNearest04181.Apply(harmony);
+
+                // Restore the V0.4.18.2/V0.4.16 ReachProfile implementation. The V0.4.18.3
+                // frame-budgeted capture pump dramatically increased cold profile misses in the
+                // measured 390-mod workload, exposing live Vanilla Reachability/RegionTraverser
+                // again. Sampled positive/negative authority, cooldown and the global fuse stay on.
                 AggressiveReachabilityProfiles.Apply(harmony);
-                ParallelRegionConnectivity.Apply(harmony);
+
+                // RegionHint remains retired: prior measurements showed zero acceleration while
+                // consuming snapshot/worker work. ReachProfile remains the connectivity offload.
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.17.2 Work-prefilter compatibility playtest initialized. V0.4.17 asynchronous Work hard-negative prefiltering is retained; V0.4.17.1 exact Humanoid Alien Races Harvest coexistence remains active, while V0.4.17.2 adds source-reviewed ReGrowth Core GrowerSow coexistence. In Biomes/ReGrowth restricted Sow mode workers never execute GrowthSeasonNow, so modded per-plant/shared-static season semantics remain live Vanilla main-thread authority. Watchtowers BuildRoof stays fail-closed. Workers never create jobs, reserve targets or mutate game state. Aggressive Reachability, scheduler fan-out, Harmony census, persistent map search, hauling accelerators, path shadow validation and Butter++ logical-tick barriers are retained.");
+                Log.Message("[RimMT] V0.4.18.3.1 reachability regression rollback initialized. The V0.4.18.3 frame-budgeted ReachProfile capture pump and stable-spatial GenClosest consumer are disabled. V0.4.18.2/V0.4.16 synchronous ReachProfile capture with sampled positive/negative authority is restored; the zero-yield RegionHint and low-yield identity-keyed async candidate plan remain retired. Final WorkGiver predicates, reservations, Job commits, mutable Verse state and Unity state remain main-thread owned. Path worker remains shadow-only.");
             }
             catch (Exception ex)
             {
