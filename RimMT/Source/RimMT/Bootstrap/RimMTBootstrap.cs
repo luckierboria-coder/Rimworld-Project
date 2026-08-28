@@ -23,6 +23,7 @@ namespace RimMT
                 RimMTPatches.Apply(harmony);
                 PathGridInvalidation.ApplyBulkGuard(harmony);
                 PathSnapshotSafetyPatches.Apply(harmony);
+                SafePathClassTelemetry0418.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
                 AdaptiveGenClosestAssist.Apply(harmony);
                 BroadGenClosestOrder0418.Apply(harmony);
@@ -33,7 +34,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.18 development playtest initialized. Broad GenClosest calls now receive stable exact-distance nearest-first ordering while Vanilla retains validator/Reachability/final authority; ReachProfile positive predictions require live Vanilla confirmation while proven-unreachable hard negatives remain eligible for fast authority; low-pressure Path shadow sampling is expanded to build the safe-authoritative evidence base. Existing Work prefilter compatibility, scheduler fan-out, persistent map search, hauling accelerators, PathGrid bulk guard and Butter++ logical-tick barriers are retained.");
+                Log.Message("[RimMT] V0.4.18 development playtest initialized. Broad GenClosest calls now receive stable exact-distance nearest-first ordering while Vanilla retains validator/Reachability/final authority; ReachProfile positive predictions require live Vanilla confirmation while proven-unreachable hard negatives remain eligible for fast authority; low-pressure Path shadow sampling is expanded and SafePathClass telemetry groups paired results for the future safe-authoritative gate. Existing Work prefilter compatibility, scheduler fan-out, persistent map search, hauling accelerators, PathGrid bulk guard and Butter++ logical-tick barriers are retained.");
             }
             catch (Exception ex)
             {
