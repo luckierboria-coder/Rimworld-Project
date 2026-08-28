@@ -21,6 +21,7 @@ namespace RimMT
                 Harmony harmony = new Harmony(HarmonyId);
                 TryPatchDispatcher(harmony);
                 RimMTPatches.Apply(harmony);
+                TickLayerProfiler04182P1.Apply(harmony);
                 PathGridInvalidation.ApplyBulkGuard(harmony);
                 PathSnapshotSafetyPatches.Apply(harmony);
                 SafePathClassTelemetry0418.Apply(harmony);
@@ -39,7 +40,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.18.2 aggressive performance playtest initialized. Large repeat JobGiver GenClosest source lists can now reuse no-wait worker-built candidate plans after exact main-thread membership/position validation. ReachProfile sampled-positive authority is restored: after its native warmup/parity gate, both reachable and unreachable predictions may bypass live RegionTraverser; sampled mismatches still trigger per-profile cooldown and the global fuse. Final WorkGiver predicates, reservations, Job commits, mutable Verse state and Unity state remain main-thread owned. Path worker remains shadow-only.");
+                Log.Message("[RimMT] V0.4.18.2-P1 diagnostic profiler initialized from the validated V0.4.18.2 aggressive baseline. Gameplay optimization behavior is unchanged; the only addition is hierarchical tick/frame telemetry. Large repeat JobGiver GenClosest source lists can reuse no-wait worker-built candidate plans after exact main-thread membership/position validation. ReachProfile sampled-positive authority remains restored, final WorkGiver predicates/reservations/Job commits remain main-thread owned, and Path worker remains shadow-only.");
             }
             catch (Exception ex)
             {
