@@ -28,18 +28,21 @@ namespace RimMT
                 AdaptiveGenClosestAssist.Apply(harmony);
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
-                AsyncJobCandidatePlan04182.Apply(harmony);
-                AggressiveReachabilityProfiles.Apply(harmony);
-                // V0.4.18.2 deliberately does not install ReachProfileSafety0418.
-                // The V0.4.16 profile's own warmup, sampled parity, per-profile cooldown and
-                // global mismatch fuse are again allowed to make both positive and negative
-                // reachability predictions authoritative. This is the aggressive playtest path.
-                ParallelRegionConnectivity.Apply(harmony);
+
+                // V0.4.18.3 retires the identity-keyed V0.4.18.2 AsyncJobCandidatePlan.
+                // Runtime telemetry showed almost no reusable plans because JobGiver source-list
+                // identity and root positions churn. The persistent-map fabric remains active and
+                // will be the base for the next stable spatial candidate layer.
+                AggressiveReachabilityProfiles04183.Apply(harmony);
+
+                // V0.4.15 regionHint produced zero authoritative accelerations in the measured
+                // workload while repeatedly building snapshots that went stale. V0.4.18.3 does
+                // not install it; sampled per-Pawn reach profiles now own connectivity offload.
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.18.2 aggressive performance playtest initialized. Large repeat JobGiver GenClosest source lists can now reuse no-wait worker-built candidate plans after exact main-thread membership/position validation. ReachProfile sampled-positive authority is restored: after its native warmup/parity gate, both reachable and unreachable predictions may bypass live RegionTraverser; sampled mismatches still trigger per-profile cooldown and the global fuse. Final WorkGiver predicates, reservations, Job commits, mutable Verse state and Unity state remain main-thread owned. Path worker remains shadow-only.");
+                Log.Message("[RimMT] V0.4.18.3 AI stutter-reduction playtest initialized. ReachProfile validity is generation-owned with 900-frame soft refresh, 3600-frame defensive hard age and a 0.80 ms main-thread capture budget. Old profiles remain authoritative during soft refresh after their normal parity gate. The V0.4.18.2 identity-keyed async candidate plan and zero-yield V0.4.15 regionHint are retired from the active patch chain. Final WorkGiver predicates, reservations, Job commits, mutable Verse state and Unity state remain main-thread owned. Path worker remains shadow-only.");
             }
             catch (Exception ex)
             {
@@ -96,6 +99,7 @@ namespace RimMT
             }
 
             RimMTRuntime.OnMainThreadFrame();
+            AggressiveReachabilityProfiles04183.PumpMainThreadBudget();
         }
     }
 }
