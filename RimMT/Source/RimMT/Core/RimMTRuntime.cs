@@ -47,7 +47,7 @@ namespace RimMT
             FeatureGate.Register("parallel.jobScan", true, "V0.4.6 Work scanner accelerator: worker-built hauling spatial index plus main-thread revalidation");
             FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
             FeatureGate.Register("parallel.jobPartition", true, "V0.4.14 persistent-map-fabric GenClosest accelerator; Vanilla live validation/final authority retained");
-            FeatureGate.Register(JobPackageLocalSearch0419.FeatureId, true, "V0.4.19-JS1 per-JobPackage pure-query/result ordering reuse; no cross-package state");
+            FeatureGate.Register(JobPackageLocalSearch0419.FeatureId, true, "V0.4.19-JS2 per-JobPackage HasJobOnThing memo + exact source/root multi-distance search-plan reuse; no cross-package state");
             FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "V0.4.16 sampled per-Pawn Region connectivity profiles; bounded-risk CanReach bypass with parity fuse");
             FeatureGate.Register(ParallelRegionConnectivity.FeatureId, true, "V0.4.15 permissive connectivity fallback; disconnected candidates pruned before live Vanilla CanReach");
             FeatureGate.Register(ParallelWorkPrefilter.FeatureId, true, "V0.4.17 worker-side read-only Grower/Harvest/BuildRoof negative prefilter with sampled false-negative fuse");
