@@ -189,6 +189,16 @@ namespace RimMT
                     string.Equals(declaring, "PathfindingFramework.Patches.DevTool.PathDebugging.Reachability_CanReach_DebugPatch", StringComparison.Ordinal) &&
                     method != null && string.Equals(method.Name, "Postfix", StringComparison.Ordinal))
                     return true;
+
+                // Hospitality restricts arrived guests to their configured GuestArea. Its
+                // exact CanReach Postfix only changes true -> false and Harmony Postfixes still
+                // run when RimMT's Prefix supplies an authoritative profile result. Therefore
+                // guest-zone authority remains downstream of RimMT and cannot be bypassed.
+                // Do not whitelist the owner broadly: only the exact known restriction patch.
+                if (string.Equals(owner, "Orion.Hospitality", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(declaring, "Hospitality.Patches.Reachability_Patch+CanReach", StringComparison.Ordinal) &&
+                    method != null && string.Equals(method.Name, "Postfix", StringComparison.Ordinal))
+                    return true;
             }
 
             return false;
