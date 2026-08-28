@@ -10,20 +10,10 @@ using Verse.AI;
 
 namespace RimMT
 {
-    // V0.4.18 targets the broad-query gap exposed by the 15-minute V0.4.17.2 trace:
-    // the persistent fabric was healthy, but queries estimated above 64 live checks were
-    // deliberately handed straight back to Vanilla. Those broad calls were exactly where
-    // JobGiver -> GenClosest spikes reached 100-150 ms.
-    //
-    // This layer does NOT replace GenClosest and does NOT evaluate Reachability, validators,
-    // reservations, priorities, or Jobs. It only gives Vanilla the exact same candidates in
-    // exact-distance-nearest-first order (stable by original source index). That lets Vanilla
-    // establish a tight best-distance earlier, so its own later distance gates can reject far
-    // candidates before expensive live checks.
-    //
-    // No worker is waited on here. Same-call worker waits merely move the stall; broad-query
-    // ordering is intentionally a bounded main-thread primitive sort until a future async
-    // candidate plan can be published ahead of demand.
+    // V0.4.18 targets the broad-query gap exposed by the 15-minute V0.4.17.2 trace.
+    // V0.4.18.1 keeps this outer layer for non-JobGiver callers, while JobGiver_Work is now
+    // owned by JobGiverGlobalNearest04181 at the actual ClosestThing_Global boundary to avoid
+    // sorting the same candidate set twice.
     internal static class BroadGenClosestOrder0418
     {
         private const string FeatureId = "parallel.jobPartition";
@@ -32,13 +22,19 @@ namespace RimMT
 
         private static long observed;
         private static long runOriginalBypass;
+        private static long jobGiverOwnedBypass;
         private static long shapeBypass;
         private static long nonListBypass;
         private static long smallSetBypass;
         private static long tooLargeBypass;
         private static long haulableBypass;
         private static long mobileBypass;
-        private static long invalidBypass;
+        private static long invalidRootMapBypass;
+        private static long nullSearchSetBypass;
+        private static long nullCandidateBypass;
+        private static long unspawnedCandidateBypass;
+        private static long wrongMapCandidateBypass;
+        private static long invalidPositionBypass;
         private static long reordered;
         private static long candidatesReordered;
         private static long maxCandidates;
@@ -71,12 +67,10 @@ namespace RimMT
 
                 CompatibilityGuard.RegisterTarget(FeatureId, target);
                 HarmonyMethod prefix = new HarmonyMethod(typeof(BroadGenClosestOrder0418), nameof(Prefix));
-                // AdaptiveGenClosestAssist is First+100. Run immediately after it: if the
-                // V0.4.14 consumer completed the query, __runOriginal is false and we stay inert.
                 prefix.priority = Priority.First + 50;
                 harmony.Patch(target, prefix: prefix);
 
-                Log.Message("[RimMT] V0.4.18 broad GenClosest ordering installed. Large supported custom-global searches keep Vanilla authority but receive stable exact-distance nearest-first candidate order; no worker wait is introduced.");
+                Log.Message("[RimMT] V0.4.18 broad GenClosest ordering installed. Non-JobGiver large supported custom-global searches keep Vanilla authority but receive stable exact-distance nearest-first candidate order; JobGiver calls are delegated to the V0.4.18.1 inner Global layer.");
             }
             catch (Exception ex)
             {
@@ -104,13 +98,24 @@ namespace RimMT
                 return;
             }
 
+            if (JobGiverGlobalNearest04181.InJobGiverScope)
+            {
+                Interlocked.Increment(ref jobGiverOwnedBypass);
+                return;
+            }
+
             if (!FeatureGate.IsEnabled(FeatureId) || !RimMTThreadGuard.IsMainThread ||
                 Current.ProgramState != ProgramState.Playing || RimMTRuntime.MainThreadFrames <= 1)
                 return;
 
-            if (map == null || map.Disposed || !root.IsValid || !root.InBounds(map) || customGlobalSearchSet == null)
+            if (map == null || map.Disposed || !root.IsValid || !root.InBounds(map))
             {
-                Interlocked.Increment(ref invalidBypass);
+                Interlocked.Increment(ref invalidRootMapBypass);
+                return;
+            }
+            if (customGlobalSearchSet == null)
+            {
+                Interlocked.Increment(ref nullSearchSetBypass);
                 return;
             }
 
@@ -170,7 +175,7 @@ namespace RimMT
                     Thing thing = kind == SourceKind.Thing ? things[i] : buildings[i];
                     if (thing == null)
                     {
-                        Interlocked.Increment(ref invalidBypass);
+                        Interlocked.Increment(ref nullCandidateBypass);
                         return;
                     }
                     if (thing is Pawn)
@@ -178,16 +183,21 @@ namespace RimMT
                         Interlocked.Increment(ref mobileBypass);
                         return;
                     }
-                    if (!thing.Spawned || thing.MapHeld != map)
+                    if (!thing.Spawned)
                     {
-                        Interlocked.Increment(ref invalidBypass);
+                        Interlocked.Increment(ref unspawnedCandidateBypass);
+                        return;
+                    }
+                    if (thing.MapHeld != map)
+                    {
+                        Interlocked.Increment(ref wrongMapCandidateBypass);
                         return;
                     }
 
                     IntVec3 pos = thing.Position;
                     if (!pos.IsValid || !pos.InBounds(map))
                     {
-                        Interlocked.Increment(ref invalidBypass);
+                        Interlocked.Increment(ref invalidPositionBypass);
                         return;
                     }
 
@@ -242,13 +252,19 @@ namespace RimMT
             return "Broad GenClosest ordering V0.4.18: observed=" + Interlocked.Read(ref observed) +
                 ", reordered=" + sorted +
                 ", runOriginalBypass=" + Interlocked.Read(ref runOriginalBypass) +
+                ", jobGiverOwnedBypass=" + Interlocked.Read(ref jobGiverOwnedBypass) +
                 ", shapeBypass=" + Interlocked.Read(ref shapeBypass) +
                 ", nonListBypass=" + Interlocked.Read(ref nonListBypass) +
                 ", smallSetBypass=" + Interlocked.Read(ref smallSetBypass) +
                 ", tooLargeBypass=" + Interlocked.Read(ref tooLargeBypass) +
                 ", haulableBypass=" + Interlocked.Read(ref haulableBypass) +
                 ", mobileBypass=" + Interlocked.Read(ref mobileBypass) +
-                ", invalidBypass=" + Interlocked.Read(ref invalidBypass) +
+                ", invalidRootMapBypass=" + Interlocked.Read(ref invalidRootMapBypass) +
+                ", nullSearchSetBypass=" + Interlocked.Read(ref nullSearchSetBypass) +
+                ", nullCandidateBypass=" + Interlocked.Read(ref nullCandidateBypass) +
+                ", unspawnedCandidateBypass=" + Interlocked.Read(ref unspawnedCandidateBypass) +
+                ", wrongMapCandidateBypass=" + Interlocked.Read(ref wrongMapCandidateBypass) +
+                ", invalidPositionBypass=" + Interlocked.Read(ref invalidPositionBypass) +
                 ", candidatesReordered=" + candidates +
                 ", avgCandidates=" + avgCandidates.ToString("F1") +
                 ", maxCandidates=" + Interlocked.Read(ref maxCandidates) +
