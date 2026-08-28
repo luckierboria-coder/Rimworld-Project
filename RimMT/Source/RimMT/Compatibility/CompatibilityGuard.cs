@@ -155,8 +155,9 @@ namespace RimMT
 
             // Vanilla Expanded Framework's PhasingPatches.AllReachable prefix grants true
             // reachability to phasing pawns. V0.4.16 deliberately runs after it and respects
-            // __runOriginal=false, so this exact known prefix is safe to coexist with. Any
-            // other foreign Reachability patch remains blocking.
+            // __runOriginal=false, so this exact known prefix is safe to coexist with. Current
+            // VEF uses OskarPotocki.VEF; VFECore is retained as a legacy-compatible owner ID.
+            // Any other foreign Reachability patch remains blocking.
             if (string.Equals(featureId, AggressiveReachabilityProfiles.FeatureId, StringComparison.Ordinal) &&
                 target != null && target.DeclaringType == typeof(Reachability) && target.Name == nameof(Reachability.CanReach) &&
                 string.Equals(patchKind, "prefix", StringComparison.Ordinal))
@@ -164,8 +165,9 @@ namespace RimMT
                 string owner = patch == null ? string.Empty : patch.owner;
                 MethodInfo method = patch == null ? null : patch.PatchMethod;
                 string declaring = method == null || method.DeclaringType == null ? string.Empty : method.DeclaringType.FullName;
-                if (string.Equals(owner, "OskarPotocki.VFECore", StringComparison.OrdinalIgnoreCase) &&
-                    declaring.IndexOf("PhasingPatches", StringComparison.OrdinalIgnoreCase) >= 0)
+                bool knownVefOwner = string.Equals(owner, "OskarPotocki.VEF", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(owner, "OskarPotocki.VFECore", StringComparison.OrdinalIgnoreCase);
+                if (knownVefOwner && declaring.IndexOf("PhasingPatches", StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;
             }
 
