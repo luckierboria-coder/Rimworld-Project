@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.17 keeps the validated cap while Work candidate classification is added)");
+                ", workerCap=8 (V0.4.18 keeps the validated cap while GenClosest ordering and expanded Path parity are evaluated)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -92,7 +92,9 @@ namespace RimMT
             sb.AppendLine(GlobalHaulAccelerator.Summary());
             sb.AppendLine(PersistentMapSearchFabric.Summary());
             sb.AppendLine(AdaptiveGenClosestAssist.Summary());
+            sb.AppendLine(BroadGenClosestOrder0418.Summary());
             sb.AppendLine(AggressiveReachabilityProfiles.Summary());
+            sb.AppendLine(ReachProfileSafety0418.Summary());
             sb.AppendLine(ParallelRegionConnectivity.Summary());
             sb.AppendLine(ParallelWorkPrefilter.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
