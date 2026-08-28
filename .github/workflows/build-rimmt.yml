@@ -51,7 +51,7 @@ jobs:
           Copy-Item "$src/1.5" $stage -Recurse
           Copy-Item "$src/LoadFolders.xml" $stage
           Copy-Item "$src/README.md" $stage
-          if (Test-Path "$src/V0.4.18_DEV_NOTES.md") { Copy-Item "$src/V0.4.18_DEV_NOTES.md" $stage }
+          Get-ChildItem $stage -Recurse -Filter '*.pdb' | Remove-Item -Force
           Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.4.19_JS1_JobSearchLocal.zip' -Force
 
       - name: Upload playtest artifact
