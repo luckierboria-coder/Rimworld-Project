@@ -25,13 +25,15 @@ namespace RimMT
                 PathSnapshotSafetyPatches.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
                 AdaptiveGenClosestAssist.Apply(harmony);
+                BroadGenClosestOrder0418.Apply(harmony);
                 AggressiveReachabilityProfiles.Apply(harmony);
+                ReachProfileSafety0418.Apply(harmony);
                 ParallelRegionConnectivity.Apply(harmony);
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.17.2 Work-prefilter compatibility playtest initialized. V0.4.17 asynchronous Work hard-negative prefiltering is retained; V0.4.17.1 exact Humanoid Alien Races Harvest coexistence remains active, while V0.4.17.2 adds source-reviewed ReGrowth Core GrowerSow coexistence. In Biomes/ReGrowth restricted Sow mode workers never execute GrowthSeasonNow, so modded per-plant/shared-static season semantics remain live Vanilla main-thread authority. Watchtowers BuildRoof stays fail-closed. Workers never create jobs, reserve targets or mutate game state. Aggressive Reachability, scheduler fan-out, Harmony census, persistent map search, hauling accelerators, path shadow validation and Butter++ logical-tick barriers are retained.");
+                Log.Message("[RimMT] V0.4.18 development playtest initialized. Broad GenClosest calls now receive stable exact-distance nearest-first ordering while Vanilla retains validator/Reachability/final authority; ReachProfile positive predictions require live Vanilla confirmation while proven-unreachable hard negatives remain eligible for fast authority; low-pressure Path shadow sampling is expanded to build the safe-authoritative evidence base. Existing Work prefilter compatibility, scheduler fan-out, persistent map search, hauling accelerators, PathGrid bulk guard and Butter++ logical-tick barriers are retained.");
             }
             catch (Exception ex)
             {
