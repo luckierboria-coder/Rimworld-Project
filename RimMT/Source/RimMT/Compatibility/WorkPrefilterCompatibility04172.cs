@@ -17,10 +17,11 @@ namespace RimMT
     // concurrently by a RimMT worker.
     //
     // Therefore restricted Sow mode does not merely discard an OutOfGrowthSeason prediction
-    // after the worker has computed it. V0.4.17.2 intercepts the exact worker-side
-    // GrowthSeasonNow call and returns true ("do not prove a season negative") before Biomes /
-    // ReGrowth season prefixes execute. Other Sow hard negatives remain available. Live
-    // Vanilla JobOnCell, including all modded season semantics, remains authoritative.
+    // after the worker has computed it. V0.4.17.2 brackets the private worker evaluator with a
+    // ThreadStatic marker and returns true ("do not prove a season negative") from the exact
+    // worker-side GrowthSeasonNow call before Biomes/ReGrowth season prefixes execute. The
+    // evaluator prefix uses Harmony's positional __1 argument rather than object[] __args so no
+    // byref/out Work-prefilter state can be rewritten by compatibility plumbing.
     [StaticConstructorOnStartup]
     internal static class WorkPrefilterCompatibility04172
     {
@@ -49,7 +50,7 @@ namespace RimMT
 
                 if (markReady == null || evaluateLiveNegative == null || growthSeasonNow == null || SowCompatibleField == null)
                 {
-                    Log.Warning("[RimMT] V0.4.17.2 Sow compatibility layer unavailable: required private/runtime targets were not found. V0.4.17.1 fail-closed behavior remains in force.");
+                    Log.Warning("[RimMT] V0.4.17.2 Sow compatibility layer unavailable: required private/runtime targets were not found. V0.4.17 fail-closed behavior remains in force.");
                     return;
                 }
 
@@ -78,7 +79,7 @@ namespace RimMT
             }
             catch (Exception ex)
             {
-                Log.Warning("[RimMT] V0.4.17.2 Sow compatibility layer failed to install; V0.4.17.1 fail-closed behavior remains in force. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] V0.4.17.2 Sow compatibility layer failed to install; V0.4.17 fail-closed behavior remains in force. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -126,7 +127,7 @@ namespace RimMT
                 Log.Message("[RimMT] V0.4.17.2 Sow coexistence result: restricted=" + restrictedSowMode +
                     ", biomes=" + biomesSowCoexists +
                     ", regrowth=" + regrowthSowCoexists +
-                    ". BuildRoof policy is unchanged; Harvest remains governed by the V0.4.17.1 AlienRace exact coexistence review.");
+                    ". BuildRoof policy is unchanged; Harvest remains governed by the exact AlienRace coexistence layer.");
             }
             catch (Exception ex)
             {
@@ -136,7 +137,9 @@ namespace RimMT
             }
         }
 
-        private static void EvaluateLiveNegativePrefix(object[] __args)
+        // EvaluateLiveNegative(Map map, WorkKind kind, IntVec3 c): __1 is the private WorkKind.
+        // object is sufficient for the boxed enum and avoids object[] argument-array rewriting.
+        private static void EvaluateLiveNegativePrefix(object __1)
         {
             restrictedSowWorkerEvaluation = false;
             if (!restrictedSowMode || RimMTThreadGuard.IsMainThread)
@@ -144,9 +147,7 @@ namespace RimMT
 
             try
             {
-                // EvaluateLiveNegative(Map map, WorkKind kind, IntVec3 c)
-                if (__args != null && __args.Length > 1 && __args[1] != null &&
-                    string.Equals(__args[1].ToString(), "Sow", StringComparison.Ordinal))
+                if (__1 != null && string.Equals(__1.ToString(), "Sow", StringComparison.Ordinal))
                     restrictedSowWorkerEvaluation = true;
             }
             catch
@@ -312,7 +313,7 @@ namespace RimMT
 
         internal static string Summary()
         {
-            return "Work prefilter compatibility V0.4.17.2: restrictedSow=" + restrictedSowMode +
+            return "Work prefilter Sow compatibility V0.4.17.2: restrictedSow=" + restrictedSowMode +
                 ", biomes=" + biomesSowCoexists +
                 ", regrowth=" + regrowthSowCoexists +
                 ", workerSeasonCallsBypassed=" + Interlocked.Read(ref workerSeasonCallsBypassed) +
