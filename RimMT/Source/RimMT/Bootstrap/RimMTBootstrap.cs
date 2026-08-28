@@ -27,6 +27,7 @@ namespace RimMT
                 WorkGiverDetailPatches.Initialize(harmony);
                 AdaptiveGenClosestAssist.Apply(harmony);
                 BroadGenClosestOrder0418.Apply(harmony);
+                JobGiverGlobalNearest04181.Apply(harmony);
                 AggressiveReachabilityProfiles.Apply(harmony);
                 ReachProfileSafety0418.Apply(harmony);
                 ParallelRegionConnectivity.Apply(harmony);
@@ -34,7 +35,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.18 development playtest initialized. Broad GenClosest calls now receive stable exact-distance nearest-first ordering while Vanilla retains validator/Reachability/final authority; ReachProfile positive predictions require live Vanilla confirmation while proven-unreachable hard negatives remain eligible for fast authority; low-pressure Path shadow sampling is expanded and SafePathClass telemetry groups paired results for the future safe-authoritative gate. Existing Work prefilter compatibility, scheduler fan-out, persistent map search, hauling accelerators, PathGrid bulk guard and Butter++ logical-tick barriers are retained.");
+                Log.Message("[RimMT] V0.4.18.1 performance playtest initialized. JobGiver_Work now applies a scoped stable nearest-first order directly inside GenClosest.ClosestThing_Global/ClosestThing_Global_Reachable when priorityGetter is null, so expensive live Reachability/HasJob predicates can stop after the nearest valid candidate instead of being exercised by farther candidates. Vanilla predicate, Reachability, reservation and final Job authority are retained. V0.4.18 ReachProfile positive confirmation, broad GenClosest ordering, Path shadow/SafePathClass telemetry, Work prefilter, persistent search fabric, PathGrid bulk guard and Butter++ logical-tick barriers remain active.");
             }
             catch (Exception ex)
             {
