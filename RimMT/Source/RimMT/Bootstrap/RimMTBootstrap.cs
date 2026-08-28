@@ -27,10 +27,11 @@ namespace RimMT
                 AdaptiveGenClosestAssist.Apply(harmony);
                 AggressiveReachabilityProfiles.Apply(harmony);
                 ParallelRegionConnectivity.Apply(harmony);
+                ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.16.3 aggressive-parallel playtest initialized. Full runtime Harmony census for the exact Reachability.CanReach overload is enabled and will print every foreign Prefix/Postfix/Transpiler/Finalizer owner plus exact PatchMethod after entering Playing. VFE Phasing, Pathfinding Framework diagnostics and Hospitality guest-area authority remain exact-coexistence cases. Scheduler fan-out, sampled parity validation, per-profile cooldown, the global fuse, persistent map search, hauling accelerators, path shadow validation, Butter++ logical-tick barriers and Vanilla main-thread Job/reservation commits are retained.");
+                Log.Message("[RimMT] V0.4.17 Work-prefilter playtest initialized. Aggressive Reachability remains active with sampled parity; GrowerSow/GrowerHarvest/BuildRoof now gain asynchronous worker-side negative prefiltering from the exact cells Vanilla already enumerates. Workers may perform a narrow whitelist of live read-only Verse checks, but never create jobs, reserve targets or mutate game state; unknown/positive candidates and every sampled negative remain Vanilla main-thread authoritative. Scheduler fan-out, Reachability Harmony census, persistent map search, hauling accelerators, path shadow validation and Butter++ logical-tick barriers are retained.");
             }
             catch (Exception ex)
             {
