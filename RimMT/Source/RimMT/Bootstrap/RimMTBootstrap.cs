@@ -28,14 +28,18 @@ namespace RimMT
                 AdaptiveGenClosestAssist.Apply(harmony);
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
+                AsyncJobCandidatePlan04182.Apply(harmony);
                 AggressiveReachabilityProfiles.Apply(harmony);
-                ReachProfileSafety0418.Apply(harmony);
+                // V0.4.18.2 deliberately does not install ReachProfileSafety0418.
+                // The V0.4.16 profile's own warmup, sampled parity, per-profile cooldown and
+                // global mismatch fuse are again allowed to make both positive and negative
+                // reachability predictions authoritative. This is the aggressive playtest path.
                 ParallelRegionConnectivity.Apply(harmony);
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.18.1 performance playtest initialized. JobGiver_Work now applies a scoped stable nearest-first order directly inside GenClosest.ClosestThing_Global/ClosestThing_Global_Reachable when priorityGetter is null, so expensive live Reachability/HasJob predicates can stop after the nearest valid candidate instead of being exercised by farther candidates. Vanilla predicate, Reachability, reservation and final Job authority are retained. V0.4.18 ReachProfile positive confirmation, broad GenClosest ordering, Path shadow/SafePathClass telemetry, Work prefilter, persistent search fabric, PathGrid bulk guard and Butter++ logical-tick barriers remain active.");
+                Log.Message("[RimMT] V0.4.18.2 aggressive performance playtest initialized. Large repeat JobGiver GenClosest source lists can now reuse no-wait worker-built candidate plans after exact main-thread membership/position validation. ReachProfile sampled-positive authority is restored: after its native warmup/parity gate, both reachable and unreachable predictions may bypass live RegionTraverser; sampled mismatches still trigger per-profile cooldown and the global fuse. Final WorkGiver predicates, reservations, Job commits, mutable Verse state and Unity state remain main-thread owned. Path worker remains shadow-only.");
             }
             catch (Exception ex)
             {
