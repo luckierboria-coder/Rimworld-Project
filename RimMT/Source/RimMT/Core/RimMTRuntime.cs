@@ -47,9 +47,9 @@ namespace RimMT
             FeatureGate.Register("parallel.jobScan", true, "V0.4.6 Work scanner accelerator: worker-built hauling spatial index plus main-thread revalidation");
             FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
             FeatureGate.Register("parallel.jobPartition", true, "V0.4.14 persistent-map-fabric GenClosest accelerator; Vanilla live validation/final authority retained");
-            FeatureGate.Register(JobPackageLocalSearch0419.FeatureId, true, "V0.4.19-JS1.1 Lean per-JobPackage bucketed HasJobOnThing memo + original JS1 nearest-order reuse");
+            FeatureGate.Register(JobPackageLocalSearch0419.FeatureId, true, "V0.4.19-JS1.2.1 Lean Hybrid: JS1.1 HasJobOnThing cache behavior + typed prefix + last-bucket fast path + light PackageContext reuse");
             FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "V0.4.16 sampled per-Pawn Region connectivity profiles; bounded-risk CanReach bypass with parity fuse");
-            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "RETIRED in JS1.1 Lean: near-zero-yield V0.4.15 RegionHint worker graph");
+            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "RETIRED in JS1.1+: near-zero-yield V0.4.15 RegionHint worker graph");
             FeatureGate.Register(ParallelWorkPrefilter.FeatureId, true, "V0.4.17 worker-side read-only Grower/Harvest/BuildRoof negative prefilter with sampled false-negative fuse");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
@@ -114,7 +114,7 @@ namespace RimMT
                 GlobalHaulAccelerator.MarkCompatibilityReady();
                 AdaptiveGenClosestAssist.MarkCompatibilityReady();
                 AggressiveReachabilityProfiles.MarkCompatibilityReady();
-                // RegionHint is intentionally retired/off in JS1.1 Lean.
+                // RegionHint is intentionally retired/off in JS1.1+.
                 ParallelWorkPrefilter.MarkCompatibilityReady();
                 RimMTDiagnostics.LogStartupReport();
             }
