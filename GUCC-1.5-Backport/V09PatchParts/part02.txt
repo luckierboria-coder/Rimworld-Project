@@ -1,0 +1,190 @@
++        if (unit == null)
++        {
++            reason = "GUCC_Error_InvalidPair".Translate();
++            return false;
++        }
++        if (GetActiveFormationChargeForUnit(unit.id) != null)
++        {
++            reason = "GUCC_UnitWindow_EditingLocked".Translate();
++            return false;
++        }
++
++        var clamped = Mathf.Clamp(
++            requested,
++            ChargeConstants.MinimumCavalryMembers,
++            ChargeConstants.MaximumCavalryMembers);
++        if (unit.HighestOccupiedSlotIndex >= clamped)
++        {
++            reason = "GUCC_Error_UnitSizeOccupied".Translate(
++                unit.HighestOccupiedSlotIndex + 1,
++                clamped);
++            return false;
++        }
++
++        if (unit.targetSize != clamped)
++        {
++            unit.targetSize = clamped;
++            FinishRosterEdit(unit);
++        }
++        return true;
++    }
++
++    public void RenameUnit(CavalryUnitRecord unit, string value)
++    {
++        if (unit == null)
++            return;
++        value = value != null ? value.Trim() : null;
++        if (value != null && value.Length > 40)
++            value = value.Substring(0, 40);
++        if (unit.name == value)
++            return;
++        unit.name = value;
++        unit.revision++;
++    }
++
++    public CavalryUnitTemplateRecord SaveUnitAsTemplate(CavalryUnitRecord unit)
++    {
++        if (unit == null)
++            return null;
++        if (cavalryTemplates == null)
++            cavalryTemplates = new List<CavalryUnitTemplateRecord>();
++
++        var template = new CavalryUnitTemplateRecord(nextCavalryTemplateId++);
++        template.name = unit.DisplayName;
++        template.targetSize = unit.TargetSize;
++        template.formation = unit.formation;
++        template.members = new List<CavalryTemplatePairRecord>();
++        for (var slotIndex = 0; slotIndex < unit.TargetSize; slotIndex++)
++        {
++            var pair = unit.GetSlot(slotIndex);
++            template.members.Add(new CavalryTemplatePairRecord(
++                slotIndex,
++                pair != null ? pair.rider : null,
++                pair != null ? pair.mount : null));
++        }
++        cavalryTemplates.Add(template);
++        unit.sourceTemplateId = template.id;
++        unit.revision++;
++        return template;
++    }
++
++    public bool UpdateTemplateFromUnit(
++        CavalryUnitRecord unit,
++        CavalryUnitTemplateRecord template)
++    {
++        if (unit == null || template == null || GetTemplate(template.id) == null)
++            return false;
++
++        template.name = unit.DisplayName;
++        template.targetSize = unit.TargetSize;
++        template.formation = unit.formation;
++        template.members = new List<CavalryTemplatePairRecord>();
++        for (var slotIndex = 0; slotIndex < unit.TargetSize; slotIndex++)
++        {
++            var pair = unit.GetSlot(slotIndex);
++            template.members.Add(new CavalryTemplatePairRecord(
++                slotIndex,
++                pair != null ? pair.rider : null,
++                pair != null ? pair.mount : null));
++        }
++        template.revision++;
++        unit.sourceTemplateId = template.id;
++        unit.revision++;
++        return true;
++    }
++
++    public void DeleteTemplate(CavalryUnitTemplateRecord template)
++    {
++        if (template == null || cavalryTemplates == null)
++            return;
++        cavalryTemplates.Remove(template);
++        if (cavalryUnits == null)
++            return;
++        for (var i = 0; i < cavalryUnits.Count; i++)
++        {
++            var unit = cavalryUnits[i];
++            if (unit != null && unit.sourceTemplateId == template.id)
++                unit.sourceTemplateId = 0;
++        }
++    }
++
++    public Pawn ResolveTemplatePawn(string loadId)
++    {
++        if (string.IsNullOrEmpty(loadId))
++            return null;
++
++        for (var mapIndex = 0; mapIndex < Find.Maps.Count; mapIndex++)
++        {
++            var pawns = Find.Maps[mapIndex].mapPawns.AllPawnsSpawned;
++            for (var i = 0; i < pawns.Count; i++)
++            {
++                var pawn = pawns[i];
++                if (pawn != null && pawn.GetUniqueLoadID() == loadId)
++                    return pawn;
++            }
++        }
++
++        if (Find.WorldPawns != null)
++        {
++            var pawns = Find.WorldPawns.AllPawnsAliveOrDead;
++            for (var i = 0; i < pawns.Count; i++)
++            {
++                var pawn = pawns[i];
++                if (pawn != null && pawn.GetUniqueLoadID() == loadId)
++                    return pawn;
++            }
++        }
++        return null;
++    }
++
++    public Pawn GetTemplateCommander(CavalryUnitTemplateRecord template)
++    {
++        var slot = template != null ? template.GetSlot(0) : null;
++        return slot != null ? ResolveTemplatePawn(slot.riderLoadId) : null;
++    }
++
++    public void GetTemplateAvailability(
++        CavalryUnitTemplateRecord template,
++        out int availableRiders,
++        out int availableMounts,
++        out int availableCompletePairs,
++        out bool commanderAvailable)
++    {
++        availableRiders = 0;
++        availableMounts = 0;
++        availableCompletePairs = 0;
++        commanderAvailable = false;
++        if (template == null)
++            return;
++
++        for (var slotIndex = 0; slotIndex < template.TargetSize; slotIndex++)
++        {
++            var snapshot = template.GetSlot(slotIndex);
++            if (snapshot == null)
++                continue;
++            var rider = ResolveTemplatePawn(snapshot.riderLoadId);
++            var mount = ResolveTemplatePawn(snapshot.mountLoadId);
++            var riderAvailable = IsTemplateRiderAvailable(rider, null);
++            var mountAvailable = IsTemplateMountAvailable(mount, null);
++            if (riderAvailable)
++                availableRiders++;
++            if (mountAvailable)
++                availableMounts++;
++            if (riderAvailable && mountAvailable)
++                availableCompletePairs++;
++            if (slotIndex == 0)
++                commanderAvailable = riderAvailable;
++        }
++    }
++
++    public bool RestoreTemplate(
++        CavalryUnitTemplateRecord template,
++        Pawn replacementCommander,
++        bool autoFill,
++        out CavalryUnitRecord restored,
++        out TaggedString reason)
++    {
++        restored = null;
++        reason = default(TaggedString);
++        if (template == null || GetTemplate(template.id) == null)
++        {
