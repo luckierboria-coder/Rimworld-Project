@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -8,29 +9,39 @@ using Verse.AI;
 
 namespace RimMT
 {
-    // V0.4.19-JR1 aggressive JobGiver Regionwise cache.
+    // V0.4.19-JR1.1 learned Regionwise cache.
     //
-    // JD1 measured GenClosest.ClosestThingReachable -> RegionTraverser as the dominant source
-    // of JobGiver stalls. RegionwiseBFSWorker repeatedly walks the same Region graph for many
-    // WorkGivers during one synchronous TryIssueJobPackage even though root, Pawn traversal
-    // policy, maxDistance and maxRegions are usually identical.
+    // JR1's first implementation built a complete Region BFS on a cache miss and then scanned
+    // the candidates again. That could make a cold key more expensive than Vanilla, especially
+    // when Vanilla would have stopped after finding a valid candidate in only a few regions.
     //
-    // JR1 builds that BFS Region order once per exact traversal key and reuses it for subsequent
-    // RegionwiseBFSWorker calls. Candidate lists and WorkGiver validators are still evaluated
-    // live on every search. No Job, reservation or final candidate is cached.
+    // JR1.1 instead lets the first call execute Vanilla exactly once. While Vanilla's own
+    // RegionTraverser is running, RimMT wraps only that RegionProcessor and records the Region
+    // order. If Vanilla's processor asks RegionTraverser to stop, the wrapper preserves the
+    // original result state but keeps traversing without invoking the original processor again;
+    // this learns the remaining Region order without re-running validators/candidate scans.
+    // Subsequent identical traversal shapes reuse the learned Region order and execute the live
+    // request/validator over it, removing repeated RegionTraverser work.
+    //
+    // No Job, reservation, final candidate, WorkGiver result, or cross-package search result is
+    // cached. The lifetime remains one synchronous JobGiver_Work.TryIssueJobPackage.
     internal static class JobPackageRegionwiseCache0419
     {
         internal const string FeatureId = "ai.jobRegionwise";
 
         private const int MaxTraversalEntriesPerPackage = 128;
+        private const int MaxDestinationAllowsEntriesPerPackage = 4096;
 
         [ThreadStatic] private static int packageDepth;
         [ThreadStatic] private static PackageContext current;
         [ThreadStatic] private static PackageContext pooledContext;
+        [ThreadStatic] private static CaptureState pendingCapture;
 
         private static MethodBase regionwiseTarget;
+        private static MethodBase breadthFirstTarget;
         private static bool scopePatched;
         private static bool regionwisePatched;
+        private static bool breadthFirstPatched;
         private static int patchFailures;
 
         private static long packages;
@@ -38,19 +49,28 @@ namespace RimMT
         private static long accelerated;
         private static long cacheHits;
         private static long cacheMisses;
-        private static long cacheStores;
+        private static long captureArmed;
+        private static long captureStores;
+        private static long captureSkippedNested;
         private static long cacheCapBypass;
-        private static long buildFailures;
+        private static long captureFailures;
         private static long acceleratedFailures;
-        private static long regionsBuilt;
+        private static long regionsCaptured;
+        private static long extraRegionsAfterVanillaStop;
         private static long regionsScanned;
         private static long candidatesScanned;
         private static long validatorCalls;
+        private static long destinationAllowsHits;
+        private static long destinationAllowsMisses;
+        private static long destinationAllowsCapBypass;
+        private static long forbiddenHits;
+        private static long forbiddenMisses;
         private static long contextCreates;
         private static long contextReuse;
         private static long contextReturns;
         private static long maxEntries;
         private static long maxRegionsPerEntry;
+        private static long maxDestinationAllowsEntries;
 
         internal static void Apply(Harmony harmony)
         {
@@ -78,10 +98,15 @@ namespace RimMT
                     }
                 }
 
-                if (jobGiver == null || regionwiseTarget == null)
+                breadthFirstTarget = AccessTools.Method(
+                    typeof(RegionTraverser),
+                    nameof(RegionTraverser.BreadthFirstTraverse),
+                    new Type[] { typeof(Region), typeof(RegionEntryPredicate), typeof(RegionProcessor), typeof(int), typeof(RegionType) });
+
+                if (jobGiver == null || regionwiseTarget == null || breadthFirstTarget == null)
                 {
-                    FeatureGate.Suppress(FeatureId, "required JobGiver/RegionwiseBFSWorker target not found");
-                    Log.Warning("[RimMT] V0.4.19-JR1 Regionwise cache unavailable: target not found.");
+                    FeatureGate.Suppress(FeatureId, "required JobGiver/RegionwiseBFSWorker/BreadthFirstTraverse target not found");
+                    Log.Warning("[RimMT] V0.4.19-JR1.1 Regionwise cache unavailable: required target not found.");
                     return;
                 }
 
@@ -92,18 +117,29 @@ namespace RimMT
                 harmony.Patch(jobGiver, prefix: scopePrefix, finalizer: scopeFinalizer);
                 scopePatched = true;
 
-                HarmonyMethod prefix = new HarmonyMethod(typeof(JobPackageRegionwiseCache0419), nameof(RegionwisePrefix));
-                prefix.priority = Priority.First + 200;
-                harmony.Patch(regionwiseTarget, prefix: prefix);
+                HarmonyMethod regionwisePrefix = new HarmonyMethod(typeof(JobPackageRegionwiseCache0419), nameof(RegionwisePrefix));
+                regionwisePrefix.priority = Priority.First + 200;
+                HarmonyMethod regionwisePostfix = new HarmonyMethod(typeof(JobPackageRegionwiseCache0419), nameof(RegionwisePostfix));
+                regionwisePostfix.priority = Priority.Last - 200;
+                HarmonyMethod regionwiseFinalizer = new HarmonyMethod(typeof(JobPackageRegionwiseCache0419), nameof(RegionwiseFinalizer));
+                regionwiseFinalizer.priority = Priority.Last - 200;
+                harmony.Patch(regionwiseTarget, prefix: regionwisePrefix, postfix: regionwisePostfix, finalizer: regionwiseFinalizer);
                 regionwisePatched = true;
 
-                Log.Message("[RimMT] V0.4.19-JR1 aggressive Regionwise cache installed. Inside JobGiver_Work, exact root/traversal/maxDistance/maxRegions BFS Region order is built once and reused; WorkGiver validators/candidates remain live.");
+                HarmonyMethod bfsPrefix = new HarmonyMethod(typeof(JobPackageRegionwiseCache0419), nameof(BreadthFirstPrefix));
+                bfsPrefix.priority = Priority.First + 250;
+                HarmonyMethod bfsPostfix = new HarmonyMethod(typeof(JobPackageRegionwiseCache0419), nameof(BreadthFirstPostfix));
+                bfsPostfix.priority = Priority.Last - 250;
+                harmony.Patch(breadthFirstTarget, prefix: bfsPrefix, postfix: bfsPostfix);
+                breadthFirstPatched = true;
+
+                Log.Message("[RimMT] V0.4.19-JR1.1 learned Regionwise cache installed. Cold keys run Vanilla once while RimMT records the real BFS order; hot keys skip RegionTraverser and rescan live candidates/validators over that learned order. No global Region.Allows detour is used.");
             }
             catch (Exception ex)
             {
                 patchFailures++;
                 FeatureGate.Suppress(FeatureId, "installation failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] V0.4.19-JR1 Regionwise cache install failed; Vanilla Regionwise search remains. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] V0.4.19-JR1.1 Regionwise cache install failed; Vanilla Regionwise search remains. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -138,9 +174,17 @@ namespace RimMT
 
             if (__state.Outermost)
             {
+                if (pendingCapture != null && ReferenceEquals(pendingCapture.Context, __state.Context))
+                    pendingCapture = null;
+
                 PackageContext context = __state.Context;
-                if (context != null && context.Traversals.Count > maxEntries)
-                    maxEntries = context.Traversals.Count;
+                if (context != null)
+                {
+                    if (context.Traversals.Count > maxEntries)
+                        maxEntries = context.Traversals.Count;
+                    if (context.DestinationAllows.Count > maxDestinationAllowsEntries)
+                        maxDestinationAllowsEntries = context.DestinationAllows.Count;
+                }
                 if (ReferenceEquals(current, context))
                     current = null;
                 Release(context);
@@ -148,11 +192,11 @@ namespace RimMT
             return __exception;
         }
 
-        // Generic __args is acceptable here: RegionwiseBFSWorker is called ~thousands, not
-        // millions, of times. It also avoids binding this experimental accelerator to compiler
-        // generated parameter names.
-        public static bool RegionwisePrefix(object[] __args, ref Thing __result)
+        // On a hot key, skip Vanilla RegionTraverser and scan live candidates over the learned
+        // Region order. On a cold key, arm capture and let Vanilla execute once.
+        public static bool RegionwisePrefix(object[] __args, ref Thing __result, ref RegionwiseCallState __state)
         {
+            __state = default(RegionwiseCallState);
             PackageContext context = current;
             if (context == null || packageDepth <= 0 || __args == null || __args.Length < 13 ||
                 !FeatureGate.IsEnabled(FeatureId) || !RimMTThreadGuard.IsMainThread)
@@ -187,106 +231,174 @@ namespace RimMT
 
                 Region rootRegion = root.GetRegion(map, traversableRegionTypes);
                 if (rootRegion == null)
-                {
-                    __args[10] = 0;
-                    __result = null;
-                    accelerated++;
-                    return false;
-                }
+                    return true; // Let Vanilla preserve exact edge/error semantics for cold/null-root cases.
 
+                AggressiveReachabilityProfiles.TraverseKey traverseKey = new AggressiveReachabilityProfiles.TraverseKey(traverseParams);
                 TraversalKey key = new TraversalKey(
                     rootRegion,
                     root.x,
                     root.z,
-                    new AggressiveReachabilityProfiles.TraverseKey(traverseParams),
+                    traverseKey,
                     maxRegions,
                     maxDistance,
                     traversableRegionTypes);
 
                 TraversalEntry traversal;
-                if (!context.Traversals.TryGetValue(key, out traversal))
-                {
-                    cacheMisses++;
-                    if (context.Traversals.Count >= MaxTraversalEntriesPerPackage)
-                    {
-                        cacheCapBypass++;
-                        return true;
-                    }
-
-                    traversal = BuildTraversal(root, rootRegion, traverseParams, maxRegions, maxDistance, traversableRegionTypes);
-                    if (traversal == null)
-                    {
-                        buildFailures++;
-                        return true;
-                    }
-                    context.Traversals.Add(key, traversal);
-                    cacheStores++;
-                    regionsBuilt += traversal.Regions.Length;
-                    if (traversal.Regions.Length > maxRegionsPerEntry)
-                        maxRegionsPerEntry = traversal.Regions.Length;
-                }
-                else
+                if (context.Traversals.TryGetValue(key, out traversal))
                 {
                     cacheHits++;
+                    int seen;
+                    Thing result = ScanTraversal(
+                        context,
+                        traversal,
+                        traverseKey,
+                        root,
+                        req,
+                        peMode,
+                        traverseParams,
+                        validator,
+                        priorityGetter,
+                        minRegions,
+                        maxDistance,
+                        ignoreEntirelyForbiddenRegions,
+                        out seen);
+
+                    __args[10] = seen;
+                    __result = result;
+                    accelerated++;
+                    return false;
                 }
 
-                int seen;
-                Thing result = ScanTraversal(
-                    traversal,
-                    root,
-                    req,
-                    peMode,
-                    traverseParams,
-                    validator,
-                    priorityGetter,
-                    minRegions,
-                    maxDistance,
-                    ignoreEntirelyForbiddenRegions,
-                    out seen);
+                cacheMisses++;
+                if (context.Traversals.Count >= MaxTraversalEntriesPerPackage)
+                {
+                    cacheCapBypass++;
+                    return true;
+                }
 
-                __args[10] = seen;
-                __result = result;
-                accelerated++;
-                return false;
+                // A nested Regionwise call while another cold call is being learned stays fully
+                // Vanilla. This avoids corrupting capture state from validators that themselves
+                // perform reachability/work searches.
+                if (pendingCapture != null)
+                {
+                    captureSkippedNested++;
+                    return true;
+                }
+
+                CaptureState capture = new CaptureState(
+                    context,
+                    key,
+                    rootRegion,
+                    maxRegions,
+                    traversableRegionTypes);
+                pendingCapture = capture;
+                __state.Capture = capture;
+                captureArmed++;
+                return true;
             }
             catch (Exception ex)
             {
                 acceleratedFailures++;
                 if (acceleratedFailures <= 8)
-                    Log.Warning("[RimMT] V0.4.19-JR1 Regionwise accelerated search failed; this call falls back to Vanilla. " + ex.GetType().Name + ": " + ex.Message);
+                    Log.Warning("[RimMT] V0.4.19-JR1.1 Regionwise hot-path setup failed; this call falls back to Vanilla. " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
         }
 
-        private static TraversalEntry BuildTraversal(
-            IntVec3 root,
-            Region rootRegion,
-            TraverseParms traverseParams,
-            int maxRegions,
-            float maxDistance,
-            RegionType traversableRegionTypes)
+        public static void RegionwisePostfix(RegionwiseCallState __state)
         {
-            List<Region> regions = new List<Region>(Math.Min(maxRegions, 32));
-            float maxDistSquared = maxDistance * maxDistance;
+            ClearPendingCapture(__state.Capture);
+        }
 
-            RegionEntryPredicate entry = delegate(Region from, Region to)
-            {
-                return to.Allows(traverseParams, false) &&
-                    (maxDistance > 5000f || to.extentsClose.ClosestDistSquaredTo(root) < maxDistSquared);
-            };
+        public static Exception RegionwiseFinalizer(Exception __exception, RegionwiseCallState __state)
+        {
+            if (__exception != null && __state.Capture != null)
+                captureFailures++;
+            ClearPendingCapture(__state.Capture);
+            return __exception;
+        }
 
-            RegionProcessor processor = delegate(Region region)
+        private static void ClearPendingCapture(CaptureState capture)
+        {
+            if (capture != null && ReferenceEquals(pendingCapture, capture))
+                pendingCapture = null;
+        }
+
+        // This hook only wraps the specific outer BreadthFirstTraverse invoked by the armed
+        // RegionwiseBFSWorker. Nested Reachability/RegionTraverser calls made by validators see
+        // capture.Attached=true and remain untouched.
+        public static void BreadthFirstPrefix(
+            Region __0,
+            RegionEntryPredicate __1,
+            ref RegionProcessor __2,
+            int __3,
+            RegionType __4,
+            ref BreadthFirstState __state)
+        {
+            __state = default(BreadthFirstState);
+            CaptureState capture = pendingCapture;
+            if (capture == null || capture.Attached || __2 == null ||
+                !ReferenceEquals(__0, capture.RootRegion) || __3 != capture.MaxRegions || __4 != capture.RegionTypes)
+                return;
+
+            RegionProcessor original = __2;
+            capture.Attached = true;
+            __state.Capture = capture;
+            __state.Attached = true;
+
+            __2 = delegate(Region region)
             {
-                regions.Add(region);
+                capture.Regions.Add(region);
+
+                if (!capture.OriginalStopped)
+                {
+                    bool stop = original(region);
+                    if (stop)
+                    {
+                        capture.OriginalStopped = true;
+                        capture.VanillaStopRegionCount = capture.Regions.Count;
+                    }
+                    return false; // Learn the rest of the BFS order without more validator work.
+                }
+
+                capture.ExtraRegions++;
                 return false;
             };
+        }
 
-            RegionTraverser.BreadthFirstTraverse(rootRegion, entry, processor, maxRegions, traversableRegionTypes);
-            return new TraversalEntry(regions.ToArray());
+        public static void BreadthFirstPostfix(BreadthFirstState __state)
+        {
+            if (!__state.Attached || __state.Capture == null)
+                return;
+
+            CaptureState capture = __state.Capture;
+            capture.Completed = true;
+
+            PackageContext context = capture.Context;
+            if (context == null || !ReferenceEquals(current, context) || context.Traversals.ContainsKey(capture.Key))
+                return;
+
+            try
+            {
+                Region[] learned = capture.Regions.ToArray();
+                TraversalEntry entry = new TraversalEntry(learned);
+                context.Traversals.Add(capture.Key, entry);
+                captureStores++;
+                regionsCaptured += learned.Length;
+                extraRegionsAfterVanillaStop += capture.ExtraRegions;
+                if (learned.Length > maxRegionsPerEntry)
+                    maxRegionsPerEntry = learned.Length;
+            }
+            catch
+            {
+                captureFailures++;
+            }
         }
 
         private static Thing ScanTraversal(
+            PackageContext context,
             TraversalEntry traversal,
+            AggressiveReachabilityProfiles.TraverseKey traverseKey,
             IntVec3 root,
             ThingRequest req,
             PathEndMode peMode,
@@ -303,6 +415,7 @@ namespace RimMT
             float bestPriority = float.MinValue;
             float maxDistSquared = maxDistance * maxDistance;
             int seen = 0;
+            int scanned = 0;
             Region[] regions = traversal.Regions;
 
             for (int r = 0; r < regions.Length; r++)
@@ -311,17 +424,18 @@ namespace RimMT
                 if (region == null || !region.valid)
                     continue;
 
+                scanned++;
                 if (RegionTraverser.ShouldCountRegion(region))
                     seen++;
 
-                if (!region.IsDoorway && !region.Allows(traverseParams, true))
+                if (!region.IsDoorway && !GetDestinationAllows(context, region, traverseKey, traverseParams))
                 {
                     if (seen >= minRegions && closestThing != null)
                         break;
                     continue;
                 }
 
-                if (!ignoreEntirelyForbiddenRegions || !region.IsForbiddenEntirely(traverseParams.pawn))
+                if (!ignoreEntirelyForbiddenRegions || !GetForbidden(context, region, traverseParams.pawn))
                 {
                     List<Thing> list = region.ListerThings.ThingsMatching(req);
                     for (int i = 0; i < list.Count; i++)
@@ -359,8 +473,46 @@ namespace RimMT
             }
 
             regionsSeen = seen;
-            regionsScanned += Math.Min(regions.Length, Math.Max(0, seen));
+            regionsScanned += scanned;
             return closestThing;
+        }
+
+        private static bool GetDestinationAllows(
+            PackageContext context,
+            Region region,
+            AggressiveReachabilityProfiles.TraverseKey traverseKey,
+            TraverseParms traverseParams)
+        {
+            RegionAllowsKey key = new RegionAllowsKey(region, traverseKey);
+            bool value;
+            if (context.DestinationAllows.TryGetValue(key, out value))
+            {
+                destinationAllowsHits++;
+                return value;
+            }
+
+            destinationAllowsMisses++;
+            value = region.Allows(traverseParams, true);
+            if (context.DestinationAllows.Count < MaxDestinationAllowsEntriesPerPackage)
+                context.DestinationAllows.Add(key, value);
+            else
+                destinationAllowsCapBypass++;
+            return value;
+        }
+
+        private static bool GetForbidden(PackageContext context, Region region, Pawn pawn)
+        {
+            bool value;
+            if (context.Forbidden.TryGetValue(region, out value))
+            {
+                forbiddenHits++;
+                return value;
+            }
+
+            forbiddenMisses++;
+            value = region.IsForbiddenEntirely(pawn);
+            context.Forbidden[region] = value;
+            return value;
         }
 
         private static PackageContext Acquire(Pawn pawn)
@@ -399,24 +551,33 @@ namespace RimMT
             double accPct = obs == 0 ? 0.0 : acc * 100.0 / obs;
             long hitDenom = cacheHits + cacheMisses;
             double hitPct = hitDenom == 0 ? 0.0 : cacheHits * 100.0 / hitDenom;
-            return "JobPackage Regionwise JR1: patched(scope/regionwise)=" + scopePatched + "/" + regionwisePatched +
+            long allowDenom = destinationAllowsHits + destinationAllowsMisses;
+            double allowHitPct = allowDenom == 0 ? 0.0 : destinationAllowsHits * 100.0 / allowDenom;
+
+            return "JobPackage Regionwise JR1.1 Learned: patched(scope/regionwise/bfs)=" + scopePatched + "/" + regionwisePatched + "/" + breadthFirstPatched +
                 ", patchFailures=" + patchFailures +
                 ", packages=" + packages +
                 ", observed=" + obs +
                 ", accelerated=" + acc + " (" + accPct.ToString("F1") + "%)" +
                 ", traversalHit/miss=" + cacheHits + "/" + cacheMisses + " (" + hitPct.ToString("F1") + "% hit)" +
-                ", traversalStores=" + cacheStores +
+                ", captureArmed/stored=" + captureArmed + "/" + captureStores +
+                ", captureSkippedNested=" + captureSkippedNested +
                 ", capBypass=" + cacheCapBypass +
-                ", buildFailures=" + buildFailures +
+                ", captureFailures=" + captureFailures +
                 ", acceleratedFailures=" + acceleratedFailures +
-                ", regionsBuilt=" + regionsBuilt +
+                ", regionsCaptured=" + regionsCaptured +
+                ", extraRegionsAfterVanillaStop=" + extraRegionsAfterVanillaStop +
                 ", regionsScanned=" + regionsScanned +
                 ", candidatesScanned=" + candidatesScanned +
                 ", validatorCalls=" + validatorCalls +
+                ", destinationAllowsHit/miss=" + destinationAllowsHits + "/" + destinationAllowsMisses + " (" + allowHitPct.ToString("F1") + "% hit)" +
+                ", destinationAllowsCapBypass=" + destinationAllowsCapBypass +
+                ", forbiddenHit/miss=" + forbiddenHits + "/" + forbiddenMisses +
                 ", context(create/reuse/return)=" + contextCreates + "/" + contextReuse + "/" + contextReturns +
                 ", maxEntries=" + maxEntries +
                 ", maxRegionsPerEntry=" + maxRegionsPerEntry +
-                ". Aggressive performance mode: Region BFS order is reused inside one JobPackage; candidate validation remains live.";
+                ", maxDestinationAllowsEntries=" + maxDestinationAllowsEntries +
+                ". Cold keys execute Vanilla once and are learned in-flight; hot keys reuse Region order only. No global Region.Allows Harmony detour.";
         }
 
         internal struct ScopeState
@@ -426,14 +587,52 @@ namespace RimMT
             internal PackageContext Context;
         }
 
+        internal struct RegionwiseCallState
+        {
+            internal CaptureState Capture;
+        }
+
+        internal struct BreadthFirstState
+        {
+            internal bool Attached;
+            internal CaptureState Capture;
+        }
+
+        internal sealed class CaptureState
+        {
+            internal readonly PackageContext Context;
+            internal readonly TraversalKey Key;
+            internal readonly Region RootRegion;
+            internal readonly int MaxRegions;
+            internal readonly RegionType RegionTypes;
+            internal readonly List<Region> Regions;
+            internal bool Attached;
+            internal bool Completed;
+            internal bool OriginalStopped;
+            internal int VanillaStopRegionCount;
+            internal int ExtraRegions;
+
+            internal CaptureState(PackageContext context, TraversalKey key, Region rootRegion, int maxRegions, RegionType regionTypes)
+            {
+                Context = context;
+                Key = key;
+                RootRegion = rootRegion;
+                MaxRegions = maxRegions;
+                RegionTypes = regionTypes;
+                Regions = new List<Region>(Math.Min(Math.Max(maxRegions, 4), 64));
+            }
+        }
+
         internal sealed class PackageContext
         {
             internal Pawn Pawn;
             internal readonly Dictionary<TraversalKey, TraversalEntry> Traversals = new Dictionary<TraversalKey, TraversalEntry>(16);
+            internal readonly Dictionary<RegionAllowsKey, bool> DestinationAllows = new Dictionary<RegionAllowsKey, bool>(128);
+            internal readonly Dictionary<Region, bool> Forbidden = new Dictionary<Region, bool>(RegionReferenceComparer.Instance);
 
             internal void Begin(Pawn pawn)
             {
-                if (Pawn != null || Traversals.Count != 0)
+                if (Pawn != null || Traversals.Count != 0 || DestinationAllows.Count != 0 || Forbidden.Count != 0)
                     End();
                 Pawn = pawn;
             }
@@ -441,6 +640,8 @@ namespace RimMT
             internal void End()
             {
                 Traversals.Clear();
+                DestinationAllows.Clear();
+                Forbidden.Clear();
                 Pawn = null;
             }
         }
@@ -493,7 +694,7 @@ namespace RimMT
             {
                 unchecked
                 {
-                    int hash = RootRegion == null ? 0 : System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(RootRegion);
+                    int hash = RootRegion == null ? 0 : RuntimeHelpers.GetHashCode(RootRegion);
                     hash = hash * 397 ^ RootX;
                     hash = hash * 397 ^ RootZ;
                     hash = hash * 397 ^ Traverse.GetHashCode();
@@ -503,6 +704,44 @@ namespace RimMT
                     return hash;
                 }
             }
+        }
+
+        internal struct RegionAllowsKey : IEquatable<RegionAllowsKey>
+        {
+            internal readonly Region Region;
+            internal readonly AggressiveReachabilityProfiles.TraverseKey Traverse;
+
+            internal RegionAllowsKey(Region region, AggressiveReachabilityProfiles.TraverseKey traverse)
+            {
+                Region = region;
+                Traverse = traverse;
+            }
+
+            public bool Equals(RegionAllowsKey other)
+            {
+                return ReferenceEquals(Region, other.Region) && Traverse.Equals(other.Traverse);
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is RegionAllowsKey && Equals((RegionAllowsKey)obj);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int hash = Region == null ? 0 : RuntimeHelpers.GetHashCode(Region);
+                    return hash * 397 ^ Traverse.GetHashCode();
+                }
+            }
+        }
+
+        private sealed class RegionReferenceComparer : IEqualityComparer<Region>
+        {
+            internal static readonly RegionReferenceComparer Instance = new RegionReferenceComparer();
+            public bool Equals(Region x, Region y) { return ReferenceEquals(x, y); }
+            public int GetHashCode(Region obj) { return obj == null ? 0 : RuntimeHelpers.GetHashCode(obj); }
         }
     }
 }

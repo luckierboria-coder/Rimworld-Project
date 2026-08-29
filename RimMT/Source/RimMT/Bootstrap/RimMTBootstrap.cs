@@ -31,11 +31,10 @@ namespace RimMT
 
                 JobPackageLocalSearch0419.Apply(harmony);
 
-                // JR1 performance-first response to JD1: cache the exact Region BFS order for
-                // repeated RegionwiseBFSWorker searches inside one JobPackage, then layer a very
-                // cheap Region.Allows memo under it. WorkGiver validators remain live.
+                // JR1.1 removes the global Region.Allows detour and learns the exact Vanilla
+                // Regionwise BFS order in-flight. Cold keys run Vanilla once; hot keys skip
+                // RegionTraverser while candidates/validators remain live.
                 JobPackageRegionwiseCache0419.Apply(harmony);
-                JobPackageRegionAllows0419.Apply(harmony);
 
                 AggressiveReachabilityProfiles.Apply(harmony);
                 ReachProfileRollingFuse0419.Apply(harmony);
@@ -47,7 +46,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JR1 Aggressive initialized from JS1.2.1 Lean Hybrid. JD1 identified ClosestThingReachable -> RegionTraverser as the dominant JobGiver hotspot. JR1 now reuses exact Regionwise BFS order within a JobPackage and memoizes repeated Region.Allows predicates underneath it; WorkGiver validators/candidates stay live. ReachProfile uses rolling soft fuse + cooldown + 256-sample probation + emergency hard fuse instead of lifetime mismatch accumulation. JS1 nearest-order, HasJobOnThing behavior, WorkPrefilter, haul accelerators and Path shadow remain enabled.");
+                Log.Message("[RimMT] V0.4.19-JR1.1 Learned BFS initialized from JR1. Cold Regionwise searches execute Vanilla once while RimMT records the actual BFS order; repeated traversal shapes reuse that order without a second RegionTraverser pass. The global Region.Allows Harmony memo is removed and destination permission reuse is local to the JobPackage Regionwise accelerator. ReachProfile rolling-fuse stability is active without patching AggressiveReachabilityProfiles.Prefix. JS1 nearest-order, HasJobOnThing behavior, WorkPrefilter, haul accelerators and Path shadow remain enabled.");
             }
             catch (Exception ex)
             {

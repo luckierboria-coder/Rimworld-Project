@@ -6,8 +6,18 @@ using Verse.AI;
 
 namespace RimMT
 {
-    // Long-run ReachProfile safety controller for V0.4.19-JR1.
-    // Replaces the old lifetime-accumulation semantics without changing the prediction engine.
+    // V0.4.19-JR1.1 long-run ReachProfile safety controller.
+    //
+    // JR1 tried to patch AggressiveReachabilityProfiles.Prefix itself. Mono/Harmony produced an
+    // InvalidProgramException for that self-patched dynamic wrapper. JR1.1 therefore never
+    // patches the profile Prefix/Postfix methods.
+    //
+    // Instead, this controller brackets the outer Reachability.CanReach call. It reads the
+    // existing ReachProfile shadow-sample and mismatch counters before/after the call, so it can
+    // feed the rolling windows without touching prediction internals. During a soft cooldown a
+    // ThreadStatic FeatureGate override makes AggressiveReachabilityProfiles defer that call to
+    // the live fully-patched Reachability path. After cooldown, probation uses the profile's
+    // normal shadow samples; 256 clean samples restore Normal mode.
     internal static class ReachProfileRollingFuse0419
     {
         private const int GlobalWindowSamples = 8192;
@@ -38,13 +48,13 @@ namespace RimMT
         private static long totalSamples;
         private static long totalMismatches;
         private static long forcedLiveCooldown;
-        private static long forcedLiveProbation;
         private static long legacyFuseIntercepts;
-
-        [ThreadStatic] private static bool forcedProbationPending;
-        [ThreadStatic] private static bool forcedProbationPredicted;
+        private static long counterReadFailures;
 
         private static FieldInfo legacyMismatchField;
+        private static FieldInfo shadowSamplesField;
+        private static FieldInfo mismatchReachableToFalseField;
+        private static FieldInfo mismatchUnreachableToTrueField;
         private static bool installed;
 
         internal static void Apply(Harmony harmony)
@@ -54,38 +64,43 @@ namespace RimMT
 
             try
             {
-                MethodBase profilePrefix = AccessTools.Method(typeof(AggressiveReachabilityProfiles), nameof(AggressiveReachabilityProfiles.Prefix));
-                MethodBase profilePostfix = AccessTools.Method(typeof(AggressiveReachabilityProfiles), nameof(AggressiveReachabilityProfiles.Postfix));
                 MethodBase reachability = AccessTools.Method(
                     typeof(Reachability),
                     nameof(Reachability.CanReach),
                     new Type[] { typeof(IntVec3), typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) });
 
-                if (profilePrefix == null || profilePostfix == null || reachability == null)
+                if (reachability == null)
                 {
-                    Log.Warning("[RimMT] ReachProfile rolling fuse unavailable: required method not found.");
+                    Log.Warning("[RimMT] ReachProfile rolling fuse JR1.1 unavailable: Reachability.CanReach not found.");
                     return;
                 }
 
-                HarmonyMethod prefixPostfix = new HarmonyMethod(typeof(ReachProfileRollingFuse0419), nameof(ProfilePrefixPostfix));
-                prefixPostfix.priority = Priority.Last;
-                harmony.Patch(profilePrefix, postfix: prefixPostfix);
-
-                HarmonyMethod samplePostfix = new HarmonyMethod(typeof(ReachProfileRollingFuse0419), nameof(ProfileSamplePostfix));
-                samplePostfix.priority = Priority.Last;
-                harmony.Patch(profilePostfix, postfix: samplePostfix);
-
-                HarmonyMethod finalReachPostfix = new HarmonyMethod(typeof(ReachProfileRollingFuse0419), nameof(ReachabilityFinalPostfix));
-                finalReachPostfix.priority = Priority.Last;
-                harmony.Patch(reachability, postfix: finalReachPostfix);
-
                 legacyMismatchField = AccessTools.Field(typeof(AggressiveReachabilityProfiles), "parityMismatches");
+                shadowSamplesField = AccessTools.Field(typeof(AggressiveReachabilityProfiles), "shadowSamples");
+                mismatchReachableToFalseField = AccessTools.Field(typeof(AggressiveReachabilityProfiles), "mismatchReachableToFalse");
+                mismatchUnreachableToTrueField = AccessTools.Field(typeof(AggressiveReachabilityProfiles), "mismatchUnreachableToTrue");
+
+                if (legacyMismatchField == null || shadowSamplesField == null ||
+                    mismatchReachableToFalseField == null || mismatchUnreachableToTrueField == null)
+                {
+                    Log.Warning("[RimMT] ReachProfile rolling fuse JR1.1 unavailable: ReachProfile telemetry fields not found.");
+                    return;
+                }
+
+                HarmonyMethod prefix = new HarmonyMethod(typeof(ReachProfileRollingFuse0419), nameof(ReachabilityPrefix));
+                prefix.priority = Priority.First;
+                HarmonyMethod postfix = new HarmonyMethod(typeof(ReachProfileRollingFuse0419), nameof(ReachabilityPostfix));
+                postfix.priority = Priority.Last;
+                HarmonyMethod finalizer = new HarmonyMethod(typeof(ReachProfileRollingFuse0419), nameof(ReachabilityFinalizer));
+                finalizer.priority = Priority.Last;
+                harmony.Patch(reachability, prefix: prefix, postfix: postfix, finalizer: finalizer);
+
                 installed = true;
-                Log.Message("[RimMT] ReachProfile rolling fuse active: window=8192/limit=8, softCooldown=3600 frames, probation=256 clean live validations, emergency hard fuse=16/256. Legacy lifetime-16 suppression is intercepted.");
+                Log.Message("[RimMT] ReachProfile rolling fuse JR1.1 active without self-patching profile methods: rolling window=8192/8, soft cooldown=3600 frames, probation=256 clean native shadow samples, emergency hard fuse=16/256. Legacy lifetime-16 suppression is intercepted.");
             }
             catch (Exception ex)
             {
-                Log.Warning("[RimMT] ReachProfile rolling fuse install failed; legacy ReachProfile safety remains. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] ReachProfile rolling fuse JR1.1 install failed; legacy ReachProfile safety remains. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -102,65 +117,95 @@ namespace RimMT
                 if (legacyMismatchField != null)
                     legacyMismatchField.SetValue(null, 0L);
             }
-            catch { }
+            catch
+            {
+                counterReadFailures++;
+            }
 
-            Log.Warning("[RimMT] ReachProfile legacy lifetime mismatch fuse intercepted; rolling JR1 safety remains in control and ReachProfile is not permanently disabled.");
+            Log.Warning("[RimMT] ReachProfile legacy lifetime mismatch fuse intercepted; rolling JR1.1 safety remains in control and ReachProfile is not permanently disabled.");
             return true;
         }
 
-        // This patches AggressiveReachabilityProfiles.Prefix itself. Its object[] argument 6 is
-        // the ref bool CanReach result and its method return value says whether Vanilla should run.
-        public static void ProfilePrefixPostfix(object[] __args, ref bool __result)
+        public static void ReachabilityPrefix(ref ReachCallState __state)
         {
-            forcedProbationPending = false;
-            UpdateMode();
-
-            if (mode == FuseMode.Normal || mode == FuseMode.HardFused || __args == null || __args.Length < 7)
+            __state = default(ReachCallState);
+            if (!installed || !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return;
 
-            // Aggressive Prefix returning false means it intended to provide an authoritative
-            // result (including cheap immediate success). During cooldown/probation, force the
-            // live fully-patched CanReach path instead.
-            if (!__result)
-            {
-                bool predicted;
-                try { predicted = Convert.ToBoolean(__args[6]); }
-                catch { return; }
+            UpdateMode();
 
-                __result = true;
-                if (mode == FuseMode.Cooldown)
-                {
-                    forcedLiveCooldown++;
-                }
-                else if (mode == FuseMode.Probation)
-                {
-                    forcedLiveProbation++;
-                    forcedProbationPending = true;
-                    forcedProbationPredicted = predicted;
-                }
+            try
+            {
+                __state.ShadowBefore = ReadLong(shadowSamplesField);
+                __state.MismatchBefore = ReadMismatchTotal();
+                __state.Counted = true;
+            }
+            catch
+            {
+                counterReadFailures++;
+            }
+
+            if (mode == FuseMode.Cooldown && FeatureGate.IsEnabled(AggressiveReachabilityProfiles.FeatureId))
+            {
+                FeatureGate.PushReachProfileForceDisable();
+                __state.ForcedLive = true;
+                forcedLiveCooldown++;
             }
         }
 
-        // Existing ReachProfile shadow samples flow through here after its own Postfix has
-        // compared prediction with live Vanilla.
-        public static void ProfileSamplePostfix(bool __0, AggressiveReachabilityProfiles.ReachSampleState __1)
+        public static void ReachabilityPostfix(ReachCallState __state)
         {
-            if (!installed || !__1.Active)
-                return;
-
-            bool mismatch = __0 != __1.Predicted;
-            ObserveSample(mismatch);
+            FinishCall(__state);
         }
 
-        // Handles authority predictions that JR1 forced live specifically for probation.
-        public static void ReachabilityFinalPostfix(bool __result)
+        public static Exception ReachabilityFinalizer(Exception __exception, ReachCallState __state)
         {
-            if (!forcedProbationPending)
+            // Harmony runs finalizers even if the original/prefix chain throws. Pop the temporary
+            // gate here as a second safety path. FinishCall is idempotent for the gate via depth.
+            if (__state.ForcedLive)
+                FeatureGate.PopReachProfileForceDisable();
+            return __exception;
+        }
+
+        private static void FinishCall(ReachCallState state)
+        {
+            if (state.ForcedLive)
+                FeatureGate.PopReachProfileForceDisable();
+
+            if (!state.Counted || mode == FuseMode.Cooldown || mode == FuseMode.HardFused)
                 return;
 
-            bool mismatch = __result != forcedProbationPredicted;
-            forcedProbationPending = false;
-            ObserveSample(mismatch);
+            try
+            {
+                long shadowAfter = ReadLong(shadowSamplesField);
+                if (shadowAfter <= state.ShadowBefore)
+                    return;
+
+                long mismatchAfter = ReadMismatchTotal();
+                long sampleDelta = shadowAfter - state.ShadowBefore;
+                long mismatchDelta = mismatchAfter - state.MismatchBefore;
+                if (mismatchDelta < 0) mismatchDelta = 0;
+
+                // A single CanReach call should add at most one native ReachProfile sample, but
+                // process deltas defensively in case another patch causes nested samples.
+                for (long i = 0; i < sampleDelta; i++)
+                    ObserveSample(i < mismatchDelta);
+            }
+            catch
+            {
+                counterReadFailures++;
+            }
+        }
+
+        private static long ReadLong(FieldInfo field)
+        {
+            object value = field.GetValue(null);
+            return value == null ? 0L : Convert.ToInt64(value);
+        }
+
+        private static long ReadMismatchTotal()
+        {
+            return ReadLong(mismatchReachableToFalseField) + ReadLong(mismatchUnreachableToTrueField);
         }
 
         private static void ObserveSample(bool mismatch)
@@ -180,8 +225,8 @@ namespace RimMT
                 mode = FuseMode.HardFused;
                 hardFuses++;
                 FeatureGate.Suppress(AggressiveReachabilityProfiles.FeatureId,
-                    "JR1 emergency ReachProfile hard fuse: " + emergencyMismatches + "/" + emergencyCount + " sampled mismatches");
-                Log.Warning("[RimMT] ReachProfile HARD FUSE: " + emergencyMismatches + "/" + emergencyCount + " mismatches in the emergency window. Vanilla Reachability is authoritative for the rest of this run.");
+                    "JR1.1 emergency ReachProfile hard fuse: " + emergencyMismatches + "/" + emergencyCount + " sampled mismatches");
+                Log.Warning("[RimMT] ReachProfile HARD FUSE JR1.1: " + emergencyMismatches + "/" + emergencyCount + " mismatches in the emergency window. Vanilla Reachability is authoritative for the rest of this run.");
                 return;
             }
 
@@ -190,7 +235,7 @@ namespace RimMT
                 if (mismatch)
                 {
                     probationFailures++;
-                    EnterCooldown("probation mismatch");
+                    EnterCooldown("probation shadow mismatch");
                     return;
                 }
 
@@ -202,7 +247,7 @@ namespace RimMT
                     mode = FuseMode.Normal;
                     probationPasses++;
                     ClearGlobalWindow();
-                    Log.Message("[RimMT] ReachProfile probation passed 256 live validations; profile authority restored.");
+                    Log.Message("[RimMT] ReachProfile JR1.1 probation passed 256 clean native shadow samples; normal rolling mode restored.");
                 }
                 return;
             }
@@ -222,7 +267,7 @@ namespace RimMT
             probationRemaining = ProbationSamples;
             probationMatches = 0;
             ClearGlobalWindow();
-            Log.Message("[RimMT] ReachProfile soft cooldown ended; entering 256-sample live probation before authority resumes.");
+            Log.Message("[RimMT] ReachProfile JR1.1 soft cooldown ended; entering 256-clean-shadow-sample probation.");
         }
 
         private static void EnterCooldown(string reason)
@@ -234,7 +279,7 @@ namespace RimMT
             softFuses++;
             ClearGlobalWindow();
             ClearEmergencyWindow();
-            Log.Warning("[RimMT] ReachProfile SOFT FUSE: " + reason + ". Profile authority is forced live for 3600 frames, then 256 clean probation validations are required.");
+            Log.Warning("[RimMT] ReachProfile SOFT FUSE JR1.1: " + reason + ". Profile authority is bypassed for 3600 main-thread frames, then 256 clean native shadow samples are required.");
         }
 
         private static void PushWindow(bool[] window, ref int pos, ref int count, ref int mismatchCount, bool mismatch)
@@ -272,7 +317,8 @@ namespace RimMT
 
         internal static string Summary()
         {
-            return "ReachProfile rolling fuse JR1: mode=" + mode +
+            return "ReachProfile rolling fuse JR1.1: installed=" + installed +
+                ", mode=" + mode +
                 ", totalSamples=" + totalSamples +
                 ", totalMismatches=" + totalMismatches +
                 ", globalWindow=" + globalMismatches + "/" + globalCount +
@@ -284,9 +330,18 @@ namespace RimMT
                 ", probationPasses=" + probationPasses +
                 ", probationFailures=" + probationFailures +
                 ", hardFuses=" + hardFuses +
-                ", forcedLive(cooldown/probation)=" + forcedLiveCooldown + "/" + forcedLiveProbation +
+                ", forcedLiveCooldown=" + forcedLiveCooldown +
                 ", legacyFuseIntercepts=" + legacyFuseIntercepts +
-                ". Lifetime-accumulation fuse is replaced by rolling density + recovery; emergency high-density mismatch still disables authority for the run.";
+                ", counterReadFailures=" + counterReadFailures +
+                ". No self-patching of AggressiveReachabilityProfiles methods; cooldown uses a temporary per-call feature gate and probation uses native shadow samples.";
+        }
+
+        internal struct ReachCallState
+        {
+            internal bool Counted;
+            internal bool ForcedLive;
+            internal long ShadowBefore;
+            internal long MismatchBefore;
         }
 
         private enum FuseMode
