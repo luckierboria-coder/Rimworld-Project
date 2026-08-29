@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.19-JS1 keeps the V0.4.18.2 validated worker cap; JobPackage-local reuse is main-thread synchronous and never waits on workers)");
+                ", workerCap=8 (V0.4.19-JS1.2.1 keeps the V0.4.18.2 validated worker cap; JobPackage-local Hybrid reuse is main-thread synchronous and never waits on workers)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -95,9 +95,9 @@ namespace RimMT
             sb.AppendLine(BroadGenClosestOrder0418.Summary());
             sb.AppendLine(JobGiverGlobalNearest04181.Summary());
             sb.AppendLine(JobPackageLocalSearch0419.Summary());
-            sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED in V0.4.19-JS1; no cross-package candidate-plan capture/scheduling is installed.");
+            sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED since V0.4.19-JS1; no cross-package candidate-plan capture/scheduling is installed.");
             sb.AppendLine(AggressiveReachabilityProfiles.Summary());
-            sb.AppendLine("Reach-profile V0.4.18.2 aggressive policy retained: sampled positive authority ENABLED; warmup, shadow sampling, per-profile cooldown and global mismatch fuse remain active.");
+            sb.AppendLine("Reach-profile V0.4.18.2 aggressive policy retained unchanged in JS1.2.1: sampled positive authority ENABLED; warmup, shadow sampling, per-profile cooldown and global mismatch fuse remain active.");
             sb.AppendLine(ParallelRegionConnectivity.Summary());
             sb.AppendLine(ParallelWorkPrefilter.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
