@@ -38,6 +38,7 @@ namespace RimMT
                 JobPackageRegionAllows0419.Apply(harmony);
 
                 AggressiveReachabilityProfiles.Apply(harmony);
+                ReachProfileRollingFuse0419.Apply(harmony);
 
                 // V0.4.15 RegionHint remains retired.
                 // ParallelRegionConnectivity.Apply(harmony); intentionally not installed.
@@ -46,7 +47,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JR1 Aggressive initialized from JS1.2.1 Lean Hybrid. JD1 identified ClosestThingReachable -> RegionTraverser as the dominant JobGiver hotspot. JR1 now reuses exact Regionwise BFS order within a JobPackage and memoizes repeated Region.Allows predicates underneath it; WorkGiver validators/candidates stay live. ReachProfile rolling-fuse stability is included. JS1 nearest-order, HasJobOnThing behavior, WorkPrefilter, haul accelerators and Path shadow remain enabled.");
+                Log.Message("[RimMT] V0.4.19-JR1 Aggressive initialized from JS1.2.1 Lean Hybrid. JD1 identified ClosestThingReachable -> RegionTraverser as the dominant JobGiver hotspot. JR1 now reuses exact Regionwise BFS order within a JobPackage and memoizes repeated Region.Allows predicates underneath it; WorkGiver validators/candidates stay live. ReachProfile uses rolling soft fuse + cooldown + 256-sample probation + emergency hard fuse instead of lifetime mismatch accumulation. JS1 nearest-order, HasJobOnThing behavior, WorkPrefilter, haul accelerators and Path shadow remain enabled.");
             }
             catch (Exception ex)
             {
