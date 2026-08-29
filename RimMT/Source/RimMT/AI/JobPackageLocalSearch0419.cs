@@ -11,16 +11,20 @@ using Verse.AI;
 
 namespace RimMT
 {
-    // V0.4.19-JS1.1 Lean
+    // V0.4.19-JS1.2.1 Lean Hybrid
     //
-    // Keep the successful JS1 search semantics, but remove low-yield bool memoization.
-    // Only HasJobOnThing is memoized, and its per-target cache is bucketed by
-    // (method, WorkGiver instance, forced) so Pawn/Method/Giver are not hashed for every Thing.
-    // The Pawn is implicit in the one synchronous TryIssueJobPackage lifetime.
+    // Keep JS1.1's successful cache behavior and exact JS1 nearest-order semantics.
+    // Only three low-risk JS1.2 ideas are retained:
+    //  - typed HasJobOnThing Harmony arguments instead of object[] __args;
+    //  - a last-bucket fast path for consecutive calls to the same WorkGiver/method/forced tuple;
+    //  - reuse of the light PackageContext/top-level dictionaries between outer JobPackages.
     //
-    // JS1 nearest-order reuse is intentionally preserved unchanged:
-    // key = exact source IList identity + root + maxDistance + reachable-mode.
-    // No cache survives the JobPackage boundary; no worker wait is introduced.
+    // Deliberately NOT retained from JS1.2 Lean Pool:
+    //  - no low-reuse admission gate;
+    //  - no ThingBucket/Thing-result Dictionary pooling or synchronous per-entry Clear pass.
+    // ThingBuckets remain one-JobPackage objects exactly as in JS1.1 and become GC-eligible when
+    // the top-level bucket dictionary is cleared. No Job, reservation, JobOnThing/JobOnCell result,
+    // mutable Verse state, or cache entry survives the JobPackage boundary.
     internal static class JobPackageLocalSearch0419
     {
         internal const string FeatureId = "ai.jobPackageLocal";
@@ -33,6 +37,7 @@ namespace RimMT
 
         [ThreadStatic] private static int packageDepth;
         [ThreadStatic] private static PackageContext current;
+        [ThreadStatic] private static PackageContext pooledContext;
 
         private static readonly Dictionary<MethodBase, MethodParityState> MethodParity =
             new Dictionary<MethodBase, MethodParityState>();
@@ -55,6 +60,13 @@ namespace RimMT
         private static long thingCapBypass;
         private static long thingBucketCreates;
         private static long disabledMethodBypass;
+
+        // Main-thread / ThreadStatic scope only. Keep this hot fast-path telemetry non-atomic so
+        // measuring the optimization does not erase the dictionary lookup it is meant to save.
+        private static long bucketFastHits;
+        private static long contextCreates;
+        private static long contextReuseHits;
+        private static long contextReturns;
 
         private static long orderObserved;
         private static long orderHits;
@@ -84,7 +96,7 @@ namespace RimMT
                 if (jobGiver == null)
                 {
                     FeatureGate.Suppress(FeatureId, "TryIssueJobPackage(Pawn, JobIssueParams) not found");
-                    Log.Warning("[RimMT] V0.4.19-JS1.1 Lean unavailable: JobGiver_Work.TryIssueJobPackage target not found.");
+                    Log.Warning("[RimMT] V0.4.19-JS1.2.1 Lean Hybrid unavailable: JobGiver_Work.TryIssueJobPackage target not found.");
                     return;
                 }
 
@@ -98,16 +110,16 @@ namespace RimMT
                 PatchHasJobOnThingQueries(harmony);
                 PatchNearestOrderHooks(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1.1 Lean active: scope=" + scopePatched +
+                Log.Message("[RimMT] V0.4.19-JS1.2.1 Lean Hybrid active: scope=" + scopePatched +
                     ", HasJobOnThing=" + patchedHasThingQueries +
                     ", nearestHooks(global/reachable)=" + globalHookPatched + "/" + reachableHookPatched +
-                    ". ShouldSkip and HasJobOnCell memoization are removed. HasJobOnThing uses per-method/giver buckets inside one TryIssueJobPackage; JS1 nearest-order semantics are unchanged. Vanilla retains JobOnThing/JobOnCell, Jobs, reservations and final selection.");
+                    ". JS1.1 cache admission/store behavior and JS1 nearest-order semantics are unchanged. HasJobOnThing uses typed Harmony arguments plus a last-bucket fast path; only the light PackageContext/top-level dictionaries are reused. JS1.2 admission and ThingBucket Dictionary pooling are removed. Vanilla retains JobOnThing/JobOnCell, Jobs, reservations and final selection.");
             }
             catch (Exception ex)
             {
                 patchFailures++;
                 FeatureGate.Suppress(FeatureId, "installation failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] V0.4.19-JS1.1 Lean install failed; JS1/V0.4.18.2 behavior remains. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] V0.4.19-JS1.2.1 Lean Hybrid install failed; JS1.1/Vanilla behavior remains. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -115,7 +127,8 @@ namespace RimMT
         {
             HashSet<MethodBase> unique = new HashSet<MethodBase>();
             List<Type> allTypes = GenTypes.AllTypes;
-            MethodInfo prefixMethod = AccessTools.Method(typeof(JobPackageLocalSearch0419), nameof(HasThingPrefix));
+            MethodInfo prefix2 = AccessTools.Method(typeof(JobPackageLocalSearch0419), nameof(HasThing2Prefix));
+            MethodInfo prefix3 = AccessTools.Method(typeof(JobPackageLocalSearch0419), nameof(HasThing3Prefix));
             MethodInfo postfixMethod = AccessTools.Method(typeof(JobPackageLocalSearch0419), nameof(HasThingPostfix));
 
             for (int i = 0; i < allTypes.Count; i++)
@@ -137,12 +150,14 @@ namespace RimMT
                 for (int m = 0; m < methods.Length; m++)
                 {
                     MethodInfo method = methods[m];
-                    if (!IsSupportedHasThing(method) || !unique.Add(method))
+                    int parameterCount;
+                    if (!IsSupportedHasThing(method, out parameterCount) || !unique.Add(method))
                         continue;
 
                     try
                     {
-                        HarmonyMethod prefix = new HarmonyMethod(prefixMethod) { priority = Priority.First + 50 };
+                        MethodInfo chosenPrefix = parameterCount == 2 ? prefix2 : prefix3;
+                        HarmonyMethod prefix = new HarmonyMethod(chosenPrefix) { priority = Priority.First + 50 };
                         HarmonyMethod postfix = new HarmonyMethod(postfixMethod) { priority = Priority.Last - 50 };
                         harmony.Patch(method, prefix: prefix, postfix: postfix);
                         patchedHasThingQueries++;
@@ -151,7 +166,7 @@ namespace RimMT
                     {
                         patchFailures++;
                         if (patchFailures <= 8)
-                            Log.Warning("[RimMT] V0.4.19-JS1.1 Lean skipped HasJobOnThing query " + method + ": " + ex.GetType().Name + ": " + ex.Message);
+                            Log.Warning("[RimMT] V0.4.19-JS1.2.1 Lean Hybrid skipped HasJobOnThing query " + method + ": " + ex.GetType().Name + ": " + ex.Message);
                     }
                 }
             }
@@ -176,7 +191,7 @@ namespace RimMT
                 catch (Exception ex)
                 {
                     patchFailures++;
-                    Log.Warning("[RimMT] V0.4.19-JS1.1 Lean GlobalPrefix hook failed: " + ex.GetType().Name + ": " + ex.Message);
+                    Log.Warning("[RimMT] V0.4.19-JS1.2.1 Lean Hybrid GlobalPrefix hook failed: " + ex.GetType().Name + ": " + ex.Message);
                 }
             }
 
@@ -194,7 +209,7 @@ namespace RimMT
                 catch (Exception ex)
                 {
                     patchFailures++;
-                    Log.Warning("[RimMT] V0.4.19-JS1.1 Lean GlobalReachablePrefix hook failed: " + ex.GetType().Name + ": " + ex.Message);
+                    Log.Warning("[RimMT] V0.4.19-JS1.2.1 Lean Hybrid GlobalReachablePrefix hook failed: " + ex.GetType().Name + ": " + ex.Message);
                 }
             }
         }
@@ -211,7 +226,7 @@ namespace RimMT
 
             if (__state.Outermost)
             {
-                current = new PackageContext(__0);
+                current = AcquireContext(__0);
                 __state.Context = current;
                 Interlocked.Increment(ref packages);
             }
@@ -239,60 +254,112 @@ namespace RimMT
                     UpdateMax(ref maxThingBuckets, context.ThingBuckets.Count);
                     UpdateMax(ref maxOrderEntries, context.Ordered.Count);
                 }
+
                 if (ReferenceEquals(current, context))
                     current = null;
+
+                ReleaseContext(context);
             }
 
             return __exception;
         }
 
-        public static bool HasThingPrefix(
+        private static PackageContext AcquireContext(Pawn pawn)
+        {
+            PackageContext context = pooledContext;
+            if (context == null)
+            {
+                context = new PackageContext();
+                contextCreates++;
+            }
+            else
+            {
+                pooledContext = null;
+                contextReuseHits++;
+            }
+
+            context.Begin(pawn);
+            return context;
+        }
+
+        private static void ReleaseContext(PackageContext context)
+        {
+            if (context == null)
+                return;
+
+            context.EndPackage();
+            if (pooledContext == null)
+            {
+                pooledContext = context;
+                contextReturns++;
+            }
+        }
+
+        // Typed positional prefixes remove Harmony's generic __args array from the millions-of-calls
+        // HasJobOnThing hot path. Runtime JS1.2 testing patched all 124 supported methods cleanly.
+        public static bool HasThing2Prefix(
             WorkGiver __instance,
             MethodBase __originalMethod,
-            object[] __args,
+            Pawn __0,
+            Thing __1,
             ref bool __result,
             ref HasThingState __state)
         {
-            __state = default(HasThingState);
+            return HasThingPrefixCore(__instance, __originalMethod, __0, __1, false, ref __result, ref __state);
+        }
+
+        public static bool HasThing3Prefix(
+            WorkGiver __instance,
+            MethodBase __originalMethod,
+            Pawn __0,
+            Thing __1,
+            bool __2,
+            ref bool __result,
+            ref HasThingState __state)
+        {
+            return HasThingPrefixCore(__instance, __originalMethod, __0, __1, __2, ref __result, ref __state);
+        }
+
+        private static bool HasThingPrefixCore(
+            WorkGiver giver,
+            MethodBase method,
+            Pawn pawn,
+            Thing thing,
+            bool forced,
+            ref bool result,
+            ref HasThingState state)
+        {
+            state = default(HasThingState);
             PackageContext context = current;
-            if (context == null || packageDepth <= 0 || __instance == null || __originalMethod == null || __args == null)
+            if (context == null || packageDepth <= 0 || giver == null || method == null || pawn == null || thing == null ||
+                context.Pawn == null || !ReferenceEquals(context.Pawn, pawn))
                 return true;
 
-            Pawn pawn = __args.Length > 0 ? __args[0] as Pawn : null;
-            Thing thing = __args.Length > 1 ? __args[1] as Thing : null;
-            if (pawn == null || thing == null || context.Pawn == null || !ReferenceEquals(context.Pawn, pawn))
-                return true;
-
-            bool forced = __args.Length > 2 && __args[2] is bool && (bool)__args[2];
             Interlocked.Increment(ref thingObserved);
 
-            MethodParityState parity = GetParityState(__originalMethod);
+            MethodParityState parity = GetParityState(method);
             if (parity.Disabled)
             {
                 Interlocked.Increment(ref disabledMethodBypass);
                 return true;
             }
 
-            BucketKey bucketKey = new BucketKey(__originalMethod, __instance, forced);
-            ThingBucket bucket;
-            if (!context.ThingBuckets.TryGetValue(bucketKey, out bucket))
-            {
-                bucket = new ThingBucket();
-                context.ThingBuckets.Add(bucketKey, bucket);
+            bool created;
+            ThingBucket bucket = context.GetBucket(method, giver, forced, out created);
+            if (created)
                 Interlocked.Increment(ref thingBucketCreates);
-            }
 
             bool cached;
             if (!bucket.Results.TryGetValue(thing, out cached))
             {
                 Interlocked.Increment(ref thingMisses);
-                __state.Context = context;
-                __state.Bucket = bucket;
-                __state.Thing = thing;
-                __state.Method = __originalMethod;
-                __state.Store = context.TotalThingEntries < MaxThingEntriesPerPackage &&
+                state.Context = context;
+                state.Bucket = bucket;
+                state.Thing = thing;
+                state.Method = method;
+                state.Store = context.TotalThingEntries < MaxThingEntriesPerPackage &&
                     bucket.Results.Count < MaxThingEntriesPerBucket;
-                if (!__state.Store)
+                if (!state.Store)
                     Interlocked.Increment(ref thingCapBypass);
                 return true;
             }
@@ -303,18 +370,18 @@ namespace RimMT
             if (verify)
             {
                 Interlocked.Increment(ref thingVerifyRuns);
-                __state.Context = context;
-                __state.Bucket = bucket;
-                __state.Thing = thing;
-                __state.Method = __originalMethod;
-                __state.Parity = parity;
-                __state.Verify = true;
-                __state.Cached = cached;
+                state.Context = context;
+                state.Bucket = bucket;
+                state.Thing = thing;
+                state.Method = method;
+                state.Parity = parity;
+                state.Verify = true;
+                state.Cached = cached;
                 return true;
             }
 
-            __result = cached;
-            __state.AuthoritativeHit = true;
+            result = cached;
+            state.AuthoritativeHit = true;
             return false;
         }
 
@@ -337,7 +404,7 @@ namespace RimMT
                     Interlocked.Increment(ref thingMismatches);
                     if (Interlocked.Increment(ref mismatchLogs) <= 8)
                     {
-                        Log.Warning("[RimMT] V0.4.19-JS1.1 Lean HasJobOnThing parity mismatch; caching disabled for " +
+                        Log.Warning("[RimMT] V0.4.19-JS1.2.1 Lean Hybrid HasJobOnThing parity mismatch; caching disabled for " +
                             __state.Method + ". cached=" + __state.Cached + ", live=" + __result +
                             ". Vanilla is authoritative for this sample and all future calls to that method.");
                     }
@@ -466,17 +533,24 @@ namespace RimMT
             Interlocked.Increment(ref orderStores);
         }
 
-        private static bool IsSupportedHasThing(MethodInfo method)
+        private static bool IsSupportedHasThing(MethodInfo method, out int parameterCount)
         {
+            parameterCount = 0;
             if (method == null || method.IsAbstract || method.ContainsGenericParameters || method.ReturnType != typeof(bool) ||
                 !string.Equals(method.Name, "HasJobOnThing", StringComparison.Ordinal))
                 return false;
 
             ParameterInfo[] p = method.GetParameters();
-            return (p.Length == 2 || p.Length == 3) &&
+            if ((p.Length == 2 || p.Length == 3) &&
                 p[0].ParameterType == typeof(Pawn) &&
                 typeof(Thing).IsAssignableFrom(p[1].ParameterType) &&
-                (p.Length == 2 || p[2].ParameterType == typeof(bool));
+                (p.Length == 2 || p[2].ParameterType == typeof(bool)))
+            {
+                parameterCount = p.Length;
+                return true;
+            }
+
+            return false;
         }
 
         private static MethodParityState GetParityState(MethodBase method)
@@ -559,7 +633,7 @@ namespace RimMT
                     disabled++;
             }
 
-            return "JobPackage-local search V0.4.19-JS1.1 Lean: patched(scope/hasThing/global/reachable)=" +
+            return "JobPackage-local search V0.4.19-JS1.2.1 Lean Hybrid: patched(scope/hasThing/global/reachable)=" +
                 scopePatched + "/" + patchedHasThingQueries + "/" + globalHookPatched + "/" + reachableHookPatched +
                 ", patchFailures=" + patchFailures +
                 ", packages=" + Interlocked.Read(ref packages) +
@@ -574,6 +648,8 @@ namespace RimMT
                 ", disabledBypass=" + Interlocked.Read(ref disabledMethodBypass) +
                 ", capBypass=" + Interlocked.Read(ref thingCapBypass) +
                 ", bucketCreates=" + Interlocked.Read(ref thingBucketCreates) +
+                ", bucketFastHits=" + bucketFastHits +
+                ", context(create/reuse/return)=" + contextCreates + "/" + contextReuseHits + "/" + contextReturns +
                 ", maxThingEntries=" + Interlocked.Read(ref maxThingEntries) +
                 ", maxBuckets=" + Interlocked.Read(ref maxThingBuckets) +
                 ", maxBucketEntries=" + Interlocked.Read(ref maxThingBucketEntries) +
@@ -584,7 +660,7 @@ namespace RimMT
                 ", orderMutationBypass=" + Interlocked.Read(ref orderMutationBypass) +
                 ", orderCapBypass=" + Interlocked.Read(ref orderCapBypass) +
                 ", maxOrderEntries=" + Interlocked.Read(ref maxOrderEntries) +
-                ". Lifetime is one synchronous JobPackage. Pawn is implicit in the package scope; Thing lookups are bucketed by method/giver/forced. JS1 nearest-order key semantics are unchanged.";
+                ". Lifetime is one synchronous JobPackage. JS1.1 store behavior is restored: no admission gate and no ThingBucket Dictionary pool/clear pass. Only the light PackageContext/top-level dictionaries are reused; JS1 nearest-order key semantics are unchanged.";
         }
 
         internal struct PackageScope
@@ -621,14 +697,79 @@ namespace RimMT
 
         internal sealed class PackageContext
         {
-            internal readonly Pawn Pawn;
+            internal Pawn Pawn;
             internal readonly Dictionary<BucketKey, ThingBucket> ThingBuckets = new Dictionary<BucketKey, ThingBucket>(32);
             internal readonly Dictionary<OrderKey, OrderedEntry> Ordered = new Dictionary<OrderKey, OrderedEntry>(16);
             internal int TotalThingEntries;
 
-            internal PackageContext(Pawn pawn)
+            private MethodBase lastMethod;
+            private WorkGiver lastGiver;
+            private bool lastForced;
+            private ThingBucket lastBucket;
+
+            internal void Begin(Pawn pawn)
             {
+                // Normally EndPackage has already cleaned the top-level containers. If a prior
+                // unusual exception path left residue, clear only those small top-level maps.
+                if (Pawn != null || ThingBuckets.Count != 0 || Ordered.Count != 0)
+                    EndPackage();
+
                 Pawn = pawn;
+                TotalThingEntries = 0;
+                ResetLastBucket();
+            }
+
+            internal ThingBucket GetBucket(MethodBase method, WorkGiver giver, bool forced, out bool created)
+            {
+                if (lastBucket != null && ReferenceEquals(lastMethod, method) &&
+                    ReferenceEquals(lastGiver, giver) && lastForced == forced)
+                {
+                    bucketFastHits++;
+                    created = false;
+                    return lastBucket;
+                }
+
+                BucketKey key = new BucketKey(method, giver, forced);
+                ThingBucket bucket;
+                if (!ThingBuckets.TryGetValue(key, out bucket))
+                {
+                    // Intentionally allocate a fresh ThingBucket exactly like JS1.1. We do NOT
+                    // pool or synchronously clear the potentially-thousands-entry Results map.
+                    bucket = new ThingBucket();
+                    ThingBuckets.Add(key, bucket);
+                    created = true;
+                }
+                else
+                {
+                    created = false;
+                }
+
+                lastMethod = method;
+                lastGiver = giver;
+                lastForced = forced;
+                lastBucket = bucket;
+                return bucket;
+            }
+
+            internal void EndPackage()
+            {
+                ResetLastBucket();
+
+                // This clears only ~dozens/low-hundreds of BucketKey -> ThingBucket references.
+                // Each ThingBucket.Results dictionary is NOT cleared; after this reference drop
+                // it becomes GC-eligible, preserving JS1.1's allocation/cleanup behavior.
+                ThingBuckets.Clear();
+                Ordered.Clear();
+                Pawn = null;
+                TotalThingEntries = 0;
+            }
+
+            private void ResetLastBucket()
+            {
+                lastMethod = null;
+                lastGiver = null;
+                lastForced = false;
+                lastBucket = null;
             }
         }
 
