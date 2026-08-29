@@ -47,6 +47,13 @@ jobs:
           ./GUCC-1.5-Backport/Apply_15_Backport.ps1 -ModRoot 'GUCC-1.5-Backport/work'
           ./GUCC-1.5-Backport/Fix_15_JobDriverAccess.ps1 -ModRoot 'GUCC-1.5-Backport/work'
 
+      - name: Upload patched source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: GUCC-1.5-Patched-Source
+          path: GUCC-1.5-Backport/work/Source
+          if-no-files-found: error
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -71,7 +78,7 @@ jobs:
           $src = 'GUCC-1.5-Backport\work'
           $stage = 'build\GUCC_1.5_Backport'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          foreach ($dir in @('About','Defs','Sounds','1.5')) {
+          foreach ($dir in @('About','Defs','Sounds','Languages','1.5')) {
             if (Test-Path "$src\$dir") { Copy-Item "$src\$dir" $stage -Recurse -Force }
           }
           if (Test-Path "$src\README_1.5_BACKPORT.txt") { Copy-Item "$src\README_1.5_BACKPORT.txt" $stage }
