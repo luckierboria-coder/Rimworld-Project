@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (V0.4.19-JS1 keeps the V0.4.18.2 validated worker cap; JobPackage-local reuse is main-thread synchronous and never waits on workers)");
+                ", workerCap=8 (JS1.1R keeps the validated JS1.1 worker cap; JobPackage-local reuse is main-thread synchronous and never waits on workers)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -66,7 +66,7 @@ namespace RimMT
                     ", tickListProbe=" + RuntimeCompatibility.ButterTickListProbeDescription);
             }
 
-            sb.AppendLine("Policy: aggressive hotspot parallelism / sampled parity + fuse / main-thread mutable-state commit");
+            sb.AppendLine("Policy: JS1.1 Lean performance baseline / embedded rolling ReachProfile safety / main-thread mutable-state commit");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
                 ", sampleSource=" + AdaptiveLoadBalancer.SampleSource +
                 ", EMA ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
@@ -95,9 +95,10 @@ namespace RimMT
             sb.AppendLine(BroadGenClosestOrder0418.Summary());
             sb.AppendLine(JobGiverGlobalNearest04181.Summary());
             sb.AppendLine(JobPackageLocalSearch0419.Summary());
+            sb.AppendLine("JR1/JR1.1 Regionwise experiments: RETIRED; no Regionwise or global Region.Allows accelerator is installed in JS1.1R.");
             sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED in V0.4.19-JS1; no cross-package candidate-plan capture/scheduling is installed.");
             sb.AppendLine(AggressiveReachabilityProfiles.Summary());
-            sb.AppendLine("Reach-profile V0.4.18.2 aggressive policy retained: sampled positive authority ENABLED; warmup, shadow sampling, per-profile cooldown and global mismatch fuse remain active.");
+            sb.AppendLine("ReachProfile JS1.1R policy: prediction/build behavior unchanged; rolling 8192/8 soft fuse, 3600-frame live cooldown, 256-clean forced-shadow probation, 16/256 emergency hard fuse. No extra Reachability Harmony wrapper.");
             sb.AppendLine(ParallelRegionConnectivity.Summary());
             sb.AppendLine(ParallelWorkPrefilter.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
