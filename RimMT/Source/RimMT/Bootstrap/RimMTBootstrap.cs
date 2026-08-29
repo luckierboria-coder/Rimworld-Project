@@ -30,8 +30,7 @@ namespace RimMT
                 JobGiverGlobalNearest04181.Apply(harmony);
                 JobGiverSlowSearch0419S.Apply(harmony);
 
-                // JS1.1S1 keeps the validated JS1.1R JobPackage baseline. The only changed search
-                // behavior from JS1.1S is lowering selective ClosestThingReachable admission to 256.
+                // JD2 is diagnostic-only and keeps JS1.1S1 gameplay behavior unchanged.
                 JobPackageLocalSearch0419.Apply(harmony);
 
                 // ReachProfile prediction/build behavior and the embedded rolling fuse are
@@ -45,7 +44,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1.1S1 Slow Search 256 initialized from validated JS1.1S. Ordinary JobPackages remain on JS1.1R. JobGiver-owned ClosestThingReachable calls with >=256 live ThingRequest candidates may use the selective nearest-first live-validator/live-CanReach path; 128-255 candidate sources are telemetry-only. JR1/JR1.1 remain absent and ReachProfile rolling-fuse behavior is unchanged.");
+                Log.Message("[RimMT] V0.4.19-JS1.1S1-JD2 TailTrace initialized from JS1.1S1 Slow Search 256. Gameplay search behavior is unchanged from S1.1; JD2 only arms a one-shot bounded tail capture after the first >=64ms JobGiver package. Temporary detail detours auto-remove after 8 slow packages or 128 total captured packages.");
             }
             catch (Exception ex)
             {
