@@ -41,6 +41,12 @@ namespace RimMT
 
         public static void Suppress(string id, string reason)
         {
+            // JR1 replaces only the old ReachProfile lifetime-16 parity fuse. All other
+            // suppressions (compatibility failures, circuit breakers and the JR1 emergency hard
+            // fuse) retain normal FeatureGate semantics.
+            if (ReachProfileRollingFuse0419.InterceptLegacySuppress(id, reason))
+                return;
+
             lock (Sync)
             {
                 FeatureState state;
