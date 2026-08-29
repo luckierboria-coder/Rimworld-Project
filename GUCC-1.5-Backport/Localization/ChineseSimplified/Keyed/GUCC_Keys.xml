@@ -1,0 +1,171 @@
+<?xml version='1.0' encoding='utf-8'?>
+<LanguageData>
+  <GUCC_AutoForm_Desc>自动将骑兵成员分配到适合当前阵型的位置。</GUCC_AutoForm_Desc>
+  <GUCC_AutoForm_Label>自动编队</GUCC_AutoForm_Label>
+  <GUCC_AutoForm_NoChange>当前阵型的成员分配已经有效，无需调整。</GUCC_AutoForm_NoChange>
+  <GUCC_AutoForm_Result>已自动补充 {0} 组骑手与坐骑。</GUCC_AutoForm_Result>
+  <GUCC_CancelCharge_Desc>取消当前骑兵冲锋。</GUCC_CancelCharge_Desc>
+  <GUCC_CancelCharge_Label>取消冲锋</GUCC_CancelCharge_Label>
+  <GUCC_CancelFormationCharge_Desc>取消当前协同编队冲锋。</GUCC_CancelFormationCharge_Desc>
+  <GUCC_CancelFormationCharge_Label>取消编队冲锋</GUCC_CancelFormationCharge_Label>
+  <GUCC_CavalryCharge>骑兵冲锋</GUCC_CavalryCharge>
+  <GUCC_CavalryRally>骑兵集结</GUCC_CavalryRally>
+  <GUCC_ChargeHorn>冲锋号</GUCC_ChargeHorn>
+  <GUCC_Charge_Desc>绘制路线并发动骑兵冲锋。</GUCC_Charge_Desc>
+  <GUCC_Charge_Label>冲锋</GUCC_Charge_Label>
+  <GUCC_Commander_Label>指挥官</GUCC_Commander_Label>
+  <GUCC_DefaultTemplateName>骑兵编制模板 {0}</GUCC_DefaultTemplateName>
+  <GUCC_DefaultUnitName>第 {0} 骑兵队</GUCC_DefaultUnitName>
+  <GUCC_Dropout_BiologicalWall>无法继续穿过目标。</GUCC_Dropout_BiologicalWall>
+  <GUCC_Dropout_CollisionSlowdown>连续碰撞导致冲锋动量损失过大。</GUCC_Dropout_CollisionSlowdown>
+  <GUCC_Dropout_CombatIncapable>无法进行战斗。</GUCC_Dropout_CombatIncapable>
+  <GUCC_Dropout_CommanderMovingCapacity>指挥官坐骑已无法正常移动。</GUCC_Dropout_CommanderMovingCapacity>
+  <GUCC_Dropout_ControlLost>已失去冲锋控制。</GUCC_Dropout_ControlLost>
+  <GUCC_Dropout_Dead>已经死亡。</GUCC_Dropout_Dead>
+  <GUCC_Dropout_Dismounted>已经离开坐骑。</GUCC_Dropout_Dismounted>
+  <GUCC_Dropout_Downed>已经倒地。</GUCC_Dropout_Downed>
+  <GUCC_Dropout_Invalid>无效的骑兵成员。</GUCC_Dropout_Invalid>
+  <GUCC_Dropout_Lag>与编队距离过远，已经掉队。</GUCC_Dropout_Lag>
+  <GUCC_Dropout_MapSeparated>已与编队处于不同地图。</GUCC_Dropout_MapSeparated>
+  <GUCC_Dropout_MentalState>进入精神状态。</GUCC_Dropout_MentalState>
+  <GUCC_Dropout_MovingCapacity>坐骑已无法正常移动。</GUCC_Dropout_MovingCapacity>
+  <GUCC_Dropout_OrderChanged>当前命令已经改变。</GUCC_Dropout_OrderChanged>
+  <GUCC_Dropout_PathBlocked>冲锋路线被阻断。</GUCC_Dropout_PathBlocked>
+  <GUCC_Dropout_Unknown>未知原因。</GUCC_Dropout_Unknown>
+  <GUCC_Dropout_Wall>撞上了不可通行的障碍物。</GUCC_Dropout_Wall>
+  <GUCC_Error_AllMembersRequired>所有现役骑兵成员都必须就绪才能执行此命令。</GUCC_Error_AllMembersRequired>
+  <GUCC_Error_AlreadyInUnit>该骑手已经属于一个骑兵单位。</GUCC_Error_AlreadyInUnit>
+  <GUCC_Error_BadStart>无法从所选位置开始冲锋。</GUCC_Error_BadStart>
+  <GUCC_Error_BodySizeMismatch>该骑兵队要求坐骑体型为 {0}，但所选坐骑体型为 {1}。</GUCC_Error_BodySizeMismatch>
+  <GUCC_Error_ChargeAlreadyActive>当前已经有骑兵冲锋正在进行。</GUCC_Error_ChargeAlreadyActive>
+  <GUCC_Error_CombatIncapable>该角色无法进行战斗。</GUCC_Error_CombatIncapable>
+  <GUCC_Error_CombatIncapableAssignment>无法将不能战斗的角色编入骑兵单位。</GUCC_Error_CombatIncapableAssignment>
+  <GUCC_Error_CommanderAlignmentFailed>指挥官无法接受精确起始位置命令，因此编队冲锋已取消。</GUCC_Error_CommanderAlignmentFailed>
+  <GUCC_Error_CommanderBodySizeMismatch>按照当前骑兵标准，指挥官坐骑体型必须在 {0} 到 {1} 之间；所选坐骑体型为 {2}。</GUCC_Error_CommanderBodySizeMismatch>
+  <GUCC_Error_FormationAlignmentFailed>骑兵无法完成阵型对齐。</GUCC_Error_FormationAlignmentFailed>
+  <GUCC_Error_FormationChanged>冲锋开始前阵型已经发生变化。</GUCC_Error_FormationChanged>
+  <GUCC_Error_FormationRouteInvalid>所选路线不适合当前阵型。</GUCC_Error_FormationRouteInvalid>
+  <GUCC_Error_InvalidCommanderSlot>指挥官必须位于有效的指挥官阵位。</GUCC_Error_InvalidCommanderSlot>
+  <GUCC_Error_InvalidMount>所选角色不是 Giddy-Up 可用坐骑。</GUCC_Error_InvalidMount>
+  <GUCC_Error_InvalidPair>该骑手与坐骑组合无效。</GUCC_Error_InvalidPair>
+  <GUCC_Error_MountMovingCapacity>坐骑的移动能力为 {0}%，低于要求的 {1}%。</GUCC_Error_MountMovingCapacity>
+  <GUCC_Error_MountMovingCapacityMember>{0} 的坐骑 {1} 移动能力为 {2}%，低于要求的 {3}%。</GUCC_Error_MountMovingCapacityMember>
+  <GUCC_Error_NoStamina>冲锋耐力不足。</GUCC_Error_NoStamina>
+  <GUCC_Error_NotCommander>只有骑兵指挥官可以下达此命令。</GUCC_Error_NotCommander>
+  <GUCC_Error_NotDrafted>骑手必须先被征召。</GUCC_Error_NotDrafted>
+  <GUCC_Error_NotDraftedMountedCommander>指挥官必须处于征召并骑乘状态。</GUCC_Error_NotDraftedMountedCommander>
+  <GUCC_Error_NotEnoughAlignmentJobs>接受精确编队对齐命令的骑兵组合不足两组，因此冲锋已取消。</GUCC_Error_NotEnoughAlignmentJobs>
+  <GUCC_Error_NotEnoughMembers>骑兵单位成员数量不足。</GUCC_Error_NotEnoughMembers>
+  <GUCC_Error_NotEnoughReadyMembers>就绪的骑兵成员数量不足。</GUCC_Error_NotEnoughReadyMembers>
+  <GUCC_Error_NotMounted>骑手必须先上马。</GUCC_Error_NotMounted>
+  <GUCC_Error_PathBlocked>冲锋路线被阻挡。</GUCC_Error_PathBlocked>
+  <GUCC_Error_RallyJobsFailed>能够接受集结命令的完整骑兵组合不足两组。</GUCC_Error_RallyJobsFailed>
+  <GUCC_Error_RallyMemberFailed>{0} 无法接受集结命令，因此整支骑兵队的集结已取消。
+原因：{1}</GUCC_Error_RallyMemberFailed>
+  <GUCC_Error_RegularBodySizeOutsideCommanderPrivilege>当指挥官坐骑体型为 {0} 时，第一匹普通坐骑体型必须在 {1} 到 {0} 之间；所选坐骑体型为 {2}。</GUCC_Error_RegularBodySizeOutsideCommanderPrivilege>
+  <GUCC_Error_RiderMustBeHumanlike>骑手必须是人形生物。</GUCC_Error_RiderMustBeHumanlike>
+  <GUCC_Error_TargetSlotOccupied>所需阵位已被占用。</GUCC_Error_TargetSlotOccupied>
+  <GUCC_Error_TemplateCommanderUnavailable>保存的指挥官（{0}）当前不可用，或已经加入其他骑兵队。</GUCC_Error_TemplateCommanderUnavailable>
+  <GUCC_Error_TemplateMissing>该骑兵编制模板已经不存在。</GUCC_Error_TemplateMissing>
+  <GUCC_Error_TemplateRestoreFailed>无法重组该骑兵编制。</GUCC_Error_TemplateRestoreFailed>
+  <GUCC_Error_TooShort>冲锋距离太短，至少需要 {0} 格。</GUCC_Error_TooShort>
+  <GUCC_Error_UnitFull>一支骑兵队最多可编入 {0} 对骑手与坐骑。</GUCC_Error_UnitFull>
+  <GUCC_Error_UnitMemberSolo>已经编入骑兵单位的成员不能使用单骑冲锋命令。</GUCC_Error_UnitMemberSolo>
+  <GUCC_Error_UnitNotRallied>骑兵单位尚未完成集结。</GUCC_Error_UnitNotRallied>
+  <GUCC_Error_UnitSizeOccupied>无法把编制缩减到 {1} 人，因为第 {0} 阵位仍有成员。</GUCC_Error_UnitSizeOccupied>
+  <GUCC_FormationButton_WithDamage>{0}
+预计伤害 {1}–{2}</GUCC_FormationButton_WithDamage>
+  <GUCC_FormationCharge_Desc>命令已集结的骑兵队以{0}发动编队冲锋。每名成员沿各自偏移路线前进，并独立处理碰撞、减速和脱队。</GUCC_FormationCharge_Desc>
+  <GUCC_FormationCharge_Label>编队冲锋</GUCC_FormationCharge_Label>
+  <GUCC_FormationDamage_CommanderOnlyTooltip>以骑兵队同步最高速度撞击体型 1 目标时、护甲减免前的预计伤害。
+指挥官：{0}–{1}
+较低值仅计算碰撞伤害；较高值假设坐骑最强的可用攻击也命中。不包含骑手武器伤害。</GUCC_FormationDamage_CommanderOnlyTooltip>
+  <GUCC_FormationDamage_Tooltip>以骑兵队同步最高速度撞击体型 1 目标时、护甲减免前的预计伤害。
+普通骑兵平均：{0}–{1}
+指挥官：{2}–{3}
+较低值仅计算碰撞伤害；较高值假设坐骑最强的可用攻击也命中。不包含骑手武器伤害。</GUCC_FormationDamage_Tooltip>
+  <GUCC_FormationStamina_Charging_Desc>本次编队冲锋锁定的共享耐力。当前：{0}；最大：{1}。冲锋中有成员脱队时，该最大值不会重新跳变。</GUCC_FormationStamina_Charging_Desc>
+  <GUCC_FormationStamina_Charging_Label>编队冲锋耐力</GUCC_FormationStamina_Charging_Label>
+  <GUCC_FormationStamina_Desc>当前 {0} 组完整现役骑手与坐骑的平均耐力。平均当前耐力：{1}；平均最大耐力：{2}。脱队成员不计入。</GUCC_FormationStamina_Desc>
+  <GUCC_FormationStamina_Label>编队耐力</GUCC_FormationStamina_Label>
+  <GUCC_FormationTargeting_Help>先选择编队冲锋起点，再拖动绘制冲锋路线。</GUCC_FormationTargeting_Help>
+  <GUCC_Formation_Basic>基本阵型</GUCC_Formation_Basic>
+  <GUCC_Formation_Label>阵型</GUCC_Formation_Label>
+  <GUCC_Formation_Line>横列阵</GUCC_Formation_Line>
+  <GUCC_Formation_Wedge>楔形阵</GUCC_Formation_Wedge>
+  <GUCC_HamstrokHornCharge>号角激励冲锋</GUCC_HamstrokHornCharge>
+  <GUCC_JobReport>正在冲锋</GUCC_JobReport>
+  <GUCC_Manager_ActiveUnits>现役骑兵队</GUCC_Manager_ActiveUnits>
+  <GUCC_Manager_CreateUnit>新建骑兵队</GUCC_Manager_CreateUnit>
+  <GUCC_Manager_Desc>管理多支骑兵队、各队指挥官、编制人数和已保存的骑兵编制模板。</GUCC_Manager_Desc>
+  <GUCC_Manager_Label>骑兵管理</GUCC_Manager_Label>
+  <GUCC_Manager_Manage>管理</GUCC_Manager_Manage>
+  <GUCC_Manager_MissingCommander>指挥官不可用</GUCC_Manager_MissingCommander>
+  <GUCC_Manager_NoActiveUnits>当前没有现役骑兵队。</GUCC_Manager_NoActiveUnits>
+  <GUCC_Manager_NoCommanderCandidates>当前没有符合条件且未加入其他骑兵队的殖民者可担任指挥官。</GUCC_Manager_NoCommanderCandidates>
+  <GUCC_Manager_NoTemplates>当前没有已保存的骑兵编制模板。</GUCC_Manager_NoTemplates>
+  <GUCC_Manager_TemplateAvailability>原编制可用组合：{0}/{1}  |  可用骑手：{2}  |  可用坐骑：{3}</GUCC_Manager_TemplateAvailability>
+  <GUCC_Manager_TemplateSummary>保存的指挥官：{0}  |  编制：{1}人  |  阵型：{2}</GUCC_Manager_TemplateSummary>
+  <GUCC_Manager_Templates>已保存编制</GUCC_Manager_Templates>
+  <GUCC_Manager_Title>骑兵管理</GUCC_Manager_Title>
+  <GUCC_Manager_UnitDisbanded>{0} 已解散。已保存的编制模板不会被删除。</GUCC_Manager_UnitDisbanded>
+  <GUCC_Manager_UnitSummary>指挥官：{0}  |  成员：{1}/{2}  |  阵型：{3}</GUCC_Manager_UnitSummary>
+  <GUCC_Message_CommanderChargeStopped>指挥官 {0} 的冲锋已经终止。
+原因：{1}</GUCC_Message_CommanderChargeStopped>
+  <GUCC_Message_CommanderDroppedNoSuccessor>指挥官 {0} 已脱离骑兵队。
+原因：{1}
+没有符合条件的继任者，因此编队冲锋已取消。</GUCC_Message_CommanderDroppedNoSuccessor>
+  <GUCC_Message_CommanderDroppedNoSuccessorIdle>指挥官 {0} 已脱离骑兵队。
+原因：{1}
+没有符合条件的继任者。再次集结前请指定或恢复一名指挥官。</GUCC_Message_CommanderDroppedNoSuccessorIdle>
+  <GUCC_Message_CommanderReassigned>指挥官 {0} 已脱离骑兵队。
+原因：{1}
+新指挥官：{2}</GUCC_Message_CommanderReassigned>
+  <GUCC_Message_MemberDropped>{0} 与 {1} 已脱离骑兵队。
+原因：{2}</GUCC_Message_MemberDropped>
+  <GUCC_Message_MissingMount>有骑兵成员失去了有效的指定坐骑。</GUCC_Message_MissingMount>
+  <GUCC_Message_RosterRemoved>{0} 与 {1} 已从骑兵编制中移除。
+原因：{2}</GUCC_Message_RosterRemoved>
+  <GUCC_RallyFailure_JobRejected>集结任务被拒绝。</GUCC_RallyFailure_JobRejected>
+  <GUCC_RallyFailure_NoCell>找不到有效的集结位置。</GUCC_RallyFailure_NoCell>
+  <GUCC_RallyHorn>集结号</GUCC_RallyHorn>
+  <GUCC_RallyJobReport>正在随骑兵集结</GUCC_RallyJobReport>
+  <GUCC_Rally_Desc>让骑兵向指挥官集结、骑上指定坐骑并进入阵型位置。</GUCC_Rally_Desc>
+  <GUCC_Rally_Label>集结</GUCC_Rally_Label>
+  <GUCC_SetCommander>设为指挥官</GUCC_SetCommander>
+  <GUCC_Stamina_Desc>坐骑储存的骑兵冲锋耐力。当前骑手的驯兽技能（{0}）与近战技能（{1}）总和决定最大耐力 {2}。技能总和 15 时为 100 点，40 时为 500 点。冲锋后的 3 秒延迟与战斗后的 10 秒延迟两者取较晚者结束后，每秒恢复最大值的 2%。</GUCC_Stamina_Desc>
+  <GUCC_Stamina_Label>冲锋耐力</GUCC_Stamina_Label>
+  <GUCC_Targeting_Dragging>冲锋距离：{0} / 耐力消耗：{1}</GUCC_Targeting_Dragging>
+  <GUCC_Targeting_Help>先选择冲锋起点，再拖动鼠标绘制路线。</GUCC_Targeting_Help>
+  <GUCC_Template_CommanderReplacementHint>原指挥官（{0}）当前不可用。重组时将要求选择新的指挥官。</GUCC_Template_CommanderReplacementHint>
+  <GUCC_Template_Delete>删除</GUCC_Template_Delete>
+  <GUCC_Template_Deleted>已删除骑兵编制：{0}</GUCC_Template_Deleted>
+  <GUCC_Template_RestoreAuto>重组并补员</GUCC_Template_RestoreAuto>
+  <GUCC_Template_RestoreExact>精确重组</GUCC_Template_RestoreExact>
+  <GUCC_Template_Restored>已重组 {0}：当前完整骑兵组合 {1}/{2}。</GUCC_Template_Restored>
+  <GUCC_Template_Save>保存编制</GUCC_Template_Save>
+  <GUCC_Template_Saved>已保存骑兵编制：{0}</GUCC_Template_Saved>
+  <GUCC_Template_Update>更新编制</GUCC_Template_Update>
+  <GUCC_Template_Updated>已更新骑兵编制：{0}</GUCC_Template_Updated>
+  <GUCC_UnitManage_CreateDesc>以当前选中的骑手为指挥官创建新的骑兵单位。</GUCC_UnitManage_CreateDesc>
+  <GUCC_UnitManage_Desc>打开骑兵单位管理窗口。</GUCC_UnitManage_Desc>
+  <GUCC_UnitManage_Label>骑兵单位</GUCC_UnitManage_Label>
+  <GUCC_UnitName_Label>队名</GUCC_UnitName_Label>
+  <GUCC_UnitSize_Label>编制：{0}</GUCC_UnitSize_Label>
+  <GUCC_UnitWindow_ActiveRoster>现役成员</GUCC_UnitWindow_ActiveRoster>
+  <GUCC_UnitWindow_CombatIncapableCandidate>{0}
+（无法暴力）</GUCC_UnitWindow_CombatIncapableCandidate>
+  <GUCC_UnitWindow_CommanderPrivilegeRange>{0}～{1}（指挥官特权）</GUCC_UnitWindow_CommanderPrivilegeRange>
+  <GUCC_UnitWindow_Disband>解散单位</GUCC_UnitWindow_Disband>
+  <GUCC_UnitWindow_DropMount>移除坐骑</GUCC_UnitWindow_DropMount>
+  <GUCC_UnitWindow_DropRider>移除骑手</GUCC_UnitWindow_DropRider>
+  <GUCC_UnitWindow_DropoutReason>原因：{0}</GUCC_UnitWindow_DropoutReason>
+  <GUCC_UnitWindow_Dropouts>脱队成员</GUCC_UnitWindow_Dropouts>
+  <GUCC_UnitWindow_EditingLocked>集结或冲锋期间无法编辑骑兵名册。</GUCC_UnitWindow_EditingLocked>
+  <GUCC_UnitWindow_Info>成员：{0}/{1} / 要求坐骑体型：{2}</GUCC_UnitWindow_Info>
+  <GUCC_UnitWindow_MemberSlot>成员 {0}</GUCC_UnitWindow_MemberSlot>
+  <GUCC_UnitWindow_MountCandidates>可选坐骑</GUCC_UnitWindow_MountCandidates>
+  <GUCC_UnitWindow_Pair>{0} 骑乘 {1} / 体型 {2}</GUCC_UnitWindow_Pair>
+  <GUCC_UnitWindow_RiderCandidates>可选骑手</GUCC_UnitWindow_RiderCandidates>
+  <GUCC_UnitWindow_Title>骑兵单位管理</GUCC_UnitWindow_Title>
+</LanguageData>
