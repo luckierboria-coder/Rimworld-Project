@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using System.Threading;
 using HarmonyLib;
@@ -12,6 +13,9 @@ namespace RimMT
     internal static class WorkGiverDetailPatches
     {
         private const int CaptureJobPackages = 32;
+        private const long AutoTriggerMinMainThreadFrames = 600;
+        private static readonly long AutoTriggerThresholdTicks = Math.Max(1L, Stopwatch.Frequency * 64L / 1000L);
+
         private static readonly HashSet<string> TargetNames = new HashSet<string>(StringComparer.Ordinal)
         {
             "ShouldSkip",
@@ -31,16 +35,44 @@ namespace RimMT
         private static bool candidatesDiscovered;
         private static int active;
         private static int stopRequested;
+        private static int autoStartRequested;
+        private static int autoTriggered;
+        private static long autoTriggerElapsedTicks;
         private static int patchFailures;
 
         internal static bool CaptureActive { get { return Volatile.Read(ref active) != 0; } }
+        internal static bool AutoTraceArmed { get { return Volatile.Read(ref autoTriggered) == 0 && !CaptureActive; } }
         internal static int PackagesRemaining { get { return WorkGiverProfiler.PackagesRemaining; } }
 
         internal static void Initialize(Harmony owner)
         {
             harmony = owner;
             FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
-            Log.Message("[RimMT] diagnostics.jobGiverDetail V0.4.8 is on-demand. Slow JobPackage traces now include bounded GenClosest, Reachability, RegionTraverser and scanner-enumeration timings; all temporary detours are removed after capture.");
+            Log.Message("[RimMT] JD1 AutoTrace armed on JS1.2.1 Hybrid. After " + AutoTriggerMinMainThreadFrames +
+                " main-thread frames, the first JobGiver package >=64ms arms a 32-package detail capture on the next frame. " +
+                "The slow trigger package itself is not instrumented. Capture includes bounded WorkGiver, GenClosest, Reachability, RegionTraverser and scanner-source timings, then auto-unpatches.");
+        }
+
+        internal static void ObserveJobGiver(long started)
+        {
+            if (started == 0L || !AutoTraceArmed || !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return;
+            if (RimMTRuntime.MainThreadFrames < AutoTriggerMinMainThreadFrames)
+                return;
+
+            long elapsed = Stopwatch.GetTimestamp() - started;
+            if (elapsed < AutoTriggerThresholdTicks)
+                return;
+
+            if (Interlocked.CompareExchange(ref autoTriggered, 1, 0) != 0)
+                return;
+
+            Interlocked.Exchange(ref autoTriggerElapsedTicks, elapsed);
+            Interlocked.Exchange(ref autoStartRequested, 1);
+            Log.Message("[RimMT] JD1 AutoTrace observed slow JobGiver package " +
+                (elapsed * 1000.0 / Stopwatch.Frequency).ToString("F3") +
+                "ms at mainThreadFrame=" + RimMTRuntime.MainThreadFrames +
+                ". Detail capture will start on the next safe main-thread frame for the following " + CaptureJobPackages + " outer packages.");
         }
 
         internal static bool StartCapture()
@@ -52,6 +84,11 @@ namespace RimMT
             {
                 if (CaptureActive)
                     return false;
+
+                // A manual capture also consumes the one-shot auto trigger so the diagnostic build
+                // never installs a second detail session later in the same process.
+                Interlocked.Exchange(ref autoTriggered, 1);
+                Interlocked.Exchange(ref autoStartRequested, 0);
 
                 if (!EnsureCandidates())
                     return false;
@@ -74,7 +111,7 @@ namespace RimMT
                 catch (Exception ex)
                 {
                     FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
-                    Log.Warning("[RimMT] JobGiver detail capture could not patch the package scope. Capture was not started. " + ex.GetType().Name + ": " + ex.Message);
+                    Log.Warning("[RimMT] JD1 detail capture could not patch the package scope. Capture was not started. " + ex.GetType().Name + ": " + ex.Message);
                     return false;
                 }
 
@@ -85,7 +122,14 @@ namespace RimMT
                 Interlocked.Exchange(ref active, 1);
                 FeatureGate.SetEnabled("diagnostics.jobGiverDetail", true);
                 WorkGiverProfiler.StartSession(CaptureJobPackages, patched, patchFailures);
-                Log.Message("[RimMT] JobGiver detail capture V0.4.8 started for up to " + CaptureJobPackages + " outer TryIssueJobPackage calls; temporarily patched " + CandidateMethods.Count + " WorkGiver phase candidates and " + InfrastructureMethods.Count + " infrastructure candidates. It will auto-unpatch when complete.");
+
+                long triggerTicks = Interlocked.Read(ref autoTriggerElapsedTicks);
+                string triggerText = triggerTicks <= 0L ? "manual" :
+                    (triggerTicks * 1000.0 / Stopwatch.Frequency).ToString("F3") + "ms slow-package trigger";
+                Log.Message("[RimMT] JD1 detail capture started (" + triggerText + ") for up to " + CaptureJobPackages +
+                    " outer TryIssueJobPackage calls; temporarily patched " + CandidateMethods.Count +
+                    " WorkGiver phase candidates and " + InfrastructureMethods.Count +
+                    " infrastructure candidates. It will auto-unpatch when complete.");
                 return true;
             }
         }
@@ -101,9 +145,17 @@ namespace RimMT
 
         internal static void OnMainThreadFrame()
         {
-            if (!RimMTThreadGuard.IsMainThread || Interlocked.Exchange(ref stopRequested, 0) == 0)
+            if (!RimMTThreadGuard.IsMainThread)
                 return;
-            StopCaptureNow();
+
+            if (Interlocked.Exchange(ref stopRequested, 0) != 0)
+                StopCaptureNow();
+
+            if (Interlocked.Exchange(ref autoStartRequested, 0) != 0 && !CaptureActive)
+            {
+                if (!StartCapture())
+                    Log.Warning("[RimMT] JD1 AutoTrace was triggered but detail capture could not start. Gameplay remains unchanged.");
+            }
         }
 
         private static int PatchMethods(List<MethodBase> methods, MethodInfo prefixMethod, MethodInfo postfixMethod, string kind)
@@ -123,7 +175,7 @@ namespace RimMT
                 {
                     patchFailures++;
                     if (patchFailures <= 8)
-                        Log.Warning("[RimMT] JobGiver detail capture skipped " + kind + " method " + method + ": " + ex.GetType().Name + ": " + ex.Message);
+                        Log.Warning("[RimMT] JD1 detail capture skipped " + kind + " method " + method + ": " + ex.GetType().Name + ": " + ex.Message);
                 }
             }
             return patched;
@@ -155,12 +207,13 @@ namespace RimMT
                 }
                 catch (Exception ex)
                 {
-                    Log.Warning("[RimMT] JobGiver detail capture unpatch encountered " + ex.GetType().Name + ": " + ex.Message + ". Gameplay remains vanilla-authoritative.");
+                    Log.Warning("[RimMT] JD1 detail capture unpatch encountered " + ex.GetType().Name + ": " + ex.Message + ". Gameplay remains vanilla-authoritative.");
                 }
 
                 WorkGiverProfiler.StopSession();
                 FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
-                Log.Message("[RimMT] JobGiver detail capture V0.4.8 stopped and temporary detours were removed. " + WorkGiverProfiler.Summary(12) + "\n" + JobGiverInfrastructureProfiler.Summary(12));
+                Log.Message("[RimMT] JD1 DETAIL CAPTURE COMPLETE; temporary detours removed. " +
+                    WorkGiverProfiler.Summary(12) + "\n" + JobGiverInfrastructureProfiler.Summary(12));
             }
         }
 
@@ -184,7 +237,7 @@ namespace RimMT
                 jobPackageTarget = AccessTools.Method(typeof(JobGiver_Work), "TryIssueJobPackage", new Type[] { typeof(Pawn), typeof(JobIssueParams) });
                 if (jobPackageTarget == null)
                 {
-                    Log.Warning("[RimMT] JobGiver detail capture unavailable: JobGiver_Work.TryIssueJobPackage was not found.");
+                    Log.Warning("[RimMT] JD1 detail capture unavailable: JobGiver_Work.TryIssueJobPackage was not found.");
                     return false;
                 }
 
@@ -193,7 +246,7 @@ namespace RimMT
             }
             catch (Exception ex)
             {
-                Log.Warning("[RimMT] JobGiver detail candidate discovery failed: " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] JD1 detail candidate discovery failed: " + ex.GetType().Name + ": " + ex.Message);
                 return false;
             }
 
