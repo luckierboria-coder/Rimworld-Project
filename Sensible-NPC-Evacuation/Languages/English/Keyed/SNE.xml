@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <SNE_SettingsCategory>Sensible NPC Evacuation</SNE_SettingsCategory>
+  <SNE_SearchRadius>Rescue search radius: {0} cells</SNE_SearchRadius>
+  <SNE_SearchRadiusDesc>Maximum casualty search radius. While panic-fleeing, the effective radius can be reduced by the rescuer's health.</SNE_SearchRadiusDesc>
+  <SNE_RescueOnDeparture>Rescue during normal departure</SNE_RescueOnDeparture>
+  <SNE_RescueOnDepartureDesc>Friendly/neutral NPCs already leaving the map may pick up a nearby downed member of their own group.</SNE_RescueOnDepartureDesc>
+  <SNE_DepartureChance>Normal departure rescue chance: {0}%</SNE_DepartureChance>
+  <SNE_RescueWhileFleeing>Rescue while panic-fleeing</SNE_RescueWhileFleeing>
+  <SNE_RescueWhileFleeingDesc>When friendly/neutral NPCs panic-flee, they may attempt to take a nearby downed comrade with them.</SNE_RescueWhileFleeingDesc>
+  <SNE_FleeChance>Panic-flee rescue chance: {0}%</SNE_FleeChance>
+  <SNE_MinFleeHealth>Minimum rescuer health while fleeing: {0}%</SNE_MinFleeHealth>
+  <SNE_MinFleeHealthDesc>Below this health percentage, a fleeing pawn prioritizes its own survival and will not attempt a rescue.</SNE_MinFleeHealthDesc>
+  <SNE_ScaleFleeRadius>Reduce flee rescue radius by rescuer health</SNE_ScaleFleeRadius>
+  <SNE_ScaleFleeRadiusDesc>Wounded rescuers become less willing to detour. Effective flee radius = configured radius × rescuer health.</SNE_ScaleFleeRadiusDesc>
+  <SNE_RescueAnimals>Allow rescuing downed group animals</SNE_RescueAnimals>
+  <SNE_RescueAnimalsDesc>Humanlike casualties are always prioritized first. Animals are only considered if no valid humanlike casualty is found.</SNE_RescueAnimalsDesc>
+  <SNE_DebugLogging>Debug rescue decisions</SNE_DebugLogging>
+  <SNE_DebugLoggingDesc>Writes rescue decisions to the log. Normally keep this disabled.</SNE_DebugLoggingDesc>
+</LanguageData>
