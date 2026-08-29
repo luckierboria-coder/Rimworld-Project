@@ -77,7 +77,6 @@
                 FieldInfo[] fields = modType.GetFields(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 foreach (FieldInfo field in fields)
                 {
-                    object holder = field.IsStatic ? null : null;
                     object value = null;
                     try { if (field.IsStatic) value = field.GetValue(null); } catch { }
                     if (value == null) continue;
