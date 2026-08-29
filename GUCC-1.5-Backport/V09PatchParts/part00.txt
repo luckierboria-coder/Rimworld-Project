@@ -1,0 +1,190 @@
+diff --git a/Core/CavalryTemplatePairRecord.cs b/Core/CavalryTemplatePairRecord.cs
+new file mode 100644
+index 0000000..a2fa2f2
+--- /dev/null
++++ b/Core/CavalryTemplatePairRecord.cs
+@@ -0,0 +1,56 @@
++using Verse;
++
++namespace GiddyUpCavalryCharge
++{
++
++public sealed class CavalryTemplatePairRecord : IExposable
++{
++    public int slotIndex = -1;
++    public string riderLoadId;
++    public string riderLabel;
++    public string mountLoadId;
++    public string mountLabel;
++
++    public CavalryTemplatePairRecord()
++    {
++    }
++
++    public CavalryTemplatePairRecord(int slotIndex, Pawn rider, Pawn mount)
++    {
++        this.slotIndex = slotIndex;
++        CaptureRider(rider);
++        CaptureMount(mount);
++    }
++
++    public void CaptureRider(Pawn pawn)
++    {
++        riderLoadId = pawn != null && !pawn.Destroyed ? pawn.GetUniqueLoadID() : null;
++        riderLabel = pawn != null ? pawn.LabelShortCap : null;
++    }
++
++    public void CaptureMount(Pawn pawn)
++    {
++        mountLoadId = pawn != null && !pawn.Destroyed ? pawn.GetUniqueLoadID() : null;
++        mountLabel = pawn != null ? pawn.LabelShortCap : null;
++    }
++
++    public bool HasRiderSnapshot
++    {
++        get { return !string.IsNullOrEmpty(riderLoadId) || !string.IsNullOrEmpty(riderLabel); }
++    }
++
++    public bool HasMountSnapshot
++    {
++        get { return !string.IsNullOrEmpty(mountLoadId) || !string.IsNullOrEmpty(mountLabel); }
++    }
++
++    public void ExposeData()
++    {
++        Scribe_Values.Look(ref slotIndex, "slotIndex", -1);
++        Scribe_Values.Look(ref riderLoadId, "riderLoadId");
++        Scribe_Values.Look(ref riderLabel, "riderLabel");
++        Scribe_Values.Look(ref mountLoadId, "mountLoadId");
++        Scribe_Values.Look(ref mountLabel, "mountLabel");
++    }
++}
++}
+diff --git a/Core/CavalryUnitRecord.cs b/Core/CavalryUnitRecord.cs
+index 9955420..4c55783 100644
+--- a/Core/CavalryUnitRecord.cs
++++ b/Core/CavalryUnitRecord.cs
+@@ -8,6 +8,9 @@ namespace GiddyUpCavalryCharge
+ public sealed class CavalryUnitRecord : IExposable
+ {
+     public int id;
++    public string name;
++    public int targetSize = ChargeConstants.DefaultCavalryUnitSize;
++    public int sourceTemplateId;
+     // Retained for save compatibility. The actual commander is always slot 0's rider.
+     public Pawn commander;
+     public CavalryFormationType formation = CavalryFormationType.Basic;
+@@ -27,6 +30,45 @@ public sealed class CavalryUnitRecord : IExposable
+     {
+         this.id = id;
+         this.commander = commander;
++        targetSize = ChargeConstants.DefaultCavalryUnitSize;
++    }
++
++    public int TargetSize
++    {
++        get
++        {
++            return Mathf.Clamp(
++                targetSize <= 0 ? ChargeConstants.DefaultCavalryUnitSize : targetSize,
++                ChargeConstants.MinimumCavalryMembers,
++                ChargeConstants.MaximumCavalryMembers);
++        }
++    }
++
++    public string DisplayName
++    {
++        get
++        {
++            return !string.IsNullOrEmpty(name)
++                ? name
++                : "GUCC_DefaultUnitName".Translate(id).ToString();
++        }
++    }
++
++    public int HighestOccupiedSlotIndex
++    {
++        get
++        {
++            var highest = -1;
++            if (members == null)
++                return highest;
++            for (var i = 0; i < members.Count; i++)
++            {
++                var pair = members[i];
++                if (pair != null && !pair.IsEmpty && pair.slotIndex > highest)
++                    highest = pair.slotIndex;
++            }
++            return highest;
++        }
+     }
+ 
+     public CavalryPairRecord CommanderPair
+@@ -259,6 +301,9 @@ public sealed class CavalryUnitRecord : IExposable
+     public void ExposeData()
+     {
+         Scribe_Values.Look(ref id, "id", 0);
++        Scribe_Values.Look(ref name, "name");
++        Scribe_Values.Look(ref targetSize, "targetSize", 0);
++        Scribe_Values.Look(ref sourceTemplateId, "sourceTemplateId", 0);
+         Scribe_References.Look(ref commander, "commander");
+         Scribe_Values.Look(ref formation, "formation", CavalryFormationType.Basic);
+         Scribe_Collections.Look(ref members, "members", LookMode.Deep);
+@@ -274,7 +319,29 @@ public sealed class CavalryUnitRecord : IExposable
+             rallyRotation = new Rot4(rallyRotationInt);
+ 
+         if (Scribe.mode == LoadSaveMode.PostLoadInit)
++        {
+             NormalizeSlots();
++            if (targetSize <= 0)
++            {
++                var migrated = CompleteMemberCount > 0
++                    ? Mathf.Max(CompleteMemberCount, ChargeConstants.MinimumCavalryMembers)
++                    : ChargeConstants.DefaultCavalryUnitSize;
++                targetSize = Mathf.Clamp(
++                    migrated,
++                    ChargeConstants.MinimumCavalryMembers,
++                    ChargeConstants.MaximumCavalryMembers);
++            }
++            else
++            {
++                targetSize = TargetSize;
++            }
++
++            // Never hide an occupied legacy slot after migration.
++            if (HighestOccupiedSlotIndex >= targetSize)
++                targetSize = Mathf.Min(
++                    ChargeConstants.MaximumCavalryMembers,
++                    HighestOccupiedSlotIndex + 1);
++        }
+     }
+ }
+ }
+diff --git a/Core/CavalryUnitTemplateRecord.cs b/Core/CavalryUnitTemplateRecord.cs
+new file mode 100644
+index 0000000..76a6b86
+--- /dev/null
++++ b/Core/CavalryUnitTemplateRecord.cs
+@@ -0,0 +1,84 @@
++using System.Collections.Generic;
++using UnityEngine;
++using Verse;
++
++namespace GiddyUpCavalryCharge
++{
++
++public sealed class CavalryUnitTemplateRecord : IExposable
++{
++    public int id;
++    public string name;
++    public int targetSize = ChargeConstants.DefaultCavalryUnitSize;
++    public CavalryFormationType formation = CavalryFormationType.Basic;
++    public List<CavalryTemplatePairRecord> members = new List<CavalryTemplatePairRecord>();
++    public int revision = 1;
++
++    public CavalryUnitTemplateRecord()
++    {
++    }
++
++    public CavalryUnitTemplateRecord(int id)
++    {
