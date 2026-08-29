@@ -49,13 +49,21 @@ namespace RimMT
 
         public static void JobGiverPrefix(ref long __state)
         {
-            __state = FeatureGate.IsEnabled("diagnostics.hotPaths") ? HotPathProfiler.Begin() : 0L;
+            // JD2 reuses the resident JobGiver timer for its one-shot >=64ms trigger. This keeps
+            // the diagnostic build free of an additional permanent JobGiver detour.
+            bool observe = FeatureGate.IsEnabled("diagnostics.hotPaths") || WorkGiverDetailPatches.AutoTraceArmed;
+            __state = observe ? Stopwatch.GetTimestamp() : 0L;
         }
 
         public static void JobGiverPostfix(long __state)
         {
-            if (__state != 0L)
+            if (__state == 0L)
+                return;
+
+            if (FeatureGate.IsEnabled("diagnostics.hotPaths"))
                 HotPathProfiler.End("JobGiver_Work.TryIssueJobPackage", __state);
+
+            WorkGiverDetailPatches.ObserveJobGiver(__state);
         }
     }
 }
