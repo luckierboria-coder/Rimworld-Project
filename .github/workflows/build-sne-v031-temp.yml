@@ -1,0 +1,51 @@
+name: Build SNE v0.3.1 temp
+
+on:
+  push:
+    branches: [ compile-sne-v031 ]
+    paths:
+      - 'Sensible-NPC-Evacuation/**'
+      - '.github/workflows/build-sne-v031-temp.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore RimWorld 1.5.4063 references
+        run: dotnet restore Sensible-NPC-Evacuation/Source/SensibleNPCEvacuation/SensibleNPCEvacuation.csproj
+
+      - name: Build Release
+        run: dotnet build Sensible-NPC-Evacuation/Source/SensibleNPCEvacuation/SensibleNPCEvacuation.csproj --configuration Release --no-restore
+
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dll = 'Sensible-NPC-Evacuation/1.5/Assemblies/SensibleNPCEvacuation.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package compiled mod
+        shell: pwsh
+        run: |
+          $stage = 'build/Sensible_NPC_Evacuation'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'Sensible-NPC-Evacuation/About' $stage -Recurse
+          Copy-Item 'Sensible-NPC-Evacuation/Languages' $stage -Recurse
+          Copy-Item 'Sensible-NPC-Evacuation/1.5' $stage -Recurse
+          Copy-Item 'Sensible-NPC-Evacuation/LoadFolders.xml' $stage
+          Compress-Archive -Path $stage -DestinationPath 'build/Sensible_NPC_Evacuation_v0.3.1_Compiled.zip' -Force
+
+      - name: Upload compiled mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sensible-NPC-Evacuation-v0.3.1-Compiled
+          path: build/Sensible_NPC_Evacuation_v0.3.1_Compiled.zip
+          if-no-files-found: error
