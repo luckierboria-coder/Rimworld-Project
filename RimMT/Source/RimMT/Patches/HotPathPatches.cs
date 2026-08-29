@@ -49,13 +49,21 @@ namespace RimMT
 
         public static void JobGiverPrefix(ref long __state)
         {
-            __state = FeatureGate.IsEnabled("diagnostics.hotPaths") ? HotPathProfiler.Begin() : 0L;
+            // JD1 reuses this already-resident hot-path timer as the slow-package trigger.
+            // No second permanent Harmony detour is installed merely to arm detail capture.
+            bool observe = FeatureGate.IsEnabled("diagnostics.hotPaths") || WorkGiverDetailPatches.AutoTraceArmed;
+            __state = observe ? Stopwatch.GetTimestamp() : 0L;
         }
 
         public static void JobGiverPostfix(long __state)
         {
-            if (__state != 0L)
+            if (__state == 0L)
+                return;
+
+            if (FeatureGate.IsEnabled("diagnostics.hotPaths"))
                 HotPathProfiler.End("JobGiver_Work.TryIssueJobPackage", __state);
+
+            WorkGiverDetailPatches.ObserveJobGiver(__state);
         }
     }
 }
