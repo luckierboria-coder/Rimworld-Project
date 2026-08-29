@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (JS1.1S keeps the validated JS1.1R worker cap; selective slow-search is synchronous main-thread work and never waits on workers)");
+                ", workerCap=8 (JS1.1S1 keeps the validated JS1.1R worker cap; selective slow-search is synchronous main-thread work and never waits on workers)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -66,7 +66,7 @@ namespace RimMT
                     ", tickListProbe=" + RuntimeCompatibility.ButterTickListProbeDescription);
             }
 
-            sb.AppendLine("Policy: JS1.1R stable baseline / selective >=512-candidate JobGiver slow-search acceleration / embedded rolling ReachProfile safety / main-thread mutable-state commit");
+            sb.AppendLine("Policy: JS1.1R stable baseline / JS1.1S1 selective >=256-candidate JobGiver slow-search acceleration / 128-255 source telemetry / embedded rolling ReachProfile safety / main-thread mutable-state commit");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
                 ", sampleSource=" + AdaptiveLoadBalancer.SampleSource +
                 ", EMA ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
@@ -96,10 +96,10 @@ namespace RimMT
             sb.AppendLine(JobGiverGlobalNearest04181.Summary());
             sb.AppendLine(JobGiverSlowSearch0419S.Summary());
             sb.AppendLine(JobPackageLocalSearch0419.Summary());
-            sb.AppendLine("JR1/JR1.1 Regionwise experiments: RETIRED; no Regionwise or global Region.Allows accelerator is installed in JS1.1S.");
+            sb.AppendLine("JR1/JR1.1 Regionwise experiments: RETIRED; no Regionwise or global Region.Allows accelerator is installed in JS1.1S1.");
             sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED in V0.4.19-JS1; no cross-package candidate-plan capture/scheduling is installed.");
             sb.AppendLine(AggressiveReachabilityProfiles.Summary());
-            sb.AppendLine("ReachProfile JS1.1R/JS1.1S policy: prediction/build behavior unchanged; rolling 8192/8 soft fuse, 3600-frame live cooldown, 256-clean forced-shadow probation, 16/256 emergency hard fuse. No extra Reachability Harmony wrapper.");
+            sb.AppendLine("ReachProfile JS1.1R/JS1.1S/JS1.1S1 policy: prediction/build behavior unchanged; rolling 8192/8 soft fuse, 3600-frame live cooldown, 256-clean forced-shadow probation, 16/256 emergency hard fuse. No extra Reachability Harmony wrapper.");
             sb.AppendLine(ParallelRegionConnectivity.Summary());
             sb.AppendLine(ParallelWorkPrefilter.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
