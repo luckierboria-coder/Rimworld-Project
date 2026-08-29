@@ -29,22 +29,22 @@ namespace RimMT
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
 
-                // JS1.1 Lean preserves the successful JS1 nearest-order semantics, but
-                // narrows boolean memoization to a bucketed HasJobOnThing cache only.
+                // JS1.1R deliberately returns to the validated JS1.1 Lean JobGiver baseline.
+                // No JR1/JR1.1 Regionwise or global Region.Allows experiment is installed.
                 JobPackageLocalSearch0419.Apply(harmony);
 
+                // ReachProfile prediction/build behavior is unchanged from JS1.1. Only the
+                // lifetime mismatch fuse is replaced in-place by the rolling safety state machine.
                 AggressiveReachabilityProfiles.Apply(harmony);
 
-                // V0.4.15 RegionHint is retired in JS1.1 Lean. Long-run JS2 telemetry saw
-                // 157k observations for only 11 accelerations, so its worker snapshots and
-                // Harmony surface are not justified. ReachProfile remains the connectivity path.
+                // V0.4.15 RegionHint remains retired due near-zero long-run yield.
                 // ParallelRegionConnectivity.Apply(harmony); intentionally not installed.
 
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1.1 Lean initialized from the successful JS1 baseline. JS1 nearest-order reuse is preserved unchanged. ShouldSkip and HasJobOnCell memoization are removed; HasJobOnThing uses a lighter per-method/giver bucket so Pawn/Method/Giver are not re-hashed for every Thing target. ParallelRegionConnectivity/RegionHint is retired due near-zero yield. ReachProfile authority, WorkPrefilter, haul accelerators and Path shadow policy remain unchanged.");
+                Log.Message("[RimMT] V0.4.19-JS1.1R Rolling Fuse initialized from the validated JS1.1 Lean baseline. JR1/JR1.1 Regionwise and global Region.Allows experiments are absent. JS1 nearest-order and HasJobOnThing behavior are unchanged. ReachProfile prediction/build semantics are unchanged; only its lifetime-16 mismatch fuse is replaced in-place by rolling 8192/8 soft fuse, 3600-frame live cooldown, 256-clean forced-shadow probation and 16/256 emergency hard fuse. No extra Reachability Harmony wrapper is installed.");
             }
             catch (Exception ex)
             {
