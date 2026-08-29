@@ -48,7 +48,8 @@ namespace RimMT
             FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
             FeatureGate.Register("parallel.jobPartition", true, "V0.4.14 persistent-map-fabric GenClosest accelerator; Vanilla live validation/final authority retained");
             FeatureGate.Register(JobPackageLocalSearch0419.FeatureId, true, "V0.4.19-JS1.2.1 Lean Hybrid: JS1.1 HasJobOnThing cache behavior + typed prefix + last-bucket fast path + light PackageContext reuse");
-            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "V0.4.16 sampled per-Pawn Region connectivity profiles; bounded-risk CanReach bypass with parity fuse");
+            FeatureGate.Register(JobPackageRegionAllows0419.FeatureId, true, "V0.4.19-JR1 one-JobPackage Region.Allows memo for repeated Regionwise JobGiver traversal predicates; live-first sampled parity");
+            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "V0.4.19-JR1 per-Pawn Region connectivity profiles; rolling soft fuse + cooldown/probation recovery + emergency hard fuse");
             FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "RETIRED in JS1.1+: near-zero-yield V0.4.15 RegionHint worker graph");
             FeatureGate.Register(ParallelWorkPrefilter.FeatureId, true, "V0.4.17 worker-side read-only Grower/Harvest/BuildRoof negative prefilter with sampled false-negative fuse");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
@@ -72,6 +73,7 @@ namespace RimMT
             FeatureGate.SetEnabled("parallel.haulGlobal", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled("parallel.jobPartition", settings.WorkScanAcceleration);
             FeatureGate.SetEnabled(JobPackageLocalSearch0419.FeatureId, settings.WorkScanAcceleration);
+            FeatureGate.SetEnabled(JobPackageRegionAllows0419.FeatureId, settings.WorkScanAcceleration);
             FeatureGate.SetEnabled(AggressiveReachabilityProfiles.FeatureId, settings.WorkScanAcceleration);
             FeatureGate.SetEnabled(ParallelRegionConnectivity.FeatureId, false);
             FeatureGate.SetEnabled(ParallelWorkPrefilter.FeatureId, settings.WorkScanAcceleration);
@@ -113,6 +115,7 @@ namespace RimMT
                 HaulWorkAccelerator.MarkCompatibilityReady();
                 GlobalHaulAccelerator.MarkCompatibilityReady();
                 AdaptiveGenClosestAssist.MarkCompatibilityReady();
+                JobPackageRegionAllows0419.MarkCompatibilityReady();
                 AggressiveReachabilityProfiles.MarkCompatibilityReady();
                 // RegionHint is intentionally retired/off in JS1.1+.
                 ParallelWorkPrefilter.MarkCompatibilityReady();
