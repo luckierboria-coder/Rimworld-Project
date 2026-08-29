@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace RimMT
 {
@@ -6,6 +8,22 @@ namespace RimMT
     {
         private static readonly object Sync = new object();
         private static readonly Dictionary<string, FeatureState> States = new Dictionary<string, FeatureState>();
+
+        // JR1.1 rolling ReachProfile safety needs a cheap per-thread way to make one live
+        // Reachability.CanReach call bypass profile authority without mutating the persistent
+        // feature setting or patching AggressiveReachabilityProfiles.Prefix itself.
+        [ThreadStatic] private static int reachProfileForceDisableDepth;
+
+        internal static void PushReachProfileForceDisable()
+        {
+            reachProfileForceDisableDepth++;
+        }
+
+        internal static void PopReachProfileForceDisable()
+        {
+            if (reachProfileForceDisableDepth > 0)
+                reachProfileForceDisableDepth--;
+        }
 
         public static void Register(string id, bool enabledByDefault, string description)
         {
@@ -32,6 +50,10 @@ namespace RimMT
 
         public static bool IsEnabled(string id)
         {
+            if (reachProfileForceDisableDepth > 0 &&
+                string.Equals(id, AggressiveReachabilityProfiles.FeatureId, StringComparison.Ordinal))
+                return false;
+
             lock (Sync)
             {
                 FeatureState state;
@@ -41,9 +63,9 @@ namespace RimMT
 
         public static void Suppress(string id, string reason)
         {
-            // JR1 replaces only the old ReachProfile lifetime-16 parity fuse. All other
-            // suppressions (compatibility failures, circuit breakers and the JR1 emergency hard
-            // fuse) retain normal FeatureGate semantics.
+            // JR1.1 replaces only the old ReachProfile lifetime-16 parity fuse. All other
+            // suppressions (compatibility failures, circuit breakers and emergency hard fuse)
+            // retain normal FeatureGate semantics.
             if (ReachProfileRollingFuse0419.InterceptLegacySuppress(id, reason))
                 return;
 
