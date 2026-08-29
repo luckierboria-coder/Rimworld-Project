@@ -29,26 +29,24 @@ namespace RimMT
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
 
-                // JS1.2.1 Lean Hybrid keeps JS1.1 cache/store behavior plus the validated typed
-                // HasJobOnThing prefix, last-bucket fast path and light context reuse.
                 JobPackageLocalSearch0419.Apply(harmony);
 
-                // JR1 directly targets the JD1-confirmed RegionTraverser hotspot without caching
-                // traversal/search results: only repeated Region.Allows predicates inside one
-                // synchronous JobPackage are memoized and parity sampled.
+                // JR1 performance-first response to JD1: cache the exact Region BFS order for
+                // repeated RegionwiseBFSWorker searches inside one JobPackage, then layer a very
+                // cheap Region.Allows memo under it. WorkGiver validators remain live.
+                JobPackageRegionwiseCache0419.Apply(harmony);
                 JobPackageRegionAllows0419.Apply(harmony);
 
                 AggressiveReachabilityProfiles.Apply(harmony);
 
-                // V0.4.15 RegionHint remains retired. ReachProfile is the connectivity authority;
-                // JR1 also replaces the lifetime mismatch fuse with rolling soft/hard safety.
+                // V0.4.15 RegionHint remains retired.
                 // ParallelRegionConnectivity.Apply(harmony); intentionally not installed.
 
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JR1 initialized from JS1.2.1 Lean Hybrid. JD1 identified ClosestThingReachable -> RegionTraverser as the dominant JobGiver hotspot, so JR1 adds one-JobPackage Region.Allows memoization with live-first sampled parity. ReachProfile now uses a rolling soft fuse/cooldown/probation recovery plus an emergency hard fuse instead of lifetime mismatch accumulation. JS1 nearest-order, HasJobOnThing behavior, WorkPrefilter, haul accelerators, Path shadow and Vanilla final authority remain unchanged.");
+                Log.Message("[RimMT] V0.4.19-JR1 Aggressive initialized from JS1.2.1 Lean Hybrid. JD1 identified ClosestThingReachable -> RegionTraverser as the dominant JobGiver hotspot. JR1 now reuses exact Regionwise BFS order within a JobPackage and memoizes repeated Region.Allows predicates underneath it; WorkGiver validators/candidates stay live. ReachProfile rolling-fuse stability is included. JS1 nearest-order, HasJobOnThing behavior, WorkPrefilter, haul accelerators and Path shadow remain enabled.");
             }
             catch (Exception ex)
             {
