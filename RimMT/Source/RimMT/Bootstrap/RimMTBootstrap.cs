@@ -28,13 +28,14 @@ namespace RimMT
                 AdaptiveGenClosestAssist.Apply(harmony);
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
+                JobGiverSlowSearch0419S.Apply(harmony);
 
-                // JS1.1R deliberately returns to the validated JS1.1 Lean JobGiver baseline.
-                // No JR1/JR1.1 Regionwise or global Region.Allows experiment is installed.
+                // JS1.1S keeps the validated JS1.1R JobPackage baseline. The only new search
+                // behavior is selective large-source ClosestThingReachable replacement.
                 JobPackageLocalSearch0419.Apply(harmony);
 
-                // ReachProfile prediction/build behavior is unchanged from JS1.1. Only the
-                // lifetime mismatch fuse is replaced in-place by the rolling safety state machine.
+                // ReachProfile prediction/build behavior and the embedded rolling fuse are
+                // unchanged from JS1.1R.
                 AggressiveReachabilityProfiles.Apply(harmony);
 
                 // V0.4.15 RegionHint remains retired due near-zero long-run yield.
@@ -44,7 +45,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1.1R Rolling Fuse initialized from the validated JS1.1 Lean baseline. JR1/JR1.1 Regionwise and global Region.Allows experiments are absent. JS1 nearest-order and HasJobOnThing behavior are unchanged. ReachProfile prediction/build semantics are unchanged; only its lifetime-16 mismatch fuse is replaced in-place by rolling 8192/8 soft fuse, 3600-frame live cooldown, 256-clean forced-shadow probation and 16/256 emergency hard fuse. No extra Reachability Harmony wrapper is installed.");
+                Log.Message("[RimMT] V0.4.19-JS1.1S Slow Search initialized from JS1.1R. Ordinary JobPackages remain on the validated JS1.1R path. Only JobGiver-owned ClosestThingReachable calls with >=512 live ThingRequest candidates may use the selective nearest-first live-validator/live-CanReach path to bypass RegionTraverser tail spikes. JR1/JR1.1 Regionwise and global Region.Allows experiments remain absent. ReachProfile rolling fuse behavior is unchanged from JS1.1R.");
             }
             catch (Exception ex)
             {
