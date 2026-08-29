@@ -23,15 +23,27 @@ namespace RimMT
                 RimMTPatches.Apply(harmony);
                 PathGridInvalidation.ApplyBulkGuard(harmony);
                 PathSnapshotSafetyPatches.Apply(harmony);
+                SafePathClassTelemetry0418.Apply(harmony);
                 WorkGiverDetailPatches.Initialize(harmony);
                 AdaptiveGenClosestAssist.Apply(harmony);
+                BroadGenClosestOrder0418.Apply(harmony);
+                JobGiverGlobalNearest04181.Apply(harmony);
+
+                // V0.4.19-JS1 replaces the low-yield cross-package V0.4.18.2 async
+                // candidate-plan experiment with a strictly synchronous JobPackage-local
+                // cache. No cache survives TryIssueJobPackage and no worker wait exists.
+                JobPackageLocalSearch0419.Apply(harmony);
+
                 AggressiveReachabilityProfiles.Apply(harmony);
+                // V0.4.18.2 deliberately does not install ReachProfileSafety0418.
+                // The V0.4.16 profile's own warmup, sampled parity, per-profile cooldown and
+                // global mismatch fuse remain the validated reachability authority path.
                 ParallelRegionConnectivity.Apply(harmony);
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.17.2 Work-prefilter compatibility playtest initialized. V0.4.17 asynchronous Work hard-negative prefiltering is retained; V0.4.17.1 exact Humanoid Alien Races Harvest coexistence remains active, while V0.4.17.2 adds source-reviewed ReGrowth Core GrowerSow coexistence. In Biomes/ReGrowth restricted Sow mode workers never execute GrowthSeasonNow, so modded per-plant/shared-static season semantics remain live Vanilla main-thread authority. Watchtowers BuildRoof stays fail-closed. Workers never create jobs, reserve targets or mutate game state. Aggressive Reachability, scheduler fan-out, Harmony census, persistent map search, hauling accelerators, path shadow validation and Butter++ logical-tick barriers are retained.");
+                Log.Message("[RimMT] V0.4.19-JS1 initialized from the V0.4.18.2 stable baseline. JobGiver boolean queries and nearest-first source ordering may now be reused only inside one synchronous TryIssueJobPackage call. ShouldSkip/HasJobOnThing/HasJobOnCell cache hits are parity-sampled and fuse only the offending method on mismatch. JobOnThing/JobOnCell, Jobs, reservations, mutable Verse state and Unity state remain main-thread Vanilla-authoritative. Cross-package AsyncJobCandidatePlan04182 is retired in this build; Path worker remains shadow-only.");
             }
             catch (Exception ex)
             {

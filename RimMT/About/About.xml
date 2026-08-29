@@ -4,8 +4,13 @@
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
-  <modDependencies><li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li></modDependencies>
-  <loadAfter><li>brrainz.harmony</li><li>blue.adaptivetps</li></loadAfter>
-  <loadBefore><li>olli.butterplusplus</li></loadBefore>
-  <description>RimMT V0.4.17.2 extends the bounded-risk parallel Work prefilter compatibility layer for the tested large mod environment. Humanoid Alien Races GrowerHarvest remains source-reviewed as downstream true-to-false authority. GrowerSow now supports exact Biomes! Core and ReGrowth Core JobOnCell season-context patches in restricted mode: workers do not execute PlantUtility.GrowthSeasonNow at all for Sow classification, avoiding Biomes/ReGrowth shared-static or main-thread-maintained season state while retaining safe NoDesiredPlant and SameDesiredPlantPresent hard negatives. Live Vanilla JobOnCell remains authoritative for all growth-season decisions. Watchtowers BuildRoof remains fail-closed pending source review. Workers never create Jobs, reserve targets or mutate Pawn/Thing/Map state. V0.4.16 aggressive Reachability, Harmony census, persistent map search, hauling accelerators, path shadow validation and Butter++ logical-tick barriers are retained.</description>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT V0.4.19-JS1 is an experimental JobGiver stutter-reduction build for RimWorld 1.5, based directly on the validated V0.4.18.2 aggressive baseline. JT1 profiling showed repeated JobGiver_Work calls spending most of their long-tail time in GenClosest.ClosestThingReachable, ClosestThing_Global and repeated WorkGiver boolean predicates. JS1 therefore adds a cache whose lifetime is strictly one synchronous TryIssueJobPackage call. Exact ShouldSkip, HasJobOnThing and HasJobOnCell results may be reused for the same WorkGiver, Pawn and target; early and periodic cache hits are re-run through Vanilla and a mismatch disables only that method. V0.4.18.1 nearest-first candidate ordering can also be reused inside the same package. JobOnThing/JobOnCell, Job creation, reservations and mutable game state are never cached. The low-yield V0.4.18.2 cross-package async candidate-plan experiment is retired in this build. ReachProfile behavior remains the validated V0.4.18.2 path and Path worker results remain shadow-only.</description>
 </ModMetaData>
