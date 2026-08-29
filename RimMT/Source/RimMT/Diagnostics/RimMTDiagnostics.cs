@@ -32,7 +32,7 @@ namespace RimMT
             JobScheduler scheduler = RimMTRuntime.Scheduler;
             sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
                 ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (JR1 keeps the validated worker cap; Regionwise/Region.Allows caches are synchronous JobPackage-local accelerators and never wait on workers)");
+                ", workerCap=8 (JR1.1 keeps the validated worker cap; learned Regionwise reuse is synchronous JobPackage-local work and never waits on workers)");
             if (scheduler != null)
             {
                 sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
@@ -66,7 +66,7 @@ namespace RimMT
                     ", tickListProbe=" + RuntimeCompatibility.ButterTickListProbeDescription);
             }
 
-            sb.AppendLine("Policy: performance-first JobGiver hotspot reduction / live validators / rolling ReachProfile safety / main-thread mutable-state commit");
+            sb.AppendLine("Policy: performance-first learned Regionwise reuse / live candidates+validators / rolling ReachProfile safety / main-thread mutable-state commit");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
                 ", sampleSource=" + AdaptiveLoadBalancer.SampleSource +
                 ", EMA ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
@@ -96,11 +96,11 @@ namespace RimMT
             sb.AppendLine(JobGiverGlobalNearest04181.Summary());
             sb.AppendLine(JobPackageLocalSearch0419.Summary());
             sb.AppendLine(JobPackageRegionwiseCache0419.Summary());
-            sb.AppendLine(JobPackageRegionAllows0419.Summary());
+            sb.AppendLine("JobPackage Region.Allows JR1: RETIRED in JR1.1; no global Region.Allows Harmony detour is installed. Destination permission reuse is internal to the hot Regionwise path.");
             sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED since V0.4.19-JS1; no cross-package candidate-plan capture/scheduling is installed.");
             sb.AppendLine(AggressiveReachabilityProfiles.Summary());
             sb.AppendLine(ReachProfileRollingFuse0419.Summary());
-            sb.AppendLine("ReachProfile JR1 policy: legacy lifetime-16 fuse intercepted; rolling 8192-sample soft fuse, 3600-frame forced-live cooldown, 256-clean-sample probation and 16/256 emergency hard fuse active.");
+            sb.AppendLine("ReachProfile JR1.1 policy: legacy lifetime-16 fuse intercepted; rolling 8192/8 soft fuse, 3600-frame live cooldown, 256-clean-native-shadow probation, 16/256 emergency hard fuse. No self-patching of AggressiveReachabilityProfiles methods.");
             sb.AppendLine(ParallelRegionConnectivity.Summary());
             sb.AppendLine(ParallelWorkPrefilter.Summary());
             sb.AppendLine(PathGridInvalidation.Summary());
