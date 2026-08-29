@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+  <JobDef>
+    <defName>SNE_PickUpDownedAlly</defName>
+    <driverClass>SensibleNPCEvacuation.JobDriver_PickUpDownedAlly</driverClass>
+    <reportString>Picking up TargetA.</reportString>
+  </JobDef>
+</Defs>
