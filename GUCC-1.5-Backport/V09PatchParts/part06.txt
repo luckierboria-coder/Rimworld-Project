@@ -1,0 +1,190 @@
++            new Rect(rect.x + 8f, rect.y + 31f, 440f, 20f),
++            "GUCC_Manager_TemplateSummary".Translate(
++                commanderLabel,
++                template.TargetSize,
++                CavalryFormationUtility.Label(template.formation)));
++        Widgets.Label(
++            new Rect(rect.x + 8f, rect.y + 52f, 440f, 20f),
++            "GUCC_Manager_TemplateAvailability".Translate(
++                completePairs,
++                template.TargetSize,
++                riders,
++                mounts));
++        Text.Font = GameFont.Small;
++
++        var buttonWidth = 118f;
++        var gap = 6f;
++        var right = rect.xMax - 8f;
++        var deleteRect = new Rect(right - 92f, rect.y + 23f, 92f, 30f);
++        right -= 98f;
++        var autoRect = new Rect(right - buttonWidth, rect.y + 23f, buttonWidth, 30f);
++        right -= buttonWidth + gap;
++        var restoreRect = new Rect(right - buttonWidth, rect.y + 23f, buttonWidth, 30f);
++
++        if (Widgets.ButtonText(restoreRect, "GUCC_Template_RestoreExact".Translate()))
++            BeginRestore(template, false);
++        if (Widgets.ButtonText(autoRect, "GUCC_Template_RestoreAuto".Translate()))
++            BeginRestore(template, true);
++        if (Widgets.ButtonText(deleteRect, "GUCC_Template_Delete".Translate()))
++        {
++            ChargeWorldComponent.Current.DeleteTemplate(template);
++            Messages.Message(
++                "GUCC_Template_Deleted".Translate(template.DisplayName),
++                MessageTypeDefOf.NeutralEvent,
++                false);
++        }
++
++        if (!commanderAvailable)
++            TooltipHandler.TipRegion(
++                restoreRect,
++                "GUCC_Template_CommanderReplacementHint".Translate(commanderLabel));
++    }
++
++    private void BeginRestore(CavalryUnitTemplateRecord template, bool autoFill)
++    {
++        var world = ChargeWorldComponent.Current;
++        var commander = world.GetTemplateCommander(template);
++        if (IsFreeCommander(commander))
++        {
++            RestoreWithCommander(template, null, autoFill);
++            return;
++        }
++
++        ShowReplacementCommanderMenu(template, autoFill);
++    }
++
++    private void RestoreWithCommander(
++        CavalryUnitTemplateRecord template,
++        Pawn replacementCommander,
++        bool autoFill)
++    {
++        CavalryUnitRecord restored;
++        TaggedString reason;
++        if (!ChargeWorldComponent.Current.RestoreTemplate(
++                template,
++                replacementCommander,
++                autoFill,
++                out restored,
++                out reason))
++        {
++            var message = reason.ToString();
++            if (string.IsNullOrEmpty(message))
++                message = "GUCC_Error_TemplateRestoreFailed".Translate();
++            Messages.Message(message, MessageTypeDefOf.RejectInput, false);
++            return;
++        }
++
++        Messages.Message(
++            "GUCC_Template_Restored".Translate(
++                restored.DisplayName,
++                restored.CompleteMemberCount,
++                restored.TargetSize),
++            MessageTypeDefOf.TaskCompletion,
++            false);
++        Find.WindowStack.Add(new Window_CavalryUnit(restored));
++        Close();
++    }
++
++    private void ShowCreateCommanderMenu()
++    {
++        var options = BuildCommanderOptions(null, false);
++        if (options.Count == 0)
++        {
++            Messages.Message(
++                "GUCC_Manager_NoCommanderCandidates".Translate(),
++                MessageTypeDefOf.RejectInput,
++                false);
++            return;
++        }
++        Find.WindowStack.Add(new FloatMenu(options));
++    }
++
++    private void ShowReplacementCommanderMenu(
++        CavalryUnitTemplateRecord template,
++        bool autoFill)
++    {
++        var options = BuildCommanderOptions(template, autoFill);
++        if (options.Count == 0)
++        {
++            Messages.Message(
++                "GUCC_Manager_NoCommanderCandidates".Translate(),
++                MessageTypeDefOf.RejectInput,
++                false);
++            return;
++        }
++        Find.WindowStack.Add(new FloatMenu(options));
++    }
++
++    private List<FloatMenuOption> BuildCommanderOptions(
++        CavalryUnitTemplateRecord template,
++        bool autoFill)
++    {
++        var result = new List<FloatMenuOption>();
++        var candidates = new List<Pawn>();
++        var seen = new HashSet<int>();
++        for (var mapIndex = 0; mapIndex < Find.Maps.Count; mapIndex++)
++        {
++            var pawns = Find.Maps[mapIndex].mapPawns.FreeColonists;
++            for (var i = 0; i < pawns.Count; i++)
++            {
++                var pawn = pawns[i];
++                if (IsFreeCommander(pawn) && seen.Add(pawn.thingIDNumber))
++                    candidates.Add(pawn);
++            }
++        }
++
++        candidates.Sort(delegate(Pawn a, Pawn b)
++        {
++            return string.Compare(
++                a.LabelShort,
++                b.LabelShort,
++                StringComparison.OrdinalIgnoreCase);
++        });
++
++        for (var i = 0; i < candidates.Count; i++)
++        {
++            var captured = candidates[i];
++            if (template == null)
++            {
++                result.Add(new FloatMenuOption(
++                    captured.LabelShortCap,
++                    delegate
++                    {
++                        Pawn mount;
++                        GiddyUpAccess.TryGetAssignedMount(captured, out mount);
++                        var created = ChargeWorldComponent.Current.GetOrCreateUnit(captured, mount);
++                        Find.WindowStack.Add(new Window_CavalryUnit(created));
++                        Close();
++                    }));
++            }
++            else
++            {
++                result.Add(new FloatMenuOption(
++                    captured.LabelShortCap,
++                    delegate { RestoreWithCommander(template, captured, autoFill); }));
++            }
++        }
++        return result;
++    }
++
++    private static bool IsFreeCommander(Pawn pawn)
++    {
++        return pawn != null && !pawn.Destroyed && !pawn.Dead &&
++               pawn.Faction == Faction.OfPlayer &&
++               pawn.RaceProps != null && pawn.RaceProps.Humanlike &&
++               !ChargeUtility.IsCombatIncapable(pawn) &&
++               ChargeWorldComponent.Current.GetUnitFor(pawn) == null;
++    }
++}
++}
+diff --git a/Core/Window_CavalryUnit.cs b/Core/Window_CavalryUnit.cs
+index ed9f5d7..920c929 100644
+--- a/Core/Window_CavalryUnit.cs
++++ b/Core/Window_CavalryUnit.cs
+@@ -51,7 +51,7 @@ internal sealed class Window_CavalryUnit : Window
+ 
+     public override Vector2 InitialSize
+     {
+-        get { return new Vector2(1080f, 790f); }
++        get { return new Vector2(1120f, 850f); }
+     }
