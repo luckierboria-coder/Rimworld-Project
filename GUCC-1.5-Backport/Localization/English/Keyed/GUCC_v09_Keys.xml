@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <GUCC_DefaultUnitName>Cavalry Unit {0}</GUCC_DefaultUnitName>
+  <GUCC_DefaultTemplateName>Cavalry Template {0}</GUCC_DefaultTemplateName>
+  <GUCC_Manager_Label>Cavalry management</GUCC_Manager_Label>
+  <GUCC_Manager_Desc>Manage multiple cavalry units, commanders, target unit sizes, and saved formation templates.</GUCC_Manager_Desc>
+  <GUCC_Manager_Title>Cavalry management</GUCC_Manager_Title>
+  <GUCC_Manager_CreateUnit>Create unit</GUCC_Manager_CreateUnit>
+  <GUCC_Manager_ActiveUnits>Active cavalry units</GUCC_Manager_ActiveUnits>
+  <GUCC_Manager_Templates>Saved unit templates</GUCC_Manager_Templates>
+  <GUCC_Manager_NoActiveUnits>No active cavalry units.</GUCC_Manager_NoActiveUnits>
+  <GUCC_Manager_NoTemplates>No saved cavalry templates.</GUCC_Manager_NoTemplates>
+  <GUCC_Manager_MissingCommander>Commander unavailable</GUCC_Manager_MissingCommander>
+  <GUCC_Manager_UnitSummary>Commander: {0}  |  Members: {1}/{2}  |  Formation: {3}</GUCC_Manager_UnitSummary>
+  <GUCC_Manager_Manage>Manage</GUCC_Manager_Manage>
+  <GUCC_Manager_UnitDisbanded>{0} was disbanded. Saved templates were not deleted.</GUCC_Manager_UnitDisbanded>
+  <GUCC_Manager_TemplateSummary>Saved commander: {0}  |  Target size: {1}  |  Formation: {2}</GUCC_Manager_TemplateSummary>
+  <GUCC_Manager_TemplateAvailability>Original pairs available: {0}/{1}  |  Riders: {2}  |  Mounts: {3}</GUCC_Manager_TemplateAvailability>
+  <GUCC_Manager_NoCommanderCandidates>No eligible free colonist is available to serve as cavalry commander.</GUCC_Manager_NoCommanderCandidates>
+  <GUCC_UnitName_Label>Name</GUCC_UnitName_Label>
+  <GUCC_UnitSize_Label>Target: {0}</GUCC_UnitSize_Label>
+  <GUCC_Error_UnitSizeOccupied>Cannot reduce the unit to {1} members because formation slot {0} is still occupied.</GUCC_Error_UnitSizeOccupied>
+  <GUCC_Template_Save>Save template</GUCC_Template_Save>
+  <GUCC_Template_Saved>Saved cavalry template: {0}</GUCC_Template_Saved>
+  <GUCC_Template_Update>Update template</GUCC_Template_Update>
+  <GUCC_Template_Updated>Updated cavalry template: {0}</GUCC_Template_Updated>
+  <GUCC_Template_RestoreExact>Restore exact</GUCC_Template_RestoreExact>
+  <GUCC_Template_RestoreAuto>Restore + fill</GUCC_Template_RestoreAuto>
+  <GUCC_Template_Delete>Delete</GUCC_Template_Delete>
+  <GUCC_Template_Deleted>Deleted cavalry template: {0}</GUCC_Template_Deleted>
+  <GUCC_Template_CommanderReplacementHint>The saved commander ({0}) is unavailable. Restoring will ask you to choose a replacement commander.</GUCC_Template_CommanderReplacementHint>
+  <GUCC_Template_Restored>Restored {0}: {1}/{2} complete cavalry pairs.</GUCC_Template_Restored>
+  <GUCC_Error_TemplateMissing>The saved cavalry template no longer exists.</GUCC_Error_TemplateMissing>
+  <GUCC_Error_TemplateCommanderUnavailable>The saved commander ({0}) is unavailable or already assigned to another cavalry unit.</GUCC_Error_TemplateCommanderUnavailable>
+  <GUCC_Error_TemplateRestoreFailed>The cavalry template could not be restored.</GUCC_Error_TemplateRestoreFailed>
+</LanguageData>
