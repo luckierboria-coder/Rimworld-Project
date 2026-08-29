@@ -66,6 +66,45 @@ jobs:
           }
           finally { Pop-Location }
 
+      - name: Apply bilingual localization and v0.9 metadata
+        shell: pwsh
+        run: |
+          $modRoot = 'GUCC-1.5-Backport\work'
+          $locRoot = 'GUCC-1.5-Backport\Localization'
+          foreach ($lang in @('English','ChineseSimplified')) {
+            $source = Join-Path $locRoot $lang
+            if (Test-Path $source) {
+              $dest = Join-Path "$modRoot\Languages" $lang
+              New-Item -ItemType Directory -Force -Path $dest | Out-Null
+              Copy-Item (Join-Path $source '*') $dest -Recurse -Force
+            }
+          }
+
+          $aboutPath = "$modRoot\About\About.xml"
+          $about = Get-Content $aboutPath -Raw
+          $about = $about.Replace('<modVersion>0.8.5-1.5-backport</modVersion>', '<modVersion>0.9-1.5-backport-bilingual</modVersion>')
+          $description = @'
+<description>Adds player-drawn solo and synchronized formation cavalry charges to Giddy-Up 2. The 0.9 1.5 backport adds multiple persistent cavalry units, per-unit commanders and target sizes, saved cavalry templates, and exact or auto-filled one-click reconstruction.
+
+为 Giddy-Up 2 增加可由玩家绘制路线的单骑与编队冲锋。0.9 的 1.5 回移版新增多支持久骑兵队、独立指挥官和编制人数、骑兵编制模板，以及精确重组或自动补员的一键恢复。</description>
+'@
+          $about = [regex]::Replace($about, '(?s)<description>.*?</description>', $description.Trim())
+          Set-Content $aboutPath $about -Encoding UTF8
+
+          $sourceText = (Get-ChildItem "$modRoot\Source\Core\*.cs" -File | Get-Content -Raw) -join "`n"
+          $matches = [regex]::Matches($sourceText, '"(GUCC_[A-Za-z0-9_]+)"\.Translate')
+          $keys = $matches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+          foreach ($lang in @('English','ChineseSimplified')) {
+            $keyedFiles = Get-ChildItem "$modRoot\Languages\$lang\Keyed\*.xml" -File
+            $combined = ($keyedFiles | Get-Content -Raw) -join "`n"
+            foreach ($key in $keys) {
+              if ($combined -notmatch ('<' + [regex]::Escape($key) + '>')) {
+                throw "Missing $lang localization key: $key"
+              }
+            }
+            Write-Host "$lang localization coverage: $($keys.Count)/$($keys.Count)"
+          }
+
       - name: Upload patched source snapshot
         uses: actions/upload-artifact@v4
         with:
