@@ -1,0 +1,120 @@
+
+        public static bool PrepareForUninstall(out string result)
+        {
+            ScanReport before = Scan();
+            if (!before.CanPrepare)
+            {
+                result = "FTU_PrepareBlocked".Translate();
+                return false;
+            }
+
+            Prepared = true;
+            SafeToSave = false;
+            try
+            {
+                DisableFtSettingsBestEffort();
+
+                foreach (Map map in Find.Maps.ToList())
+                {
+                    List<Thing> things = map.listerThings.AllThings.ToList();
+                    foreach (Thing thing in things)
+                    {
+                        if (thing == null || thing.def == null || !IsFtThingDefName(thing.def.defName)) continue;
+                        if (thing.def.defName.StartsWith("Blueprint_FT_", StringComparison.OrdinalIgnoreCase) || thing.def.defName.StartsWith("Frame_FT_", StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidOperationException("Unfinished FT construction remained after pre-scan: " + thing.def.defName);
+
+                        if (IsTransientThing(thing))
+                        {
+                            if (!thing.Destroyed) thing.Destroy(DestroyMode.Vanish);
+                            continue;
+                        }
+
+                        ThingDef replacement = ResolveReplacement(thing.def);
+                        if (replacement == null) throw new InvalidOperationException("No replacement selected for " + thing.def.defName);
+                        ReplaceThing(thing, replacement);
+                    }
+                }
+
+                MigrateWorldObjects();
+                RemoveFtComponents(Current.Game);
+                RemoveFtComponents(Find.World);
+
+                ScanReport after = Scan();
+                if (after.PersistentReferenceCount == 0 && after.Blockers.Count == 0 && after.UnresolvedThingDefs.Count == 0)
+                {
+                    SafeToSave = true;
+                    result = "FTU_PrepareSuccess".Translate();
+                    Messages.Message("FTU_PrepareSuccessShort".Translate(), MessageTypeDefOf.PositiveEvent, false);
+                    return true;
+                }
+
+                result = "FTU_PrepareIncomplete".Translate(after.PersistentReferenceCount, after.Blockers.Count, after.UnresolvedThingDefs.Count);
+                Messages.Message("FTU_PrepareIncompleteShort".Translate(), MessageTypeDefOf.RejectInput, false);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FT 1.5 Uninstall Helper] Prepare-for-uninstall failed. DO NOT SAVE THIS SESSION. Reload your backup/save before trying again.\n" + ex);
+                result = "FTU_PrepareException".Translate(ex.Message);
+                Messages.Message("FTU_PrepareExceptionShort".Translate(), MessageTypeDefOf.RejectInput, false);
+                return false;
+            }
+        }
+
+        private static void MigrateWorldObjects()
+        {
+            List<WorldObject> ftObjects = Find.WorldObjects.AllWorldObjects.Where(IsFtWorldObject).ToList();
+            foreach (WorldObject wo in ftObjects)
+            {
+                string defName = wo.def == null ? "" : wo.def.defName;
+                if (defName == "FT_VassalOutpost")
+                {
+                    RestoreVassalOutpost(wo);
+                }
+                else if (defName == "FT_SettlementConstruction" || defName == "FT_BaseInvasion")
+                {
+                    if (!wo.Destroyed) wo.Destroy();
+                }
+                else
+                {
+                    throw new InvalidOperationException("Unknown FT world object cannot be safely removed: " + defName + " / " + wo.GetType().FullName);
+                }
+            }
+        }
+
+        private static void RestoreVassalOutpost(WorldObject old)
+        {
+            MapParent mp = old as MapParent;
+            if (mp != null && mp.HasMap) throw new InvalidOperationException("Vassal outpost has a loaded map: " + old.LabelCap);
+
+            int originalFactionId = ReadIntMember(old, "originalFactionLoadID", ReadIntMember(old, "originalFactionId", -1));
+            Faction originalFaction = FindFaction(originalFactionId);
+            if (originalFaction == null) throw new InvalidOperationException("Original faction " + originalFactionId + " was not found for " + old.LabelCap);
+
+            string originalDefName = ReadStringMember(old, "originalWorldObjectDefName", "Settlement");
+            WorldObjectDef targetDef = DefDatabase<WorldObjectDef>.GetNamedSilentFail(originalDefName);
+            if (targetDef == null) targetDef = DefDatabase<WorldObjectDef>.GetNamedSilentFail("Settlement");
+            if (targetDef == null) throw new InvalidOperationException("Settlement WorldObjectDef is missing.");
+
+            int tile = old.Tile;
+            string originalName = ReadStringMember(old, "originalSettlementName", old.LabelCap.ToString());
+            WorldObject replacement = WorldObjectMaker.MakeWorldObject(targetDef);
+            if (replacement == null) throw new InvalidOperationException("Could not create replacement settlement for " + old.LabelCap);
+            replacement.Tile = tile;
+            replacement.SetFaction(originalFaction);
+            SetWorldObjectName(replacement, originalName);
+
+            if (!old.Destroyed) old.Destroy();
+
+            WorldObject existing = Find.WorldObjects.AllWorldObjects.FirstOrDefault(delegate(WorldObject w)
+            {
+                return w != null && !w.Destroyed && w.Tile == tile && !IsFtWorldObject(w) && w is Settlement;
+            });
+            if (existing != null)
+            {
+                existing.SetFaction(originalFaction);
+                SetWorldObjectName(existing, originalName);
+                return;
+            }
+
+            Find.WorldObjects.Add(replacement);

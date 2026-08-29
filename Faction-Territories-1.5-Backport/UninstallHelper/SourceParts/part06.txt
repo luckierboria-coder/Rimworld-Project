@@ -1,0 +1,120 @@
+            forcePause = true;
+            absorbInputAroundWindow = true;
+            closeOnAccept = false;
+            closeOnCancel = true;
+            doCloseX = true;
+        }
+
+        public override void PostOpen()
+        {
+            base.PostOpen();
+            report = UninstallRuntime.Scan();
+        }
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            Widgets.Label(new Rect(inRect.x, inRect.y, inRect.width, 35f), "FTU_Title".Translate());
+            Text.Font = GameFont.Small;
+
+            float top = 42f;
+            Rect info = new Rect(inRect.x, inRect.y + top, inRect.width, 58f);
+            Widgets.Label(info, UninstallRuntime.SafeToSave ? "FTU_StatusSafe".Translate() : (UninstallRuntime.Prepared ? "FTU_StatusFailed".Translate() : "FTU_StatusNormal".Translate()));
+            top += 62f;
+
+            Rect buttonRow = new Rect(inRect.x, inRect.y + top, inRect.width, 34f);
+            if (Widgets.ButtonText(new Rect(buttonRow.x, buttonRow.y, 180f, 30f), "FTU_ScanButton".Translate())) report = UninstallRuntime.Scan();
+
+            bool canPrepare = report != null && report.CanPrepare && !UninstallRuntime.Prepared;
+            GUI.color = canPrepare ? Color.white : Color.gray;
+            if (Widgets.ButtonText(new Rect(buttonRow.x + 190f, buttonRow.y, 230f, 30f), "FTU_PrepareButton".Translate()) && canPrepare)
+            {
+                Find.WindowStack.Add(new Dialog_FTUninstallConfirm(this));
+            }
+            GUI.color = Color.white;
+            top += 40f;
+
+            float viewHeight = CalculateViewHeight();
+            Rect outer = new Rect(inRect.x, inRect.y + top, inRect.width, inRect.height - top - 5f);
+            Rect view = new Rect(0f, 0f, outer.width - 20f, viewHeight);
+            Widgets.BeginScrollView(outer, ref scroll, view);
+            DrawReport(view);
+            Widgets.EndScrollView();
+        }
+
+        private float CalculateViewHeight()
+        {
+            if (report == null) return 400f;
+            int lines = 12 + report.WorldObjects.Count + report.MapThings.Count + report.Components.Count + report.Blockers.Count + report.UnresolvedThingDefs.Count + report.ResolvedMappings.Count;
+            return Math.Max(500f, lines * 28f + 180f);
+        }
+
+        private void DrawReport(Rect rect)
+        {
+            float y = 0f;
+            if (report == null)
+            {
+                Widgets.Label(new Rect(0f, y, rect.width, 28f), "FTU_NoReport".Translate());
+                return;
+            }
+
+            y = DrawHeader(rect, y, "FTU_Summary".Translate());
+            y = DrawLine(rect, y, "FTU_PersistentCount".Translate(report.PersistentReferenceCount));
+            y = DrawLine(rect, y, "FTU_WorldObjectCount".Translate(report.WorldObjects.Values.Sum()));
+            y = DrawLine(rect, y, "FTU_MapThingCount".Translate(report.MapThings.Values.Sum()));
+            y = DrawLine(rect, y, "FTU_ComponentCount".Translate(report.Components.Count));
+
+            if (report.WorldObjects.Count > 0)
+            {
+                y = DrawHeader(rect, y, "FTU_WorldObjects".Translate());
+                foreach (KeyValuePair<string, int> pair in report.WorldObjects.OrderBy(delegate(KeyValuePair<string, int> p) { return p.Key; }))
+                    y = DrawLine(rect, y, pair.Key + ": " + pair.Value);
+            }
+
+            if (report.MapThings.Count > 0)
+            {
+                y = DrawHeader(rect, y, "FTU_MapThings".Translate());
+                foreach (KeyValuePair<string, int> pair in report.MapThings.OrderBy(delegate(KeyValuePair<string, int> p) { return p.Key; }))
+                {
+                    string mapping;
+                    report.ResolvedMappings.TryGetValue(pair.Key, out mapping);
+                    y = DrawLine(rect, y, pair.Key + ": " + pair.Value + (string.IsNullOrEmpty(mapping) ? "" : "  ->  " + mapping));
+                }
+            }
+
+            if (report.UnresolvedThingDefs.Count > 0)
+            {
+                y = DrawHeader(rect, y, "FTU_Unresolved".Translate());
+                foreach (string defName in report.UnresolvedThingDefs.ToList())
+                {
+                    ThingDef source = DefDatabase<ThingDef>.GetNamedSilentFail(defName);
+                    Rect row = new Rect(0f, y, rect.width, 30f);
+                    Widgets.Label(new Rect(row.x, row.y, row.width - 190f, 28f), defName);
+                    if (Widgets.ButtonText(new Rect(row.xMax - 180f, row.y, 175f, 28f), "FTU_ChooseReplacement".Translate()))
+                    {
+                        OpenReplacementMenu(source);
+                    }
+                    y += 31f;
+                }
+            }
+
+            if (report.Components.Count > 0)
+            {
+                y = DrawHeader(rect, y, "FTU_Components".Translate());
+                foreach (string item in report.Components) y = DrawLine(rect, y, item);
+            }
+
+            if (report.Blockers.Count > 0)
+            {
+                y = DrawHeader(rect, y, "FTU_Blockers".Translate());
+                GUI.color = Color.red;
+                foreach (string item in report.Blockers) y = DrawLine(rect, y, item);
+                GUI.color = Color.white;
+            }
+
+            if (report.CanPrepare)
+            {
+                y = DrawHeader(rect, y, "FTU_Ready".Translate());
+                y = DrawLine(rect, y, "FTU_ReadyText".Translate());
+            }
+        }

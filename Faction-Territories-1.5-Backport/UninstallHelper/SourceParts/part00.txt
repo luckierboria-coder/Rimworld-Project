@@ -1,0 +1,120 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using HarmonyLib;
+using RimWorld;
+using RimWorld.Planet;
+using UnityEngine;
+using Verse;
+
+namespace FactionTerritoriesBackport15.UninstallHelper
+{
+    [StaticConstructorOnStartup]
+    public static class Bootstrap
+    {
+        static Bootstrap()
+        {
+            try
+            {
+                Harmony harmony = new Harmony("luckierboria.ftav15.uninstallhelper");
+                Type modType = GenTypes.GetTypeInAnyAssembly("FactionTerritories.FactionTerritoriesMod");
+                MethodInfo settingsMethod = modType == null ? null : AccessTools.Method(modType, "DoSettingsWindowContents", new Type[] { typeof(Rect) });
+                if (settingsMethod != null)
+                {
+                    harmony.Patch(settingsMethod, null,
+                        new HarmonyMethod(typeof(SettingsWindowPatch), "Postfix"));
+                }
+                else
+                {
+                    Log.Warning("[FT 1.5 Uninstall Helper] Could not find FactionTerritoriesMod.DoSettingsWindowContents; uninstall button was not injected.");
+                }
+
+                PatchFactionTerritoriesTicks(harmony);
+                Log.Message("[FT 1.5 Uninstall Helper] Loaded. Use Faction Territories settings -> Prepare save for uninstall.");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FT 1.5 Uninstall Helper] Initialization failed: " + ex);
+            }
+        }
+
+        private static void PatchFactionTerritoriesTicks(Harmony harmony)
+        {
+            try
+            {
+                Assembly ftAssembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(delegate(Assembly a)
+                {
+                    return string.Equals(a.GetName().Name, "FactionTerritories", StringComparison.OrdinalIgnoreCase);
+                });
+                if (ftAssembly == null) return;
+
+                HarmonyMethod prefix = new HarmonyMethod(typeof(TickGatePatch), "Prefix");
+                Type[] types;
+                try { types = ftAssembly.GetTypes(); }
+                catch (ReflectionTypeLoadException e) { types = e.Types.Where(delegate(Type t) { return t != null; }).ToArray(); }
+
+                foreach (Type type in types)
+                {
+                    if (type == null || type.Namespace == null || !type.Namespace.StartsWith("FactionTerritories", StringComparison.Ordinal)) continue;
+                    MethodInfo[] methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    foreach (MethodInfo method in methods)
+                    {
+                        if ((method.Name == "GameComponentTick" || method.Name == "WorldComponentTick") && method.GetParameters().Length == 0)
+                        {
+                            try { harmony.Patch(method, prefix, null); }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[FT 1.5 Uninstall Helper] Tick-gate patch scan failed: " + ex.Message);
+            }
+        }
+    }
+
+    public static class TickGatePatch
+    {
+        public static bool Prefix()
+        {
+            return !UninstallRuntime.Prepared;
+        }
+    }
+
+    public static class SettingsWindowPatch
+    {
+        public static void Postfix(Rect __0)
+        {
+            try
+            {
+                if (Current.ProgramState != ProgramState.Playing || Current.Game == null) return;
+                Rect buttonRect = new Rect(__0.xMax - 250f, __0.y + 4f, 240f, 30f);
+                if (Widgets.ButtonText(buttonRect, "FTU_OpenButton".Translate()))
+                {
+                    Find.WindowStack.Add(new Dialog_FTUninstall());
+                }
+                TooltipHandler.TipRegion(buttonRect, "FTU_OpenButtonTip".Translate());
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[FT 1.5 Uninstall Helper] Settings button failed: " + ex.Message);
+            }
+        }
+    }
+
+    public static class UninstallRuntime
+    {
+        public static bool Prepared;
+        public static bool SafeToSave;
+        public static ScanReport LastReport;
+        public static readonly Dictionary<string, string> ManualMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        private static readonly Dictionary<string, string> DirectMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "FT_CastleWall", "DankPyon_CastleWall" },
+            { "FT_CastleWallEmbrasures", "DankPyon_CastleWallEmbrasures" },
+            { "FT_Palisade", "DankPyon_Palisade" },
+            { "FT_Palisade_Corner", "DankPyon_Palisade" },

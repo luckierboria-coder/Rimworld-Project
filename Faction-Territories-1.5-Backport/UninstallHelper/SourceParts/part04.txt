@@ -1,0 +1,120 @@
+            if (source == null || candidate == null) return -9999;
+            int score = 0;
+            if (source.size.Equals(candidate.size)) score += 60; else score -= 100;
+            if (source.thingClass == candidate.thingClass) score += 80;
+            else if (IsDoorDef(source) && IsDoorDef(candidate)) score += 70;
+            if (source.passability == candidate.passability) score += 25;
+            if (source.category == candidate.category) score += 15;
+            if (!string.IsNullOrEmpty(source.label) && !string.IsNullOrEmpty(candidate.label) && string.Equals(source.label, candidate.label, StringComparison.OrdinalIgnoreCase)) score += 100;
+
+            string srcToken = source.defName.Replace("FT_", "").Replace("_", "").ToLowerInvariant();
+            string dstToken = candidate.defName.Replace("DankPyon_", "").Replace("_", "").ToLowerInvariant();
+            if (dstToken.Contains(srcToken) || srcToken.Contains(dstToken)) score += 45;
+            if (source.defName.IndexOf("Palisade", StringComparison.OrdinalIgnoreCase) >= 0 && candidate.defName.IndexOf("Palisade", StringComparison.OrdinalIgnoreCase) >= 0) score += 35;
+            if (source.defName.IndexOf("Gate", StringComparison.OrdinalIgnoreCase) >= 0 && candidate.defName.IndexOf("Gate", StringComparison.OrdinalIgnoreCase) >= 0) score += 35;
+            if (source.defName.IndexOf("Door", StringComparison.OrdinalIgnoreCase) >= 0 && candidate.defName.IndexOf("Door", StringComparison.OrdinalIgnoreCase) >= 0) score += 35;
+            return score;
+        }
+
+        private static bool IsDoorDef(ThingDef def)
+        {
+            if (def == null || def.thingClass == null) return false;
+            return typeof(Building_Door).IsAssignableFrom(def.thingClass);
+        }
+
+        private static bool IsTransientThing(Thing thing)
+        {
+            if (thing == null || thing.def == null) return false;
+            if (thing is Projectile) return true;
+            string name = thing.def.defName ?? "";
+            return name.StartsWith("FT_Proj_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsFtThingDefName(string defName)
+        {
+            if (string.IsNullOrEmpty(defName)) return false;
+            return defName.StartsWith("FT_", StringComparison.OrdinalIgnoreCase)
+                || defName.StartsWith("Blueprint_FT_", StringComparison.OrdinalIgnoreCase)
+                || defName.StartsWith("Frame_FT_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsFtWorldObject(WorldObject wo)
+        {
+            if (wo == null) return false;
+            if (wo.def != null && wo.def.defName != null && wo.def.defName.StartsWith("FT_", StringComparison.OrdinalIgnoreCase)) return true;
+            return IsFtType(wo.GetType());
+        }
+
+        private static bool IsFtType(Type type)
+        {
+            return type != null && type.Namespace != null && type.Namespace.StartsWith("FactionTerritories", StringComparison.Ordinal);
+        }
+
+        private static IList GetComponentsList(object owner)
+        {
+            if (owner == null) return null;
+            FieldInfo field = AccessTools.Field(owner.GetType(), "components");
+            return field == null ? null : field.GetValue(owner) as IList;
+        }
+
+        private static void RemoveFtComponents(object owner)
+        {
+            IList list = GetComponentsList(owner);
+            if (list == null) return;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                object component = list[i];
+                if (component != null && IsFtType(component.GetType())) list.RemoveAt(i);
+            }
+        }
+
+        private static void DisableFtSettingsBestEffort()
+        {
+            try
+            {
+                Type modType = GenTypes.GetTypeInAnyAssembly("FactionTerritories.FactionTerritoriesMod");
+                if (modType == null) return;
+                FieldInfo[] fields = modType.GetFields(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                foreach (FieldInfo field in fields)
+                {
+                    object holder = field.IsStatic ? null : null;
+                    object value = null;
+                    try { if (field.IsStatic) value = field.GetValue(null); } catch { }
+                    if (value == null) continue;
+                    Type vt = value.GetType();
+                    if (vt.FullName != null && vt.FullName.IndexOf("FactionTerritoriesSettings", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        DisableBooleanEnableFields(value);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void DisableBooleanEnableFields(object settings)
+        {
+            if (settings == null) return;
+            foreach (FieldInfo field in settings.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (field.FieldType == typeof(bool) && field.Name.IndexOf("enable", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    try { field.SetValue(settings, false); } catch { }
+                }
+            }
+        }
+
+        private static Faction FindFaction(int loadId)
+        {
+            if (loadId < 0 || Find.FactionManager == null) return null;
+            return Find.FactionManager.AllFactionsListForReading.FirstOrDefault(delegate(Faction f) { return f != null && f.loadID == loadId; });
+        }
+
+        private static int ReadIntMember(object obj, string name, int fallback)
+        {
+            if (obj == null) return fallback;
+            FieldInfo field = AccessTools.Field(obj.GetType(), name);
+            if (field != null)
+            {
+                try { return Convert.ToInt32(field.GetValue(obj)); } catch { }
+            }
+            PropertyInfo prop = AccessTools.Property(obj.GetType(), name);

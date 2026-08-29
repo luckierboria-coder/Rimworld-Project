@@ -1,0 +1,120 @@
+            if (prop != null)
+            {
+                try { return Convert.ToInt32(prop.GetValue(obj, null)); } catch { }
+            }
+            return fallback;
+        }
+
+        private static string ReadStringMember(object obj, string name, string fallback)
+        {
+            if (obj == null) return fallback;
+            FieldInfo field = AccessTools.Field(obj.GetType(), name);
+            if (field != null)
+            {
+                try { object v = field.GetValue(obj); return v == null ? fallback : v.ToString(); } catch { }
+            }
+            PropertyInfo prop = AccessTools.Property(obj.GetType(), name);
+            if (prop != null)
+            {
+                try { object v = prop.GetValue(obj, null); return v == null ? fallback : v.ToString(); } catch { }
+            }
+            return fallback;
+        }
+
+        private static void SetWorldObjectName(WorldObject wo, string name)
+        {
+            if (wo == null || string.IsNullOrEmpty(name)) return;
+            PropertyInfo prop = AccessTools.Property(wo.GetType(), "Name");
+            if (prop != null && prop.CanWrite)
+            {
+                try { prop.SetValue(wo, name, null); return; } catch { }
+            }
+            FieldInfo field = AccessTools.Field(wo.GetType(), "nameInt");
+            if (field != null)
+            {
+                try { field.SetValue(wo, name); } catch { }
+            }
+        }
+
+        private static void SetThingFaction(Thing thing, Faction faction)
+        {
+            if (thing == null || faction == null) return;
+            MethodInfo method = AccessTools.Method(thing.GetType(), "SetFactionDirect", new Type[] { typeof(Faction) });
+            if (method == null) method = AccessTools.Method(typeof(Thing), "SetFactionDirect", new Type[] { typeof(Faction) });
+            if (method != null)
+            {
+                try { method.Invoke(thing, new object[] { faction }); return; } catch { }
+            }
+            FieldInfo field = AccessTools.Field(typeof(Thing), "factionInt");
+            if (field != null)
+            {
+                try { field.SetValue(thing, faction); } catch { }
+            }
+        }
+
+        private static bool IsStuffAllowed(ThingDef thingDef, ThingDef stuff)
+        {
+            if (thingDef == null || stuff == null || !thingDef.MadeFromStuff) return false;
+            try
+            {
+                return thingDef.stuffCategories != null && stuff.stuffProps != null && stuff.stuffProps.categories != null
+                    && thingDef.stuffCategories.Any(delegate(StuffCategoryDef c) { return stuff.stuffProps.categories.Contains(c); });
+            }
+            catch { return false; }
+        }
+
+        private static ThingDef DefaultStuffFor(ThingDef def)
+        {
+            try
+            {
+                MethodInfo method = AccessTools.Method(typeof(GenStuff), "DefaultStuffFor", new Type[] { typeof(ThingDef) });
+                if (method != null) return method.Invoke(null, new object[] { def }) as ThingDef;
+            }
+            catch { }
+            return null;
+        }
+    }
+
+    public class ScanReport
+    {
+        public readonly Dictionary<string, int> WorldObjects = new Dictionary<string, int>();
+        public readonly Dictionary<string, int> MapThings = new Dictionary<string, int>();
+        public readonly List<string> Components = new List<string>();
+        public readonly List<string> Blockers = new List<string>();
+        public readonly List<string> UnresolvedThingDefs = new List<string>();
+        public readonly HashSet<string> TransientThingDefs = new HashSet<string>();
+        public readonly Dictionary<string, string> ResolvedMappings = new Dictionary<string, string>();
+
+        public int PersistentReferenceCount
+        {
+            get
+            {
+                int total = Components.Count;
+                foreach (int value in WorldObjects.Values) total += value;
+                foreach (KeyValuePair<string, int> pair in MapThings)
+                {
+                    if (!TransientThingDefs.Contains(pair.Key)) total += pair.Value;
+                }
+                return total;
+            }
+        }
+
+        public bool CanPrepare { get { return Blockers.Count == 0 && UnresolvedThingDefs.Count == 0; } }
+
+        public void AddCount(Dictionary<string, int> dict, string key)
+        {
+            int value;
+            dict.TryGetValue(key, out value);
+            dict[key] = value + 1;
+        }
+    }
+
+    public class Dialog_FTUninstall : Window
+    {
+        private Vector2 scroll;
+        private ScanReport report;
+
+        public override Vector2 InitialSize { get { return new Vector2(820f, 700f); } }
+
+        public Dialog_FTUninstall()
+        {

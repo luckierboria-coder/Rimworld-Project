@@ -1,0 +1,120 @@
+        }
+
+        private static void ReplaceThing(Thing oldThing, ThingDef targetDef)
+        {
+            Map map = oldThing.Map;
+            IntVec3 pos = oldThing.Position;
+            Rot4 rot = oldThing.Rotation;
+            Faction faction = oldThing.Faction;
+            ThingDef oldStuff = oldThing.Stuff;
+            float hpPct = oldThing.MaxHitPoints > 0 ? (float)oldThing.HitPoints / (float)oldThing.MaxHitPoints : 1f;
+
+            ThingDef stuff = null;
+            if (targetDef.MadeFromStuff)
+            {
+                stuff = oldStuff;
+                if (stuff == null || !IsStuffAllowed(targetDef, stuff)) stuff = DefaultStuffFor(targetDef);
+            }
+
+            Thing replacement = ThingMaker.MakeThing(targetDef, stuff);
+            if (replacement == null) throw new InvalidOperationException("ThingMaker returned null for " + targetDef.defName);
+            SetThingFaction(replacement, faction);
+
+            bool despawned = false;
+            try
+            {
+                if (oldThing.Spawned)
+                {
+                    MethodInfo despawn = AccessTools.Method(oldThing.GetType(), "DeSpawn", new Type[] { typeof(DestroyMode) });
+                    if (despawn == null) despawn = AccessTools.Method(typeof(Thing), "DeSpawn", new Type[] { typeof(DestroyMode) });
+                    if (despawn != null)
+                    {
+                        despawn.Invoke(oldThing, new object[] { DestroyMode.Vanish });
+                        despawned = true;
+                    }
+                    else
+                    {
+                        oldThing.Destroy(DestroyMode.Vanish);
+                    }
+                }
+
+                GenSpawn.Spawn(replacement, pos, map, rot, WipeMode.Vanish);
+                if (replacement.def.useHitPoints && replacement.MaxHitPoints > 0)
+                {
+                    int hp = Mathf.Clamp(Mathf.RoundToInt(replacement.MaxHitPoints * hpPct), 1, replacement.MaxHitPoints);
+                    replacement.HitPoints = hp;
+                }
+                if (!oldThing.Destroyed) oldThing.Destroy(DestroyMode.Vanish);
+            }
+            catch
+            {
+                if (replacement.Spawned && !replacement.Destroyed) replacement.Destroy(DestroyMode.Vanish);
+                if (despawned && !oldThing.Destroyed && !oldThing.Spawned)
+                {
+                    try { GenSpawn.Spawn(oldThing, pos, map, rot, WipeMode.Vanish); }
+                    catch { }
+                }
+                throw;
+            }
+        }
+
+        private static ThingDef ResolveReplacement(ThingDef source)
+        {
+            if (source == null || string.IsNullOrEmpty(source.defName)) return null;
+            string selected;
+            if (ManualMappings.TryGetValue(source.defName, out selected))
+            {
+                ThingDef manual = DefDatabase<ThingDef>.GetNamedSilentFail(selected);
+                if (manual != null && !IsFtThingDefName(manual.defName)) return manual;
+            }
+
+            string directName;
+            if (DirectMappings.TryGetValue(source.defName, out directName))
+            {
+                ThingDef direct = DefDatabase<ThingDef>.GetNamedSilentFail(directName);
+                if (direct != null) return direct;
+            }
+
+            string[] preferred;
+            if (PreferredCandidates.TryGetValue(source.defName, out preferred))
+            {
+                List<ThingDef> valid = new List<ThingDef>();
+                foreach (string name in preferred)
+                {
+                    ThingDef def = DefDatabase<ThingDef>.GetNamedSilentFail(name);
+                    if (def != null && StructuralScore(source, def) >= 120) valid.Add(def);
+                }
+                if (valid.Count > 0)
+                {
+                    valid.Sort(delegate(ThingDef a, ThingDef b) { return StructuralScore(source, b).CompareTo(StructuralScore(source, a)); });
+                    int top = StructuralScore(source, valid[0]);
+                    int second = valid.Count > 1 ? StructuralScore(source, valid[1]) : -999;
+                    if (top >= 150 && top - second >= 20) return valid[0];
+                }
+            }
+
+            List<ThingDef> candidates = GetCandidateReplacements(source);
+            if (candidates.Count == 0) return null;
+            int bestScore = StructuralScore(source, candidates[0]);
+            int secondScore = candidates.Count > 1 ? StructuralScore(source, candidates[1]) : -999;
+            if (bestScore >= 180 && bestScore - secondScore >= 30) return candidates[0];
+            return null;
+        }
+
+        public static List<ThingDef> GetCandidateReplacements(ThingDef source)
+        {
+            List<ThingDef> candidates = DefDatabase<ThingDef>.AllDefsListForReading.Where(delegate(ThingDef d)
+            {
+                if (d == null || string.IsNullOrEmpty(d.defName) || IsFtThingDefName(d.defName)) return false;
+                if (d.defName.StartsWith("Blueprint_", StringComparison.OrdinalIgnoreCase) || d.defName.StartsWith("Frame_", StringComparison.OrdinalIgnoreCase)) return false;
+                if (d.category != ThingCategory.Building) return false;
+                if (!d.size.Equals(source.size)) return false;
+                return StructuralScore(source, d) >= 80;
+            }).ToList();
+            candidates.Sort(delegate(ThingDef a, ThingDef b) { return StructuralScore(source, b).CompareTo(StructuralScore(source, a)); });
+            if (candidates.Count > 30) candidates.RemoveRange(30, candidates.Count - 30);
+            return candidates;
+        }
+
+        private static int StructuralScore(ThingDef source, ThingDef candidate)
+        {

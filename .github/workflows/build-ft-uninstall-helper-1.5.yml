@@ -1,0 +1,55 @@
+name: Build FT 1.5 Uninstall Helper
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Faction-Territories-1.5-Backport/UninstallHelper/**'
+      - '.github/workflows/build-ft-uninstall-helper-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore source from chunks
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem 'Faction-Territories-1.5-Backport/UninstallHelper/SourceParts/part*.txt' | Sort-Object Name
+          if ($parts.Count -ne 8) { throw "Expected 8 source chunks, found $($parts.Count)" }
+          $sourceDir = 'Faction-Territories-1.5-Backport/UninstallHelper/Source'
+          New-Item -ItemType Directory -Force -Path $sourceDir | Out-Null
+          $out = Join-Path $sourceDir 'FTUninstallHelper.cs'
+          [IO.File]::WriteAllText($out, '')
+          foreach ($p in $parts) {
+            [IO.File]::AppendAllText($out, [IO.File]::ReadAllText($p.FullName))
+          }
+          Write-Host "Restored source lines: $((Get-Content $out).Count)"
+
+      - name: Restore packages
+        run: dotnet restore Faction-Territories-1.5-Backport/UninstallHelper/Source/FTUninstallHelper.csproj
+
+      - name: Build Release
+        run: dotnet build Faction-Territories-1.5-Backport/UninstallHelper/Source/FTUninstallHelper.csproj --configuration Release --no-restore
+
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dll = 'Faction-Territories-1.5-Backport/UninstallHelper/Assemblies/FT_UninstallHelper.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Upload helper DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: FT-1.5-Uninstall-Helper
+          path: Faction-Territories-1.5-Backport/UninstallHelper/Assemblies/FT_UninstallHelper.dll
+          if-no-files-found: error

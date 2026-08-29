@@ -1,0 +1,99 @@
+
+        private float DrawHeader(Rect rect, float y, string text)
+        {
+            y += 8f;
+            Text.Font = GameFont.Medium;
+            Widgets.Label(new Rect(0f, y, rect.width, 30f), text);
+            Text.Font = GameFont.Small;
+            return y + 32f;
+        }
+
+        private float DrawLine(Rect rect, float y, string text)
+        {
+            Widgets.Label(new Rect(8f, y, rect.width - 8f, 26f), text);
+            return y + 27f;
+        }
+
+        private void OpenReplacementMenu(ThingDef source)
+        {
+            if (source == null) return;
+            List<ThingDef> candidates = UninstallRuntime.GetCandidateReplacements(source);
+            List<FloatMenuOption> options = new List<FloatMenuOption>();
+            foreach (ThingDef candidate in candidates)
+            {
+                ThingDef captured = candidate;
+                options.Add(new FloatMenuOption(candidate.defName + " — " + candidate.LabelCap, delegate
+                {
+                    UninstallRuntime.ManualMappings[source.defName] = captured.defName;
+                    report = UninstallRuntime.Scan();
+                }));
+            }
+            if (options.Count == 0) options.Add(new FloatMenuOption("FTU_NoCandidates".Translate(), null));
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        public void RefreshAfterPrepare()
+        {
+            report = UninstallRuntime.Scan();
+        }
+    }
+
+    public class Dialog_FTUninstallConfirm : Window
+    {
+        private readonly Dialog_FTUninstall parent;
+        public override Vector2 InitialSize { get { return new Vector2(620f, 310f); } }
+
+        public Dialog_FTUninstallConfirm(Dialog_FTUninstall parent)
+        {
+            this.parent = parent;
+            forcePause = true;
+            absorbInputAroundWindow = true;
+            closeOnAccept = false;
+            closeOnCancel = true;
+            doCloseX = false;
+        }
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            Widgets.Label(new Rect(inRect.x, inRect.y, inRect.width, 35f), "FTU_ConfirmTitle".Translate());
+            Text.Font = GameFont.Small;
+            Widgets.Label(new Rect(inRect.x, inRect.y + 45f, inRect.width, 150f), "FTU_ConfirmText".Translate());
+
+            if (Widgets.ButtonText(new Rect(inRect.x, inRect.yMax - 45f, 180f, 35f), "FT_Common_Cancel".Translate())) Close();
+            if (Widgets.ButtonText(new Rect(inRect.xMax - 240f, inRect.yMax - 45f, 240f, 35f), "FTU_ConfirmExecute".Translate()))
+            {
+                string result;
+                UninstallRuntime.PrepareForUninstall(out result);
+                Close();
+                parent.RefreshAfterPrepare();
+                Find.WindowStack.Add(new Dialog_FTUninstallResult(result));
+            }
+        }
+    }
+
+    public class Dialog_FTUninstallResult : Window
+    {
+        private readonly string text;
+        public override Vector2 InitialSize { get { return new Vector2(680f, 360f); } }
+
+        public Dialog_FTUninstallResult(string text)
+        {
+            this.text = text;
+            forcePause = true;
+            absorbInputAroundWindow = true;
+            doCloseX = true;
+            closeOnAccept = true;
+            closeOnCancel = true;
+        }
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            Widgets.Label(new Rect(inRect.x, inRect.y, inRect.width, 35f), UninstallRuntime.SafeToSave ? "FTU_ResultSuccessTitle".Translate() : "FTU_ResultFailureTitle".Translate());
+            Text.Font = GameFont.Small;
+            Widgets.Label(new Rect(inRect.x, inRect.y + 45f, inRect.width, inRect.height - 95f), text);
+            if (Widgets.ButtonText(new Rect(inRect.xMax - 160f, inRect.yMax - 40f, 160f, 35f), "FT_Common_OK".Translate())) Close();
+        }
+    }
+}

@@ -1,0 +1,120 @@
+            { "FT_Palisade_Embrasures", "DankPyon_EmbPalisade" },
+            { "FT_CavalrySpike", "DankPyon_CavalrySpike" }
+        };
+
+        private static readonly Dictionary<string, string[]> PreferredCandidates = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "FT_PalisadeDoor", new string[] { "DankPyon_RusticDoor", "DankPyon_SlabDoor", "DankPyon_LogGate", "Door" } },
+            { "FT_PalisadeGate", new string[] { "DankPyon_LogGate", "DankPyon_ReinfocedLogGate", "DankPyon_Gate", "DankPyon_Gate1x2c" } },
+            { "FT_ReinforcedDitch", new string[] { } },
+            { "FT_Ditch", new string[] { } }
+        };
+
+        public static ScanReport Scan()
+        {
+            ScanReport report = new ScanReport();
+            if (Current.Game == null || Find.World == null)
+            {
+                report.Blockers.Add("FTU_BlockNoGame".Translate());
+                LastReport = report;
+                return report;
+            }
+
+            ScanWorldObjects(report);
+            ScanMapThings(report);
+            ScanComponents(report);
+            LastReport = report;
+            return report;
+        }
+
+        private static void ScanWorldObjects(ScanReport report)
+        {
+            List<WorldObject> all = Find.WorldObjects.AllWorldObjects.ToList();
+            foreach (WorldObject wo in all)
+            {
+                if (!IsFtWorldObject(wo)) continue;
+                string defName = wo.def == null ? "<null>" : wo.def.defName;
+                report.AddCount(report.WorldObjects, defName);
+
+                if (defName == "FT_VassalOutpost")
+                {
+                    MapParent mp = wo as MapParent;
+                    if (mp != null && mp.HasMap)
+                    {
+                        report.Blockers.Add("FTU_BlockVassalHasMap".Translate(wo.LabelCap, wo.Tile));
+                    }
+                    int originalFactionId = ReadIntMember(wo, "originalFactionLoadID", ReadIntMember(wo, "originalFactionId", -1)));
+                    if (FindFaction(originalFactionId) == null)
+                    {
+                        report.Blockers.Add("FTU_BlockVassalFactionMissing".Translate(wo.LabelCap, originalFactionId));
+                    }
+                }
+                else if (defName != "FT_SettlementConstruction" && defName != "FT_BaseInvasion")
+                {
+                    report.Blockers.Add("FTU_BlockUnknownWorldObject".Translate(defName, wo.GetType().FullName));
+                }
+            }
+        }
+
+        private static void ScanMapThings(ScanReport report)
+        {
+            foreach (Map map in Find.Maps)
+            {
+                List<Thing> things = map.listerThings.AllThings.ToList();
+                foreach (Thing thing in things)
+                {
+                    if (thing == null || thing.def == null) continue;
+                    string defName = thing.def.defName;
+                    if (!IsFtThingDefName(defName)) continue;
+
+                    report.AddCount(report.MapThings, defName);
+
+                    if (defName.StartsWith("Blueprint_FT_", StringComparison.OrdinalIgnoreCase) || defName.StartsWith("Frame_FT_", StringComparison.OrdinalIgnoreCase))
+                    {
+                        report.Blockers.Add("FTU_BlockConstruction".Translate(defName, map.Parent == null ? map.ToString() : map.Parent.LabelCap));
+                        continue;
+                    }
+
+                    if (IsTransientThing(thing))
+                    {
+                        report.TransientThingDefs.Add(defName);
+                        continue;
+                    }
+
+                    if (thing.def.category != ThingCategory.Building)
+                    {
+                        report.Blockers.Add("FTU_BlockNonBuildingThing".Translate(defName));
+                        continue;
+                    }
+
+                    ThingDef target = ResolveReplacement(thing.def);
+                    if (target == null)
+                    {
+                        if (!report.UnresolvedThingDefs.Contains(defName)) report.UnresolvedThingDefs.Add(defName);
+                    }
+                    else
+                    {
+                        report.ResolvedMappings[defName] = target.defName;
+                    }
+                }
+            }
+        }
+
+        private static void ScanComponents(ScanReport report)
+        {
+            CollectFtComponents(Current.Game, "Game", report);
+            CollectFtComponents(Find.World, "World", report);
+        }
+
+        private static void CollectFtComponents(object owner, string prefix, ScanReport report)
+        {
+            if (owner == null) return;
+            IList list = GetComponentsList(owner);
+            if (list == null) return;
+            foreach (object component in list)
+            {
+                if (component == null) continue;
+                Type type = component.GetType();
+                if (IsFtType(type)) report.Components.Add(prefix + ": " + type.FullName);
+            }
+        }
