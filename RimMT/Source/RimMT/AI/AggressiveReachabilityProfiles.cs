@@ -22,12 +22,11 @@ namespace RimMT
     // components. Subsequent CanReach calls can use that immutable profile without running
     // RegionTraverser on the main thread.
     //
-    // This is deliberately a bounded-risk optimization. Door state, danger and avoid grids
-    // can change without rebuilding the Region graph. Each fresh profile therefore starts in
-    // shadow-validation mode; later predictions are sampled against live Vanilla CanReach.
-    // A mismatch disables authoritative use for that Pawn/profile for a cooldown, and repeated
-    // mismatches globally suppress the feature. Final Job/reservation/state mutation remains
-    // entirely Vanilla/main-thread.
+    // JS1.1R keeps the successful profile/query implementation unchanged and replaces only
+    // the old lifetime-16 mismatch fuse. Mismatch safety is now embedded directly in this
+    // existing Prefix/Postfix pair: a rolling density window triggers a temporary live-only
+    // cooldown, probation forces every profile prediction through live Vanilla validation,
+    // and only a genuinely dense emergency mismatch burst permanently suppresses the feature.
     internal static class AggressiveReachabilityProfiles
     {
         internal const string FeatureId = "parallel.reachProfile";
@@ -38,10 +37,19 @@ namespace RimMT
         private const long MismatchCooldownFrames = 600;
         private const int WarmupSamples = 8;
         private const int SampleMask = 15; // 1/16 after warmup.
-        private const int GlobalMismatchFuse = 16;
+
+        private const int GlobalWindowSamples = 8192;
+        private const int GlobalMismatchLimit = 8;
+        private const long GlobalCooldownFrames = 3600;
+        private const int ProbationSamples = 256;
+        private const int EmergencyWindowSamples = 256;
+        private const int EmergencyMismatchLimit = 16;
 
         private static readonly ConditionalWeakTable<Map, MapState> MapStates =
             new ConditionalWeakTable<Map, MapState>();
+
+        private static readonly bool[] GlobalMismatchWindow = new bool[GlobalWindowSamples];
+        private static readonly bool[] EmergencyMismatchWindow = new bool[EmergencyWindowSamples];
 
         private static volatile bool compatibilityReady;
 
@@ -87,6 +95,27 @@ namespace RimMT
         private static long queryTicks;
         private static long queryTicksMax;
 
+        // Rolling-fuse state is main-thread owned because authoritative ReachProfile use is
+        // main-thread only. No Interlocked operations are needed for the ring bookkeeping.
+        private static ReachFuseMode reachFuseMode;
+        private static int globalWindowPos;
+        private static int globalWindowCount;
+        private static int globalWindowMismatches;
+        private static int emergencyWindowPos;
+        private static int emergencyWindowCount;
+        private static int emergencyWindowMismatches;
+        private static long cooldownUntilFrame;
+        private static int probationRemaining;
+        private static int probationMatches;
+        private static long rollingSamples;
+        private static long rollingMismatches;
+        private static long softFuses;
+        private static long cooldownLiveBypass;
+        private static long probationForcedShadow;
+        private static long probationPasses;
+        private static long probationFailures;
+        private static long hardFuses;
+
         internal static void Apply(Harmony harmony)
         {
             if (harmony == null)
@@ -118,7 +147,7 @@ namespace RimMT
                 postfix.priority = Priority.First;
                 harmony.Patch(target, prefix: prefix, postfix: postfix);
 
-                Log.Message("[RimMT] parallel.reachProfile V0.4.16 installed. Per-Pawn Region.Allows snapshots are captured on the main thread, connected components are built on workers, and validated predictions may bypass live RegionTraverser. VFECore Phasing retains earlier-prefix authority; parity mismatches trigger per-profile cooldown and a global fuse.");
+                Log.Message("[RimMT] parallel.reachProfile V0.4.16 + JS1.1R rolling fuse installed. Profile prediction/build semantics are unchanged; the old lifetime-16 fuse is replaced in-place by rolling 8192/8 soft fuse, 3600-frame live cooldown, 256-clean-shadow probation, and 16/256 emergency hard fuse. No additional Reachability Harmony wrapper is installed.");
             }
             catch (Exception ex)
             {
@@ -153,6 +182,15 @@ namespace RimMT
 
             if (bypassDepth != 0 || !compatibilityReady || !FeatureGate.IsEnabled(FeatureId) ||
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return true;
+
+            UpdateRollingFuseMode();
+            if (reachFuseMode == ReachFuseMode.Cooldown)
+            {
+                cooldownLiveBypass++;
+                return true;
+            }
+            if (reachFuseMode == ReachFuseMode.HardFused)
                 return true;
 
             Pawn pawn = traverseParams.pawn;
@@ -241,11 +279,14 @@ namespace RimMT
 
                 int validated = Volatile.Read(ref slot.ValidatedMatches);
                 int serial = Interlocked.Increment(ref slot.PredictionSerial);
-                bool sample = validated < WarmupSamples || (serial & SampleMask) == 0;
+                bool probation = reachFuseMode == ReachFuseMode.Probation;
+                bool sample = probation || validated < WarmupSamples || (serial & SampleMask) == 0;
                 if (sample)
                 {
                     __state = new ReachSampleState(true, predicted, slot, profile.RegionGeneration);
                     Interlocked.Increment(ref shadowSamples);
+                    if (probation)
+                        probationForcedShadow++;
                     return true;
                 }
 
@@ -273,14 +314,16 @@ namespace RimMT
             if (!__state.Active || __state.Slot == null)
                 return;
 
-            if (__result == __state.Predicted)
+            bool mismatch = __result != __state.Predicted;
+            if (!mismatch)
             {
                 Interlocked.Increment(ref shadowMatches);
                 Interlocked.Increment(ref __state.Slot.ValidatedMatches);
+                ObserveRollingSample(false);
                 return;
             }
 
-            long mismatches = Interlocked.Increment(ref parityMismatches);
+            Interlocked.Increment(ref parityMismatches);
             if (__state.Predicted)
                 Interlocked.Increment(ref mismatchReachableToFalse);
             else
@@ -290,11 +333,119 @@ namespace RimMT
             Interlocked.Exchange(ref __state.Slot.DisabledUntilFrame, RimMTRuntime.MainThreadFrames + MismatchCooldownFrames);
             Volatile.Write(ref __state.Slot.Published, null);
 
-            if (mismatches >= GlobalMismatchFuse)
+            ObserveRollingSample(true);
+        }
+
+        private static void UpdateRollingFuseMode()
+        {
+            if (reachFuseMode != ReachFuseMode.Cooldown)
+                return;
+            if (RimMTRuntime.MainThreadFrames < cooldownUntilFrame)
+                return;
+
+            reachFuseMode = ReachFuseMode.Probation;
+            probationRemaining = ProbationSamples;
+            probationMatches = 0;
+            ClearGlobalWindow();
+            ClearEmergencyWindow();
+            Log.Message("[RimMT] ReachProfile JS1.1R soft cooldown ended; entering probation. All profile predictions are forced through live Vanilla until 256 clean shadow samples complete.");
+        }
+
+        private static void ObserveRollingSample(bool mismatch)
+        {
+            rollingSamples++;
+            if (mismatch)
+                rollingMismatches++;
+
+            if (reachFuseMode == ReachFuseMode.HardFused || reachFuseMode == ReachFuseMode.Cooldown)
+                return;
+
+            PushWindow(GlobalMismatchWindow, ref globalWindowPos, ref globalWindowCount, ref globalWindowMismatches, mismatch);
+            PushWindow(EmergencyMismatchWindow, ref emergencyWindowPos, ref emergencyWindowCount, ref emergencyWindowMismatches, mismatch);
+
+            if (emergencyWindowMismatches >= EmergencyMismatchLimit)
             {
-                FeatureGate.Suppress(FeatureId, "V0.4.16 reachability parity fuse: " + mismatches + " sampled mismatches");
-                Log.Warning("[RimMT] parallel.reachProfile V0.4.16 disabled by parity fuse after " + mismatches + " sampled mismatches. Vanilla Reachability is authoritative again.");
+                reachFuseMode = ReachFuseMode.HardFused;
+                hardFuses++;
+                FeatureGate.Suppress(FeatureId,
+                    "JS1.1R emergency ReachProfile hard fuse: " + emergencyWindowMismatches + "/" + emergencyWindowCount + " sampled mismatches");
+                Log.Warning("[RimMT] ReachProfile HARD FUSE JS1.1R: " + emergencyWindowMismatches + "/" + emergencyWindowCount + " mismatches in the recent emergency sample window. Vanilla Reachability is authoritative for the rest of this run.");
+                return;
             }
+
+            if (reachFuseMode == ReachFuseMode.Probation)
+            {
+                if (mismatch)
+                {
+                    probationFailures++;
+                    EnterCooldown("probation mismatch");
+                    return;
+                }
+
+                probationMatches++;
+                if (probationRemaining > 0)
+                    probationRemaining--;
+                if (probationRemaining <= 0)
+                {
+                    reachFuseMode = ReachFuseMode.Normal;
+                    probationPasses++;
+                    ClearGlobalWindow();
+                    ClearEmergencyWindow();
+                    Log.Message("[RimMT] ReachProfile JS1.1R probation passed 256 clean live-shadow samples; profile authority restored.");
+                }
+                return;
+            }
+
+            if (reachFuseMode == ReachFuseMode.Normal && globalWindowMismatches >= GlobalMismatchLimit)
+                EnterCooldown("rolling mismatch density " + globalWindowMismatches + "/" + globalWindowCount);
+        }
+
+        private static void EnterCooldown(string reason)
+        {
+            reachFuseMode = ReachFuseMode.Cooldown;
+            cooldownUntilFrame = RimMTRuntime.MainThreadFrames + GlobalCooldownFrames;
+            probationRemaining = 0;
+            probationMatches = 0;
+            softFuses++;
+            ClearGlobalWindow();
+            ClearEmergencyWindow();
+            Log.Warning("[RimMT] ReachProfile SOFT FUSE JS1.1R: " + reason + ". Profile authority is bypassed for 3600 main-thread frames; then 256 clean forced-shadow samples are required before authority returns.");
+        }
+
+        private static void PushWindow(bool[] window, ref int pos, ref int count, ref int mismatchCount, bool mismatch)
+        {
+            if (count < window.Length)
+            {
+                window[pos] = mismatch;
+                if (mismatch)
+                    mismatchCount++;
+                count++;
+                pos = (pos + 1) % window.Length;
+                return;
+            }
+
+            if (window[pos])
+                mismatchCount--;
+            window[pos] = mismatch;
+            if (mismatch)
+                mismatchCount++;
+            pos = (pos + 1) % window.Length;
+        }
+
+        private static void ClearGlobalWindow()
+        {
+            Array.Clear(GlobalMismatchWindow, 0, GlobalMismatchWindow.Length);
+            globalWindowPos = 0;
+            globalWindowCount = 0;
+            globalWindowMismatches = 0;
+        }
+
+        private static void ClearEmergencyWindow()
+        {
+            Array.Clear(EmergencyMismatchWindow, 0, EmergencyMismatchWindow.Length);
+            emergencyWindowPos = 0;
+            emergencyWindowCount = 0;
+            emergencyWindowMismatches = 0;
         }
 
         private static bool SupportedTraverseMode(TraverseMode mode)
@@ -693,7 +844,7 @@ namespace RimMT
             double avgQueryUs = q == 0 ? 0.0 : (Interlocked.Read(ref queryTicks) * 1000000.0 / Stopwatch.Frequency) / q;
             double maxQueryUs = Interlocked.Read(ref queryTicksMax) * 1000000.0 / Stopwatch.Frequency;
 
-            return "Aggressive reachability profile V0.4.16: compatibilityReady=" + compatibilityReady +
+            return "Aggressive reachability profile V0.4.16 + JS1.1R: compatibilityReady=" + compatibilityReady +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", eligible=" + Interlocked.Read(ref eligible) +
                 ", priorPrefixOwned=" + Interlocked.Read(ref priorPrefixOwned) +
@@ -722,6 +873,20 @@ namespace RimMT
                 ", parityMismatches=" + Interlocked.Read(ref parityMismatches) +
                 " (predTrue/liveFalse=" + Interlocked.Read(ref mismatchReachableToFalse) +
                 ", predFalse/liveTrue=" + Interlocked.Read(ref mismatchUnreachableToTrue) + ")" +
+                ", rollingMode=" + reachFuseMode +
+                ", rollingSamples=" + rollingSamples +
+                ", rollingMismatches=" + rollingMismatches +
+                ", globalWindow=" + globalWindowMismatches + "/" + globalWindowCount +
+                ", emergencyWindow=" + emergencyWindowMismatches + "/" + emergencyWindowCount +
+                ", softFuses=" + softFuses +
+                ", cooldownUntilFrame=" + cooldownUntilFrame +
+                ", cooldownLiveBypass=" + cooldownLiveBypass +
+                ", probationRemaining=" + probationRemaining +
+                ", probationMatches=" + probationMatches +
+                ", probationForcedShadow=" + probationForcedShadow +
+                ", probationPasses=" + probationPasses +
+                ", probationFailures=" + probationFailures +
+                ", hardFuses=" + hardFuses +
                 ", unknown=" + Interlocked.Read(ref queriesUnknown) +
                 ", warmupSamples=" + WarmupSamples +
                 ", sampleEvery=" + (SampleMask + 1) +
@@ -734,7 +899,7 @@ namespace RimMT
                 ", maxWorkerBuildUs=" + maxBuildUs.ToString("F2") +
                 ", avgQueryUs=" + avgQueryUs.ToString("F2") +
                 ", maxQueryUs=" + maxQueryUs.ToString("F2") +
-                ". Bounded-risk policy: live Region.Allows is captured only on the main thread; worker graph construction uses primitive arrays; authoritative predictions are shadow-sampled and auto-fused on mismatch.";
+                ". Profile prediction/build semantics remain JS1.1; rolling fuse is embedded in the existing Reachability Prefix/Postfix with no extra hot-path Harmony wrapper.";
         }
 
         internal struct ReachSampleState
@@ -751,6 +916,14 @@ namespace RimMT
                 Slot = slot;
                 RegionGeneration = generation;
             }
+        }
+
+        private enum ReachFuseMode
+        {
+            Normal,
+            Cooldown,
+            Probation,
+            HardFused
         }
 
         internal enum Prediction
