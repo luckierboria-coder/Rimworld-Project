@@ -1,0 +1,190 @@
+         for (var unitIndex = 0; unitIndex < cavalryUnits.Count; unitIndex++)
+         {
+-            var extra = cavalryUnits[unitIndex];
+-            if (extra == null || extra == primary)
++            var unit = cavalryUnits[unitIndex];
++            unit.NormalizeSlots();
++            if (unit.members == null)
+                 continue;
+-            extra.NormalizeSlots();
+-            if (extra.members != null)
++
++            for (var pairIndex = unit.members.Count - 1; pairIndex >= 0; pairIndex--)
+             {
+-                for (var pairIndex = 0; pairIndex < extra.members.Count; pairIndex++)
++                var pair = unit.members[pairIndex];
++                if (pair == null)
+                 {
+-                    var pair = extra.members[pairIndex];
+-                    if (pair == null || pair.IsEmpty ||
+-                        (pair.rider != null && primary.Contains(pair.rider)) ||
+-                        (pair.mount != null && primary.Contains(pair.mount)))
+-                        continue;
+-                    var slot = FindFirstEmptySlot(primary);
+-                    TaggedString ignored;
+-                    if (slot >= 0 && pair.IsComplete &&
+-                        CanUseMountBodySize(primary, slot, pair.mount, out ignored))
+-                        primary.members.Add(new CavalryPairRecord(slot, pair.rider, pair.mount));
++                    unit.members.RemoveAt(pairIndex);
++                    continue;
+                 }
++
++                if (pair.rider != null && !riderIds.Add(pair.rider.thingIDNumber))
++                    pair.rider = null;
++                if (pair.mount != null && !mountIds.Add(pair.mount.thingIDNumber))
++                    pair.mount = null;
++                if (pair.IsEmpty)
++                    unit.members.RemoveAt(pairIndex);
+             }
+-            if (extra.dropouts != null)
++
++            unit.SyncCommanderFromSlot();
++            unit.RecalculateFormationBodySize();
++        }
++
++        var highestUnitId = 0;
++        for (var i = 0; i < cavalryUnits.Count; i++)
++            if (cavalryUnits[i].id > highestUnitId)
++                highestUnitId = cavalryUnits[i].id;
++        if (nextCavalryUnitId <= highestUnitId)
++            nextCavalryUnitId = highestUnitId + 1;
++
++        var highestTemplateId = 0;
++        if (cavalryTemplates != null)
++        {
++            for (var i = cavalryTemplates.Count - 1; i >= 0; i--)
+             {
+-                if (primary.dropouts == null)
+-                    primary.dropouts = new List<CavalryDropoutRecord>();
+-                for (var i = 0; i < extra.dropouts.Count; i++)
++                var template = cavalryTemplates[i];
++                if (template == null)
+                 {
+-                    var dropout = extra.dropouts[i];
+-                    if (dropout != null)
+-                        primary.dropouts.Add(dropout);
++                    cavalryTemplates.RemoveAt(i);
++                    continue;
+                 }
++                if (template.id > highestTemplateId)
++                    highestTemplateId = template.id;
+             }
+         }
+-
+-        cavalryUnits.Clear();
+-        cavalryUnits.Add(primary);
+-        primary.NormalizeSlots();
+-        primary.revision++;
++        if (nextCavalryTemplateId <= highestTemplateId)
++            nextCavalryTemplateId = highestTemplateId + 1;
+     }
+ 
+     public override void ExposeData()
+@@ -2172,8 +2559,10 @@ public sealed class ChargeWorldComponent : WorldComponent
+             ref pendingOrderValues);
+ 
+         Scribe_Collections.Look(ref cavalryUnits, "cavalryUnits", LookMode.Deep);
++        Scribe_Collections.Look(ref cavalryTemplates, "cavalryTemplates", LookMode.Deep);
+         Scribe_Collections.Look(ref formationCharges, "formationCharges", LookMode.Deep);
+         Scribe_Values.Look(ref nextCavalryUnitId, "nextCavalryUnitId", 1);
++        Scribe_Values.Look(ref nextCavalryTemplateId, "nextCavalryTemplateId", 1);
+         Scribe_Values.Look(ref nextFormationChargeId, "nextFormationChargeId", 1);
+ 
+         if (Scribe.mode == LoadSaveMode.PostLoadInit)
+@@ -2186,6 +2575,8 @@ public sealed class ChargeWorldComponent : WorldComponent
+                 pendingOrders = new Dictionary<int, ChargeOrderRecord>();
+             if (cavalryUnits == null)
+                 cavalryUnits = new List<CavalryUnitRecord>();
++            if (cavalryTemplates == null)
++                cavalryTemplates = new List<CavalryUnitTemplateRecord>();
+             if (formationCharges == null)
+                 formationCharges = new List<FormationChargeRecord>();
+             for (var i = formationCharges.Count - 1; i >= 0; i--)
+@@ -2193,7 +2584,7 @@ public sealed class ChargeWorldComponent : WorldComponent
+                 if (formationCharges[i] == null || formationCharges[i].finalized)
+                     formationCharges.RemoveAt(i);
+             }
+-            EnforceSingleUnitAfterLoad();
++            NormalizeMultiUnitAfterLoad();
+             indexesDirty = true;
+             EnsureIndexes();
+             postLoadRosterValidationPending = true;
+diff --git a/Core/HarmonyPatches.cs b/Core/HarmonyPatches.cs
+index c9096ed..6047eae 100644
+--- a/Core/HarmonyPatches.cs
++++ b/Core/HarmonyPatches.cs
+@@ -53,10 +53,10 @@ internal static class Patch_Pawn_GetGizmos
+                 yield break;
+ 
+             var manage = new Command_Action();
+-            manage.defaultLabel = "GUCC_UnitManage_Label".Translate();
+-            manage.defaultDesc = "GUCC_UnitManage_Desc".Translate();
++            manage.defaultLabel = "GUCC_Manager_Label".Translate();
++            manage.defaultDesc = "GUCC_Manager_Desc".Translate();
+             manage.icon = TexCommand.Attack;
+-            manage.action = delegate { Find.WindowStack.Add(new Window_CavalryUnit(unit)); };
++            manage.action = delegate { Find.WindowStack.Add(new Window_CavalryManager(unit.id)); };
+             yield return manage;
+ 
+             var activeDriver = GetChargeDriver(__instance);
+@@ -193,15 +193,12 @@ internal static class Patch_Pawn_GetGizmos
+             yield return new Gizmo_ChargeStamina(__instance, personalMount);
+ 
+         var create = new Command_Action();
+-        create.defaultLabel = "GUCC_UnitManage_Label".Translate();
+-        create.defaultDesc = "GUCC_UnitManage_CreateDesc".Translate();
++        create.defaultLabel = "GUCC_Manager_Label".Translate();
++        create.defaultDesc = "GUCC_Manager_Desc".Translate();
+         create.icon = TexCommand.Attack;
+         create.action = delegate
+         {
+-            Pawn initialMount;
+-            GiddyUpAccess.TryGetAssignedMount(__instance, out initialMount);
+-            var created = world.GetOrCreateUnit(__instance, initialMount);
+-            Find.WindowStack.Add(new Window_CavalryUnit(created));
++            Find.WindowStack.Add(new Window_CavalryManager());
+         };
+         if (ChargeUtility.IsCombatIncapable(__instance))
+             create.Disable("GUCC_Error_CombatIncapableAssignment".Translate());
+diff --git a/Core/Window_CavalryManager.cs b/Core/Window_CavalryManager.cs
+new file mode 100644
+index 0000000..2b21ffa
+--- /dev/null
++++ b/Core/Window_CavalryManager.cs
+@@ -0,0 +1,405 @@
++using System;
++using System.Collections.Generic;
++using RimWorld;
++using UnityEngine;
++using Verse;
++
++namespace GiddyUpCavalryCharge
++{
++
++internal sealed class Window_CavalryManager : Window
++{
++    private Vector2 unitScroll;
++    private Vector2 templateScroll;
++    private readonly int focusUnitId;
++
++    public Window_CavalryManager()
++        : this(0)
++    {
++    }
++
++    public Window_CavalryManager(int focusUnitId)
++    {
++        this.focusUnitId = focusUnitId;
++        doCloseX = true;
++        closeOnClickedOutside = false;
++        absorbInputAroundWindow = true;
++        forcePause = true;
++    }
++
++    public override Vector2 InitialSize
++    {
++        get { return new Vector2(980f, 780f); }
++    }
++
++    public override void DoWindowContents(Rect inRect)
++    {
