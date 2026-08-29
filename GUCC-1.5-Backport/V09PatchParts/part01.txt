@@ -1,0 +1,190 @@
++        this.id = id;
++    }
++
++    public int TargetSize
++    {
++        get
++        {
++            return Mathf.Clamp(
++                targetSize <= 0 ? ChargeConstants.DefaultCavalryUnitSize : targetSize,
++                ChargeConstants.MinimumCavalryMembers,
++                ChargeConstants.MaximumCavalryMembers);
++        }
++    }
++
++    public string DisplayName
++    {
++        get
++        {
++            return !string.IsNullOrEmpty(name)
++                ? name
++                : "GUCC_DefaultTemplateName".Translate(id).ToString();
++        }
++    }
++
++    public CavalryTemplatePairRecord GetSlot(int slotIndex)
++    {
++        if (members == null)
++            return null;
++        for (var i = 0; i < members.Count; i++)
++        {
++            var pair = members[i];
++            if (pair != null && pair.slotIndex == slotIndex)
++                return pair;
++        }
++        return null;
++    }
++
++    public void ExposeData()
++    {
++        Scribe_Values.Look(ref id, "id", 0);
++        Scribe_Values.Look(ref name, "name");
++        Scribe_Values.Look(ref targetSize, "targetSize", ChargeConstants.DefaultCavalryUnitSize);
++        Scribe_Values.Look(ref formation, "formation", CavalryFormationType.Basic);
++        Scribe_Collections.Look(ref members, "members", LookMode.Deep);
++        Scribe_Values.Look(ref revision, "revision", 1);
++
++        if (Scribe.mode == LoadSaveMode.PostLoadInit)
++        {
++            if (members == null)
++                members = new List<CavalryTemplatePairRecord>();
++            targetSize = TargetSize;
++            for (var i = members.Count - 1; i >= 0; i--)
++            {
++                var pair = members[i];
++                if (pair == null || pair.slotIndex < 0 ||
++                    pair.slotIndex >= ChargeConstants.MaximumCavalryMembers)
++                    members.RemoveAt(i);
++            }
++        }
++    }
++}
++}
+diff --git a/Core/ChargeConstants.cs b/Core/ChargeConstants.cs
+index 41fa67f..f518987 100644
+--- a/Core/ChargeConstants.cs
++++ b/Core/ChargeConstants.cs
+@@ -79,6 +79,8 @@ internal static class ChargeConstants
+     public const float FormationCollisionDropoutSpeedFraction = 0.50f;
+     public const int FormationCollisionChainResetTicks = 180;
+     public const float FormationCollisionChainRecoveryFraction = 0.90f;
++    public const int MinimumCavalryMembers = 2;
++    public const int DefaultCavalryUnitSize = 6;
+     public const int MaximumCavalryMembers = 15;
+     public const float BodySizeMatchTolerance = 0.01f;
+     public const float RallyRadiusPadding = 4f;
+diff --git a/Core/ChargeWorldComponent.cs b/Core/ChargeWorldComponent.cs
+index a24e179..3b4dde8 100644
+--- a/Core/ChargeWorldComponent.cs
++++ b/Core/ChargeWorldComponent.cs
+@@ -24,8 +24,10 @@ public sealed class ChargeWorldComponent : WorldComponent
+     private List<ChargeOrderRecord> pendingOrderValues;
+ 
+     private List<CavalryUnitRecord> cavalryUnits = new List<CavalryUnitRecord>();
++    private List<CavalryUnitTemplateRecord> cavalryTemplates = new List<CavalryUnitTemplateRecord>();
+     private List<FormationChargeRecord> formationCharges = new List<FormationChargeRecord>();
+     private int nextCavalryUnitId = 1;
++    private int nextCavalryTemplateId = 1;
+     private int nextFormationChargeId = 1;
+ 
+     private readonly Dictionary<int, CavalryUnitRecord> unitByRiderId =
+@@ -372,6 +374,55 @@ public sealed class ChargeWorldComponent : WorldComponent
+         return null;
+     }
+ 
++    public List<CavalryUnitRecord> GetUnitsSnapshot()
++    {
++        var result = new List<CavalryUnitRecord>();
++        if (cavalryUnits == null)
++            return result;
++        for (var i = 0; i < cavalryUnits.Count; i++)
++        {
++            var unit = cavalryUnits[i];
++            if (unit != null)
++                result.Add(unit);
++        }
++        result.Sort(delegate(CavalryUnitRecord a, CavalryUnitRecord b)
++        {
++            return a.id.CompareTo(b.id);
++        });
++        return result;
++    }
++
++    public CavalryUnitTemplateRecord GetTemplate(int templateId)
++    {
++        if (cavalryTemplates == null)
++            return null;
++        for (var i = 0; i < cavalryTemplates.Count; i++)
++        {
++            var template = cavalryTemplates[i];
++            if (template != null && template.id == templateId)
++                return template;
++        }
++        return null;
++    }
++
++    public List<CavalryUnitTemplateRecord> GetTemplatesSnapshot()
++    {
++        var result = new List<CavalryUnitTemplateRecord>();
++        if (cavalryTemplates == null)
++            return result;
++        for (var i = 0; i < cavalryTemplates.Count; i++)
++        {
++            var template = cavalryTemplates[i];
++            if (template != null)
++                result.Add(template);
++        }
++        result.Sort(delegate(CavalryUnitTemplateRecord a, CavalryUnitTemplateRecord b)
++        {
++            return a.id.CompareTo(b.id);
++        });
++        return result;
++    }
++
+     public void NotifyMentalStateStarted(Pawn pawn)
+     {
+         HandleRosterStateEvent(pawn, CavalryDropoutReason.MentalState, false);
+@@ -579,13 +630,6 @@ public sealed class ChargeWorldComponent : WorldComponent
+         if (existing != null)
+             return existing;
+ 
+-        // Only one persistent cavalry unit may exist. A non-member opening the
+-        // management gizmo is taken to the existing roster instead of creating a
+-        // second unit.
+-        var primary = GetPrimaryUnit();
+-        if (primary != null)
+-            return primary;
+-
+         if (mount != null && GetUnitFor(mount) != null)
+             mount = null;
+ 
+@@ -618,7 +662,7 @@ public sealed class ChargeWorldComponent : WorldComponent
+         out TaggedString reason)
+     {
+         reason = default(TaggedString);
+-        if (unit == null || slotIndex < 0 || slotIndex >= ChargeConstants.MaximumCavalryMembers)
++        if (unit == null || slotIndex < 0 || slotIndex >= unit.TargetSize)
+         {
+             reason = "GUCC_Error_InvalidPair".Translate();
+             return false;
+@@ -699,8 +743,8 @@ public sealed class ChargeWorldComponent : WorldComponent
+     {
+         reason = default(TaggedString);
+         if (unit == null || firstSlot == secondSlot || firstSlot < 0 || secondSlot < 0 ||
+-            firstSlot >= ChargeConstants.MaximumCavalryMembers ||
+-            secondSlot >= ChargeConstants.MaximumCavalryMembers)
++            firstSlot >= unit.TargetSize ||
++            secondSlot >= unit.TargetSize)
+         {
+             reason = "GUCC_Error_InvalidPair".Translate();
+             return false;
+@@ -842,6 +886,331 @@ public sealed class ChargeWorldComponent : WorldComponent
+         MarkIndexesDirty();
+     }
+ 
++    public bool SetUnitTargetSize(
++        CavalryUnitRecord unit,
++        int requested,
++        out TaggedString reason)
++    {
++        reason = default(TaggedString);
