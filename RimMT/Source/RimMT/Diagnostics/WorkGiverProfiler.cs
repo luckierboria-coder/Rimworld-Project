@@ -9,8 +9,8 @@ namespace RimMT
 {
     internal static class WorkGiverProfiler
     {
-        private const int MaxSlowTraces = 8;
-        private const int MaxPhasesPerSlowTrace = 10;
+        private const int MaxSlowTraces = 12;
+        private const int MaxPhasesPerSlowTrace = 12;
         private static readonly Dictionary<ProfileKey, Stat> Stats = new Dictionary<ProfileKey, Stat>();
         private static readonly List<SlowTrace> SlowTraces = new List<SlowTrace>();
         private static readonly long Threshold16Ticks = Math.Max(1L, Stopwatch.Frequency * 16L / 1000L);
@@ -21,6 +21,7 @@ namespace RimMT
         private static long totalJobPackages;
         private static long slowJobPackages;
         private static int targetJobPackages;
+        private static int targetSlowPackages;
         private static int patchedMethods;
         private static int patchFailures;
         private static bool sessionActive;
@@ -48,15 +49,26 @@ namespace RimMT
             }
         }
 
-        internal static void StartSession(int packageTarget, int patched, int failures)
+        internal static int SlowPackagesRemaining
+        {
+            get
+            {
+                int remaining = targetSlowPackages - (int)slowJobPackages;
+                return remaining < 0 ? 0 : remaining;
+            }
+        }
+
+        internal static void StartSession(int packageTarget, int slowTarget, int patched, int failures)
         {
             Stats.Clear();
             SlowTraces.Clear();
             JobGiverInfrastructureProfiler.Reset();
+            JD2TailTrace.ResetThreadState();
             totalSamples = 0;
             totalJobPackages = 0;
             slowJobPackages = 0;
             targetJobPackages = Math.Max(1, packageTarget);
+            targetSlowPackages = Math.Max(1, slowTarget);
             patchedMethods = patched;
             patchFailures = failures;
             jobPackageDepth = 0;
@@ -73,6 +85,7 @@ namespace RimMT
             jobPackageDepth = 0;
             currentInclusivePhases = null;
             currentPawn = null;
+            JD2TailTrace.ResetThreadState();
         }
 
         internal static JobPackageScope BeginJobPackage(Pawn pawn)
@@ -92,6 +105,7 @@ namespace RimMT
             captureDetail = true;
             currentInclusivePhases = new Dictionary<string, long>(StringComparer.Ordinal);
             currentPawn = pawn == null ? "<null>" : pawn.ToString();
+            JD2TailTrace.BeginPackage();
             return state;
         }
 
@@ -106,7 +120,11 @@ namespace RimMT
                 if (elapsed >= Threshold64Ticks)
                 {
                     slowJobPackages++;
-                    SaveSlowTrace(elapsed);
+                    SaveSlowTrace(elapsed, JD2TailTrace.EndSlowPackage());
+                }
+                else
+                {
+                    JD2TailTrace.EndFastPackage();
                 }
             }
 
@@ -117,7 +135,7 @@ namespace RimMT
                 captureDetail = false;
                 currentInclusivePhases = null;
                 currentPawn = null;
-                if (sessionActive && totalJobPackages >= targetJobPackages)
+                if (sessionActive && (totalJobPackages >= targetJobPackages || slowJobPackages >= targetSlowPackages))
                     WorkGiverDetailPatches.RequestStopCapture();
             }
         }
@@ -182,12 +200,13 @@ namespace RimMT
             if (topN > entries.Count) topN = entries.Count;
 
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("JobGiver detail V0.4.8: active=").Append(sessionActive)
+            sb.Append("JobGiver JD2 TailTrace: active=").Append(sessionActive)
                 .Append(", patchedMethods=").Append(patchedMethods)
                 .Append(", patchFailures=").Append(patchFailures)
                 .Append(", outerCalls=").Append(totalJobPackages)
                 .Append('/').Append(targetJobPackages)
                 .Append(", slowPackages>=64ms=").Append(slowJobPackages)
+                .Append('/').Append(targetSlowPackages)
                 .Append(", phaseSamples=").Append(totalSamples)
                 .Append(", tracked=").Append(entries.Count)
                 .Append(", slowTracesKept=").Append(SlowTraces.Count);
@@ -218,6 +237,7 @@ namespace RimMT
                 sb.Append("\n  SLOW#").Append(i + 1)
                     .Append(": totalMs=").Append((trace.ElapsedTicks * 1000.0 / Stopwatch.Frequency).ToString("F3"))
                     .Append(", pawn=").Append(trace.Pawn)
+                    .Append(", ").Append(trace.TailShape)
                     .Append(", topInclusivePhases=");
                 for (int p = 0; p < trace.Phases.Count; p++)
                 {
@@ -230,7 +250,7 @@ namespace RimMT
             return sb.ToString();
         }
 
-        private static void SaveSlowTrace(long elapsed)
+        private static void SaveSlowTrace(long elapsed, string tailShape)
         {
             List<PhaseEntry> phases = new List<PhaseEntry>();
             if (currentInclusivePhases != null)
@@ -242,7 +262,7 @@ namespace RimMT
                     phases.RemoveRange(MaxPhasesPerSlowTrace, phases.Count - MaxPhasesPerSlowTrace);
             }
 
-            SlowTrace trace = new SlowTrace(elapsed, currentPawn ?? "<unknown>", phases);
+            SlowTrace trace = new SlowTrace(elapsed, currentPawn ?? "<unknown>", tailShape ?? "tailShape=<none>", phases);
             SlowTraces.Add(trace);
             SlowTraces.Sort(delegate(SlowTrace a, SlowTrace b) { return b.ElapsedTicks.CompareTo(a.ElapsedTicks); });
             if (SlowTraces.Count > MaxSlowTraces)
@@ -315,11 +335,13 @@ namespace RimMT
         {
             internal readonly long ElapsedTicks;
             internal readonly string Pawn;
+            internal readonly string TailShape;
             internal readonly List<PhaseEntry> Phases;
-            internal SlowTrace(long elapsedTicks, string pawn, List<PhaseEntry> phases)
+            internal SlowTrace(long elapsedTicks, string pawn, string tailShape, List<PhaseEntry> phases)
             {
                 ElapsedTicks = elapsedTicks;
                 Pawn = pawn;
+                TailShape = tailShape;
                 Phases = phases;
             }
         }
