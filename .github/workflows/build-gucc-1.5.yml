@@ -47,10 +47,29 @@ jobs:
           ./GUCC-1.5-Backport/Apply_15_Backport.ps1 -ModRoot 'GUCC-1.5-Backport/work'
           ./GUCC-1.5-Backport/Fix_15_JobDriverAccess.ps1 -ModRoot 'GUCC-1.5-Backport/work'
 
+      - name: Apply GUCC v0.9 cavalry organization patch
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem 'GUCC-1.5-Backport\V09PatchParts\part*.txt' | Sort-Object Name
+          if ($parts.Count -ne 8) { throw "Expected 8 GUCC v0.9 patch chunks, found $($parts.Count)." }
+          $patch = Join-Path $env:RUNNER_TEMP 'gucc-v09.patch'
+          [IO.File]::WriteAllText($patch, '')
+          foreach ($part in $parts) {
+            [IO.File]::AppendAllText($patch, [IO.File]::ReadAllText($part.FullName))
+          }
+          Push-Location 'GUCC-1.5-Backport\work\Source'
+          try {
+            & git apply --check $patch
+            if ($LASTEXITCODE -ne 0) { throw 'GUCC v0.9 patch validation failed.' }
+            & git apply $patch
+            if ($LASTEXITCODE -ne 0) { throw 'GUCC v0.9 patch application failed.' }
+          }
+          finally { Pop-Location }
+
       - name: Upload patched source snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: GUCC-1.5-Patched-Source
+          name: GUCC-1.5-v0.9-Patched-Source
           path: GUCC-1.5-Backport/work/Source
           if-no-files-found: error
 
@@ -82,11 +101,11 @@ jobs:
             if (Test-Path "$src\$dir") { Copy-Item "$src\$dir" $stage -Recurse -Force }
           }
           if (Test-Path "$src\README_1.5_BACKPORT.txt") { Copy-Item "$src\README_1.5_BACKPORT.txt" $stage }
-          Compress-Archive -Path $stage -DestinationPath 'build\GUCC_1.5_Backport_v0.8.5.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build\GUCC_1.5_Backport_v0.9.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GUCC-1.5-Backport-v0.8.5
-          path: build/GUCC_1.5_Backport_v0.8.5.zip
+          name: GUCC-1.5-Backport-v0.9
+          path: build/GUCC_1.5_Backport_v0.9.zip
           if-no-files-found: error
