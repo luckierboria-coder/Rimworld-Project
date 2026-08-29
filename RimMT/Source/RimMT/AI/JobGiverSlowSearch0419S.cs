@@ -10,23 +10,19 @@ using Verse.AI;
 
 namespace RimMT
 {
-    // V0.4.19-JS1.1S: selective accelerator for the measured JobGiver tail-latency path.
+    // V0.4.19-JS1.1S1: extend the validated JS1.1S selective tail accelerator downward.
     //
-    // JD1 showed the dominant slow-package stack is:
-    // JobGiver_Work -> GenClosest.ClosestThingReachable -> RegionTraverser.BreadthFirstTraverse.
-    // JS1.1R already makes ordinary packages fast, so this module does NOT touch small searches.
-    // Only JobGiver-owned ClosestThingReachable calls whose live ThingRequest source has at least
-    // LargeSearchThreshold candidates are replaced by a stable nearest-first candidate scan.
-    // Each candidate still runs the original validator on the main thread and the final reachability
-    // decision is live map.reachability.CanReach. No Job, reservation or mutable Verse state is cached.
-    //
-    // This is intentionally performance-first. It changes the search algorithm for the large-source
-    // tail only; normal JobPackage behavior remains exactly JS1.1R.
+    // JS1.1S proved that large ThingRequest-backed JobGiver ClosestThingReachable calls can bypass
+    // RegionTraverser safely enough for the performance-first playtest branch: the original validator
+    // and live CanReach remain main-thread authoritative, while no-result scans collapse to a bounded
+    // nearest-first candidate pass. S1 lowers the intervention threshold from 512 to 256 candidates.
+    // Sources in the 128-255 range are telemetry-only and remain JS1.1R/Vanilla so the next threshold
+    // decision is evidence-based rather than speculative.
     internal static class JobGiverSlowSearch0419S
     {
         internal const string FeatureId = "ai.jobSlowSearch";
 
-        private const int LargeSearchThreshold = 512;
+        private const int LargeSearchThreshold = 256;
         private const int MaxSourceCount = 16384;
 
         [ThreadStatic]
@@ -46,8 +42,11 @@ namespace RimMT
         private static long accelerated;
         private static long acceleratedFound;
         private static long acceleratedNoResult;
-        private static long source512To1023;
-        private static long source1024Plus;
+        private static long source128To255;
+        private static long source256To383;
+        private static long source384To511;
+        private static long source512To767;
+        private static long source768Plus;
         private static long sourceCandidates;
         private static long keptCandidates;
         private static long examinedCandidates;
@@ -87,20 +86,20 @@ namespace RimMT
                 patched = patchedCount > 0;
                 if (patched)
                 {
-                    Log.Message("[RimMT] V0.4.19-JS1.1S selective slow-search accelerator installed on " + patchedCount +
-                        " GenClosest.ClosestThingReachable overload(s). Only JobGiver searches with >=" + LargeSearchThreshold +
-                        " live ThingRequest candidates are replaced; validator and live CanReach remain main-thread authoritative.");
+                    Log.Message("[RimMT] V0.4.19-JS1.1S1 selective slow-search accelerator installed on " + patchedCount +
+                        " GenClosest.ClosestThingReachable overload(s). JobGiver searches with >=" + LargeSearchThreshold +
+                        " live ThingRequest candidates are replaced; 128-255 candidates are telemetry-only; validator and live CanReach remain main-thread authoritative.");
                 }
                 else
                 {
-                    Log.Warning("[RimMT] V0.4.19-JS1.1S slow-search accelerator found no compatible ClosestThingReachable overload; JS1.1R behavior remains unchanged.");
+                    Log.Warning("[RimMT] V0.4.19-JS1.1S1 slow-search accelerator found no compatible ClosestThingReachable overload; JS1.1R behavior remains unchanged.");
                 }
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
                 patched = false;
-                Log.Warning("[RimMT] V0.4.19-JS1.1S slow-search patch failed; JS1.1R remains authoritative. " +
+                Log.Warning("[RimMT] V0.4.19-JS1.1S1 slow-search patch failed; JS1.1R remains authoritative. " +
                     ex.GetType().Name + ": " + ex.Message);
             }
         }
@@ -192,6 +191,8 @@ namespace RimMT
             }
 
             int count = source.Count;
+            RecordSourceBucket(count);
+
             if (count < LargeSearchThreshold)
             {
                 Interlocked.Increment(ref smallBypass);
@@ -202,11 +203,6 @@ namespace RimMT
                 Interlocked.Increment(ref tooLargeBypass);
                 return true;
             }
-
-            if (count < 1024)
-                Interlocked.Increment(ref source512To1023);
-            else
-                Interlocked.Increment(ref source1024Plus);
 
             long started = Stopwatch.GetTimestamp();
             try
@@ -289,11 +285,25 @@ namespace RimMT
                 Interlocked.Increment(ref failures);
                 if (Interlocked.Read(ref failures) <= 8)
                 {
-                    Log.Warning("[RimMT] V0.4.19-JS1.1S accelerated large search failed; this call falls back to Vanilla. " +
+                    Log.Warning("[RimMT] V0.4.19-JS1.1S1 accelerated search failed; this call falls back to Vanilla. " +
                         ex.GetType().Name + ": " + ex.Message);
                 }
                 return true;
             }
+        }
+
+        private static void RecordSourceBucket(int count)
+        {
+            if (count >= 128 && count <= 255)
+                Interlocked.Increment(ref source128To255);
+            else if (count >= 256 && count <= 383)
+                Interlocked.Increment(ref source256To383);
+            else if (count >= 384 && count <= 511)
+                Interlocked.Increment(ref source384To511);
+            else if (count >= 512 && count <= 767)
+                Interlocked.Increment(ref source512To767);
+            else if (count >= 768)
+                Interlocked.Increment(ref source768Plus);
         }
 
         private static Candidate[] EnsureScratch(int required)
@@ -302,7 +312,7 @@ namespace RimMT
             if (current != null && current.Length >= required)
                 return current;
 
-            int capacity = 512;
+            int capacity = 256;
             while (capacity < required && capacity < MaxSourceCount)
                 capacity <<= 1;
             if (capacity < required)
@@ -357,14 +367,19 @@ namespace RimMT
                 (Interlocked.Read(ref sortTicks) * 1000000.0 / Stopwatch.Frequency) / calls;
             double maxSortUs = Interlocked.Read(ref maxSortTicks) * 1000000.0 / Stopwatch.Frequency;
 
-            return "JobGiver slow-search JS1.1S: patched=" + patched +
+            return "JobGiver slow-search JS1.1S1: patched=" + patched +
                 ", enabled=" + enabled +
                 ", threshold=" + LargeSearchThreshold +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", inScope=" + Interlocked.Read(ref inJobGiverScope) +
                 ", accelerated=" + calls +
                 ", found/noResult=" + Interlocked.Read(ref acceleratedFound) + "/" + Interlocked.Read(ref acceleratedNoResult) +
-                ", source512-1023/source1024+=" + Interlocked.Read(ref source512To1023) + "/" + Interlocked.Read(ref source1024Plus) +
+                ", sourceBuckets128-255/256-383/384-511/512-767/768+=" +
+                    Interlocked.Read(ref source128To255) + "/" +
+                    Interlocked.Read(ref source256To383) + "/" +
+                    Interlocked.Read(ref source384To511) + "/" +
+                    Interlocked.Read(ref source512To767) + "/" +
+                    Interlocked.Read(ref source768Plus) +
                 ", smallBypass=" + Interlocked.Read(ref smallBypass) +
                 ", tooLargeBypass=" + Interlocked.Read(ref tooLargeBypass) +
                 ", customSetBypass=" + Interlocked.Read(ref customSetBypass) +
@@ -387,7 +402,7 @@ namespace RimMT
                 ", avgSortUs=" + avgSortUs.ToString("F2") +
                 ", maxSortUs=" + maxSortUs.ToString("F2") +
                 ", failures=" + Interlocked.Read(ref failures) +
-                ". Large ThingRequest-backed JobGiver searches use stable nearest-first live candidates + original validator + live CanReach; small searches remain JS1.1R/Vanilla.";
+                ". >=256 ThingRequest-backed JobGiver searches use stable nearest-first live candidates + original validator + live CanReach; 128-255 remains telemetry-only; smaller searches remain JS1.1R/Vanilla.";
         }
 
         private struct Candidate
