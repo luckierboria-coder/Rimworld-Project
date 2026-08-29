@@ -1,0 +1,159 @@
+ 
+     public override void DoWindowContents(Rect inRect)
+@@ -81,7 +81,7 @@ internal sealed class Window_CavalryUnit : Window
+ 
+         DrawHeader(inRect, editingLocked);
+ 
+-        var top = inRect.y + 96f;
++        var top = inRect.y + 108f;
+         const float sideWidth = 205f;
+         const float gap = 10f;
+         const float panelHeight = 540f;
+@@ -108,10 +108,18 @@ internal sealed class Window_CavalryUnit : Window
+     private void DrawHeader(Rect inRect, bool editingLocked)
+     {
+         Text.Font = GameFont.Medium;
+-        Widgets.Label(new Rect(inRect.x, inRect.y, 220f, 32f), "GUCC_UnitWindow_Title".Translate());
++        Widgets.Label(new Rect(inRect.x, inRect.y, 205f, 32f), "GUCC_UnitWindow_Title".Translate());
+         Text.Font = GameFont.Small;
+ 
+-        var autoRect = new Rect(inRect.x + 225f, inRect.y, 130f, 30f);
++        var managerRect = new Rect(inRect.x + 210f, inRect.y, 112f, 30f);
++        if (Widgets.ButtonText(managerRect, "GUCC_Manager_Label".Translate()))
++        {
++            Find.WindowStack.Add(new Window_CavalryManager(unit.id));
++            Close();
++            return;
++        }
++
++        var autoRect = new Rect(inRect.x + 327f, inRect.y, 112f, 30f);
+         if (Widgets.ButtonText(autoRect, "GUCC_AutoForm_Label".Translate()) && !editingLocked)
+         {
+             var added = ChargeWorldComponent.Current.AutoFormUnit(
+@@ -128,19 +136,32 @@ internal sealed class Window_CavalryUnit : Window
+         }
+         TooltipHandler.TipRegion(autoRect, "GUCC_AutoForm_Desc".Translate());
+ 
+-        var formationX = inRect.x + 365f;
+-        DrawFormationButton(
+-            new Rect(formationX, inRect.y, 115f, 44f),
+-            CavalryFormationType.Wedge,
+-            editingLocked);
+-        DrawFormationButton(
+-            new Rect(formationX + 120f, inRect.y, 115f, 44f),
+-            CavalryFormationType.Basic,
+-            editingLocked);
+-        DrawFormationButton(
+-            new Rect(formationX + 240f, inRect.y, 115f, 44f),
+-            CavalryFormationType.Line,
+-            editingLocked);
++        var saveRect = new Rect(inRect.x + 444f, inRect.y, 125f, 30f);
++        if (Widgets.ButtonText(saveRect, "GUCC_Template_Save".Translate()) && !editingLocked)
++        {
++            var template = ChargeWorldComponent.Current.SaveUnitAsTemplate(unit);
++            if (template != null)
++                Messages.Message(
++                    "GUCC_Template_Saved".Translate(template.DisplayName),
++                    MessageTypeDefOf.TaskCompletion,
++                    false);
++        }
++
++        var linkedTemplate = unit.sourceTemplateId > 0
++            ? ChargeWorldComponent.Current.GetTemplate(unit.sourceTemplateId)
++            : null;
++        if (linkedTemplate != null)
++        {
++            var updateRect = new Rect(inRect.x + 574f, inRect.y, 125f, 30f);
++            if (Widgets.ButtonText(updateRect, "GUCC_Template_Update".Translate()) && !editingLocked)
++            {
++                if (ChargeWorldComponent.Current.UpdateTemplateFromUnit(unit, linkedTemplate))
++                    Messages.Message(
++                        "GUCC_Template_Updated".Translate(linkedTemplate.DisplayName),
++                        MessageTypeDefOf.TaskCompletion,
++                        false);
++            }
++        }
+ 
+         var disbandRect = new Rect(inRect.xMax - 120f, inRect.y, 120f, 30f);
+         if (Widgets.ButtonText(disbandRect, "GUCC_UnitWindow_Disband".Translate()) &&
+@@ -152,22 +173,68 @@ internal sealed class Window_CavalryUnit : Window
+         }
+ 
+         Widgets.Label(
+-            new Rect(inRect.x, inRect.y + 48f, inRect.width, 26f),
++            new Rect(inRect.x, inRect.y + 38f, 62f, 25f),
++            "GUCC_UnitName_Label".Translate());
++        var nameRect = new Rect(inRect.x + 64f, inRect.y + 35f, 220f, 28f);
++        var currentName = unit.name ?? string.Empty;
++        var editedName = Widgets.TextField(nameRect, currentName);
++        if (editedName != currentName && !editingLocked)
++            ChargeWorldComponent.Current.RenameUnit(unit, editedName);
++
++        Widgets.Label(
++            new Rect(inRect.x + 294f, inRect.y + 38f, 105f, 25f),
++            "GUCC_UnitSize_Label".Translate(unit.TargetSize));
++        var minusRect = new Rect(inRect.x + 400f, inRect.y + 35f, 32f, 28f);
++        var plusRect = new Rect(inRect.x + 436f, inRect.y + 35f, 32f, 28f);
++        if (Widgets.ButtonText(minusRect, "-") && !editingLocked)
++            TryChangeUnitSize(unit.TargetSize - 1);
++        if (Widgets.ButtonText(plusRect, "+") && !editingLocked)
++            TryChangeUnitSize(unit.TargetSize + 1);
++
++        var formationX = inRect.x + 478f;
++        DrawFormationButton(
++            new Rect(formationX, inRect.y + 33f, 115f, 44f),
++            CavalryFormationType.Wedge,
++            editingLocked);
++        DrawFormationButton(
++            new Rect(formationX + 120f, inRect.y + 33f, 115f, 44f),
++            CavalryFormationType.Basic,
++            editingLocked);
++        DrawFormationButton(
++            new Rect(formationX + 240f, inRect.y + 33f, 115f, 44f),
++            CavalryFormationType.Line,
++            editingLocked);
++
++        Widgets.Label(
++            new Rect(inRect.x, inRect.y + 78f, inRect.width, 26f),
+             "GUCC_UnitWindow_Info".Translate(
+                 unit.CompleteMemberCount,
+-                ChargeConstants.MaximumCavalryMembers,
++                unit.TargetSize,
+                 unit.BodySizeDisplayText));
+ 
+         if (editingLocked)
+         {
+             GUI.color = Color.yellow;
+             Widgets.Label(
+-                new Rect(inRect.x, inRect.y + 70f, inRect.width, 22f),
++                new Rect(inRect.x + 700f, inRect.y + 5f, 250f, 22f),
+                 "GUCC_UnitWindow_EditingLocked".Translate());
+             GUI.color = Color.white;
+         }
+     }
+ 
++    private void TryChangeUnitSize(int requested)
++    {
++        TaggedString reason;
++        if (!ChargeWorldComponent.Current.SetUnitTargetSize(unit, requested, out reason))
++        {
++            var message = reason.ToString();
++            if (!string.IsNullOrEmpty(message))
++                Messages.Message(message, MessageTypeDefOf.RejectInput, false);
++            return;
++        }
++        candidatesDirty = true;
++    }
++
+     private void DrawFormationButton(Rect rect, CavalryFormationType formation, bool locked)
+     {
+         float regularMinimum;
+@@ -303,7 +370,7 @@ internal sealed class Window_CavalryUnit : Window
+         var cardWidth = (rect.width - 12f - horizontalGap * (columns - 1)) / columns;
+         var cardHeight = (rect.height - 38f - verticalGap * (rows - 1)) / rows;
+ 
+-        for (var slot = 0; slot < ChargeConstants.MaximumCavalryMembers; slot++)
++        for (var slot = 0; slot < unit.TargetSize; slot++)
+         {
+             var column = slot % columns;
+             var row = slot / columns;
