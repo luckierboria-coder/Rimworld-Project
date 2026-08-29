@@ -1,0 +1,1 @@
+JR1.1 does not install JobPackageRegionAllows0419. The implementation source remains in the project for reference/rollback, but FeatureGate registers ai.jobRegionAllows OFF and Bootstrap does not call Apply().
