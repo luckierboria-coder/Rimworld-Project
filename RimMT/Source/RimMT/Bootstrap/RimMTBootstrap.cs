@@ -29,22 +29,21 @@ namespace RimMT
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
 
-                // JS1.1 Lean preserves the successful JS1 nearest-order semantics, but
-                // narrows boolean memoization to a bucketed HasJobOnThing cache only.
+                // JS1.2.1 Lean Hybrid restores JS1.1 cache/store behavior and only keeps the
+                // proven typed HasJobOnThing prefix, last-bucket fast path and light context reuse.
                 JobPackageLocalSearch0419.Apply(harmony);
 
                 AggressiveReachabilityProfiles.Apply(harmony);
 
-                // V0.4.15 RegionHint is retired in JS1.1 Lean. Long-run JS2 telemetry saw
-                // 157k observations for only 11 accelerations, so its worker snapshots and
-                // Harmony surface are not justified. ReachProfile remains the connectivity path.
+                // V0.4.15 RegionHint remains retired. ReachProfile stays unchanged for this
+                // isolated JobPackage/cache experiment.
                 // ParallelRegionConnectivity.Apply(harmony); intentionally not installed.
 
                 ParallelWorkPrefilter.Apply(harmony);
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1.1 Lean initialized from the successful JS1 baseline. JS1 nearest-order reuse is preserved unchanged. ShouldSkip and HasJobOnCell memoization are removed; HasJobOnThing uses a lighter per-method/giver bucket so Pawn/Method/Giver are not re-hashed for every Thing target. ParallelRegionConnectivity/RegionHint is retired due near-zero yield. ReachProfile authority, WorkPrefilter, haul accelerators and Path shadow policy remain unchanged.");
+                Log.Message("[RimMT] V0.4.19-JS1.2.1 Lean Hybrid initialized from JS1.1 Lean. JS1 nearest-order reuse and JS1.1 HasJobOnThing store behavior are preserved. Typed HasJobOnThing Harmony arguments, a last-bucket fast path and light PackageContext reuse are retained from JS1.2; the admission gate and ThingBucket Dictionary pool/clear pass are removed. ReachProfile authority, WorkPrefilter, haul accelerators and Path shadow policy remain unchanged; RegionHint stays retired.");
             }
             catch (Exception ex)
             {
