@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <SNE_SettingsCategory>合理的 NPC 撤离</SNE_SettingsCategory>
+  <SNE_SearchRadius>救援搜索范围：{0} 格</SNE_SearchRadius>
+  <SNE_SearchRadiusDesc>搜索倒地战友的最大范围。恐慌逃跑时可根据救援者自身健康状况缩小实际范围。</SNE_SearchRadiusDesc>
+  <SNE_RescueOnDeparture>正常撤离时救援战友</SNE_RescueOnDeparture>
+  <SNE_RescueOnDepartureDesc>友好/中立 NPC 已经进入离场逻辑后，可先扛起附近同队倒地成员。</SNE_RescueOnDepartureDesc>
+  <SNE_DepartureChance>正常撤离救援概率：{0}%</SNE_DepartureChance>
+  <SNE_RescueWhileFleeing>恐慌逃跑时救援战友</SNE_RescueWhileFleeing>
+  <SNE_RescueWhileFleeingDesc>友好/中立 NPC 在 PanicFlee 逃跑时，也会像 No One Left Behind 一样视情况尝试带走附近倒地战友。</SNE_RescueWhileFleeingDesc>
+  <SNE_FleeChance>恐慌逃跑救援概率：{0}%</SNE_FleeChance>
+  <SNE_MinFleeHealth>逃跑救援最低自身健康：{0}%</SNE_MinFleeHealth>
+  <SNE_MinFleeHealthDesc>低于该健康比例时，逃跑中的 NPC 优先自保，不再尝试救援。</SNE_MinFleeHealthDesc>
+  <SNE_ScaleFleeRadius>按救援者健康缩小逃跑救援范围</SNE_ScaleFleeRadius>
+  <SNE_ScaleFleeRadiusDesc>救援者伤得越重，越不愿意绕远路。实际范围 = 设置范围 × 自身健康比例。</SNE_ScaleFleeRadiusDesc>
+  <SNE_RescueAnimals>允许带走同队倒地动物</SNE_RescueAnimals>
+  <SNE_RescueAnimalsDesc>始终优先人形战友；附近没有可救的人形 Pawn 时才考虑同队动物。</SNE_RescueAnimalsDesc>
+  <SNE_DebugLogging>记录救援判定日志</SNE_DebugLogging>
+  <SNE_DebugLoggingDesc>将救援判定写入日志。正常游玩建议关闭。</SNE_DebugLoggingDesc>
+</LanguageData>
