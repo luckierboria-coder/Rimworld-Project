@@ -1,0 +1,190 @@
++            reason = "GUCC_Error_TemplateMissing".Translate();
++            return false;
++        }
++
++        var commanderSnapshot = template.GetSlot(0);
++        var commander = replacementCommander ??
++            (commanderSnapshot != null
++                ? ResolveTemplatePawn(commanderSnapshot.riderLoadId)
++                : null);
++        if (!IsTemplateRiderAvailable(commander, null))
++        {
++            reason = "GUCC_Error_TemplateCommanderUnavailable".Translate(
++                commanderSnapshot != null && !string.IsNullOrEmpty(commanderSnapshot.riderLabel)
++                    ? commanderSnapshot.riderLabel
++                    : "-");
++            return false;
++        }
++
++        Pawn commanderMount = null;
++        if (commanderSnapshot != null)
++        {
++            var candidate = ResolveTemplatePawn(commanderSnapshot.mountLoadId);
++            if (IsTemplateMountAvailable(candidate, null))
++                commanderMount = candidate;
++        }
++
++        restored = GetOrCreateUnit(commander, commanderMount);
++        if (restored == null || restored.commander != commander)
++        {
++            reason = "GUCC_Error_AlreadyInUnit".Translate();
++            restored = null;
++            return false;
++        }
++
++        restored.name = template.DisplayName;
++        restored.targetSize = template.TargetSize;
++        restored.formation = template.formation;
++        restored.sourceTemplateId = template.id;
++        restored.rallied = false;
++
++        // GetOrCreateUnit already placed the commander. Restore every other slot
++        // exactly when the original pawn/mount is still available and unassigned.
++        for (var slotIndex = 1; slotIndex < template.TargetSize; slotIndex++)
++        {
++            var snapshot = template.GetSlot(slotIndex);
++            if (snapshot == null)
++                continue;
++
++            var rider = ResolveTemplatePawn(snapshot.riderLoadId);
++            var mount = ResolveTemplatePawn(snapshot.mountLoadId);
++            if (!IsTemplateRiderAvailable(rider, restored))
++                rider = null;
++            if (!IsTemplateMountAvailable(mount, restored))
++                mount = null;
++            if (rider == null && mount == null)
++                continue;
++
++            TaggedString ignored;
++            AssignPairToSlot(restored, slotIndex, rider, mount, out ignored);
++        }
++
++        if (autoFill)
++            AutoFormUnitFromWorld(restored);
++
++        FinishRosterEdit(restored);
++        return true;
++    }
++
++    public int AutoFormUnitFromWorld(CavalryUnitRecord unit)
++    {
++        var riders = new List<Pawn>();
++        var mounts = new List<Pawn>();
++        var riderSeen = new HashSet<int>();
++        var mountSeen = new HashSet<int>();
++
++        for (var mapIndex = 0; mapIndex < Find.Maps.Count; mapIndex++)
++        {
++            var map = Find.Maps[mapIndex];
++            var colonists = map.mapPawns.FreeColonists;
++            for (var i = 0; i < colonists.Count; i++)
++            {
++                var pawn = colonists[i];
++                if (pawn == null || pawn.Dead || pawn.Destroyed ||
++                    !riderSeen.Add(pawn.thingIDNumber) ||
++                    ChargeUtility.IsCombatIncapable(pawn))
++                    continue;
++                var other = GetUnitFor(pawn);
++                if (other == null || other == unit)
++                    riders.Add(pawn);
++            }
++
++            var all = map.mapPawns.AllPawnsSpawned;
++            for (var i = 0; i < all.Count; i++)
++            {
++                var pawn = all[i];
++                if (pawn == null || pawn.Dead || pawn.Destroyed ||
++                    pawn.Faction != Faction.OfPlayer ||
++                    !GiddyUpAccess.IsPotentialMount(pawn) ||
++                    !mountSeen.Add(pawn.thingIDNumber))
++                    continue;
++                var other = GetUnitFor(pawn);
++                if (other == null || other == unit)
++                    mounts.Add(pawn);
++            }
++        }
++        return AutoFormUnit(unit, riders, mounts);
++    }
++
++    private bool IsTemplateRiderAvailable(Pawn pawn, CavalryUnitRecord allowedUnit)
++    {
++        if (pawn == null || pawn.Destroyed || pawn.Dead ||
++            pawn.Faction != Faction.OfPlayer ||
++            pawn.RaceProps == null || !pawn.RaceProps.Humanlike ||
++            ChargeUtility.IsCombatIncapable(pawn))
++            return false;
++        var other = GetUnitFor(pawn);
++        return other == null || other == allowedUnit;
++    }
++
++    private bool IsTemplateMountAvailable(Pawn pawn, CavalryUnitRecord allowedUnit)
++    {
++        if (pawn == null || pawn.Destroyed || pawn.Dead ||
++            pawn.Faction != Faction.OfPlayer ||
++            !GiddyUpAccess.IsPotentialMount(pawn))
++            return false;
++        var other = GetUnitFor(pawn);
++        return other == null || other == allowedUnit;
++    }
++
+     public void PruneUnit(CavalryUnitRecord unit)
+     {
+         if (unit == null)
+@@ -961,7 +1330,7 @@ public sealed class ChargeWorldComponent : WorldComponent
+     {
+         if (unit == null)
+             return -1;
+-        for (var i = 0; i < ChargeConstants.MaximumCavalryMembers; i++)
++        for (var i = 0; i < unit.TargetSize; i++)
+         {
+             var slot = unit.GetSlot(i);
+             if (slot == null || slot.IsEmpty)
+@@ -1190,7 +1559,7 @@ public sealed class ChargeWorldComponent : WorldComponent
+ 
+         // Complete existing ordinary slots before opening new slots.
+         for (var slotIndex = 1;
+-             slotIndex < ChargeConstants.MaximumCavalryMembers;
++             slotIndex < unit.TargetSize;
+              slotIndex++)
+         {
+             var slot = unit.GetSlot(slotIndex);
+@@ -2083,64 +2452,82 @@ public sealed class ChargeWorldComponent : WorldComponent
+         }
+     }
+ 
+-    private void EnforceSingleUnitAfterLoad()
++    private void NormalizeMultiUnitAfterLoad()
+     {
+-        if (cavalryUnits == null || cavalryUnits.Count <= 1)
++        if (cavalryUnits == null)
+             return;
+ 
+-        CavalryUnitRecord primary = null;
+-        for (var i = 0; i < cavalryUnits.Count; i++)
++        var riderIds = new HashSet<int>();
++        var mountIds = new HashSet<int>();
++        cavalryUnits.Sort(delegate(CavalryUnitRecord a, CavalryUnitRecord b)
+         {
+-            var candidate = cavalryUnits[i];
+-            if (candidate != null && (primary == null || candidate.id < primary.id))
+-                primary = candidate;
+-        }
+-        if (primary == null)
++            if (a == null && b == null) return 0;
++            if (a == null) return 1;
++            if (b == null) return -1;
++            return a.id.CompareTo(b.id);
++        });
++
++        for (var unitIndex = cavalryUnits.Count - 1; unitIndex >= 0; unitIndex--)
+         {
+-            cavalryUnits.Clear();
+-            return;
++            if (cavalryUnits[unitIndex] == null)
++                cavalryUnits.RemoveAt(unitIndex);
+         }
+ 
+-        primary.NormalizeSlots();
++        // Lower-id units win any corrupted duplicate assignment. Normal saves
++        // created by this version never hit this path because assignment checks
++        // already enforce one unit per rider/mount.
