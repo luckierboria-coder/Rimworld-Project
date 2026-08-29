@@ -16,10 +16,12 @@ namespace RimMT
             totalSamples = 0L;
         }
 
-        internal static long Begin()
+        internal static long Begin(MethodBase method, object[] args)
         {
             if (!WorkGiverProfiler.DetailCaptureActive || !RimMTThreadGuard.IsMainThread)
                 return 0L;
+
+            JD2TailTrace.RecordInvocation(method, args);
             return Stopwatch.GetTimestamp();
         }
 
@@ -43,6 +45,7 @@ namespace RimMT
                 stat.MaxTicks = elapsed;
             totalSamples++;
             WorkGiverProfiler.RecordInclusivePhase(phase, elapsed);
+            JD2TailTrace.RecordInfrastructure(phase, elapsed);
         }
 
         internal static string Summary(int topN)
@@ -61,9 +64,9 @@ namespace RimMT
             if (topN > entries.Count) topN = entries.Count;
 
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("JobGiver infrastructure V0.4.8: samples=").Append(totalSamples)
+            sb.Append("JobGiver infrastructure JD2: samples=").Append(totalSamples)
                 .Append(", tracked=").Append(entries.Count)
-                .Append(" (inclusive timings; nested phases can overlap)");
+                .Append(" (inclusive timings; nested phases can overlap; invocation shape is attached to SLOW traces)");
 
             for (int i = 0; i < topN; i++)
             {
