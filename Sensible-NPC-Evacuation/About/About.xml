@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Sensible NPC Evacuation</name>
+  <author>Allen</author>
+  <packageId>Allen.SensibleNPCEvacuation</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <loadAfter>
+    <li>CaptainMuscles.NoPawnLeftBehind</li>
+  </loadAfter>
+  <description>Friendly and neutral NPCs can pick up downed comrades when already leaving the map, and can also attempt rescues while panic-fleeing. Rescue range and risk tolerance are configurable. The pickup job only makes the pawn pick up the casualty; after that, the original vanilla/modded exit or flee logic chooses the route and exit. Hostile factions are untouched so No One Left Behind can continue handling enemies.
+
+友好/中立 NPC 在正常撤离和恐慌逃跑时都可以视情况带走倒地战友。搜索范围、救援概率和逃跑时的自保阈值均可设置。本 Mod 只负责“把人扛起来”，随后仍由原版或其他 Mod 的撤离/逃跑逻辑决定路线和出口；敌军继续交给 No One Left Behind。</description>
+</ModMetaData>
