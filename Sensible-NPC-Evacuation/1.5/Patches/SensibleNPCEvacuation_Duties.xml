@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Patch>
+  <Operation Class="PatchOperationConditional">
+    <xpath>Defs/DutyDef[defName="ExitMapBest"]/thinkNode/subNodes</xpath>
+    <match Class="PatchOperationAdd">
+      <xpath>Defs/DutyDef[defName="ExitMapBest"]/thinkNode/subNodes</xpath>
+      <order>Prepend</order>
+      <value>
+        <li Class="SensibleNPCEvacuation.JobGiver_FriendlyRescue" />
+      </value>
+    </match>
+    <nomatch Class="PatchOperationConditional">
+      <xpath>Defs/DutyDef[defName="ExitMapBest"]/thinkNode[@Class="JobGiver_ExitMapBest"]</xpath>
+      <match Class="PatchOperationReplace">
+        <xpath>Defs/DutyDef[defName="ExitMapBest"]/thinkNode</xpath>
+        <value>
+          <thinkNode Class="ThinkNode_Priority">
+            <subNodes>
+              <li Class="SensibleNPCEvacuation.JobGiver_FriendlyRescue" />
+              <li Class="JobGiver_ExitMapBest">
+                <defaultLocomotion>Walk</defaultLocomotion>
+              </li>
+            </subNodes>
+          </thinkNode>
+        </value>
+      </match>
+    </nomatch>
+  </Operation>
+
+  <Operation Class="PatchOperationConditional">
+    <xpath>Defs/DutyDef[defName="ExitMapRandom"]/thinkNode/subNodes</xpath>
+    <match Class="PatchOperationAdd">
+      <xpath>Defs/DutyDef[defName="ExitMapRandom"]/thinkNode/subNodes</xpath>
+      <order>Prepend</order>
+      <value>
+        <li Class="SensibleNPCEvacuation.JobGiver_FriendlyRescue" />
+      </value>
+    </match>
+    <nomatch Class="PatchOperationConditional">
+      <xpath>Defs/DutyDef[defName="ExitMapRandom"]/thinkNode[@Class="JobGiver_ExitMapRandom"]</xpath>
+      <match Class="PatchOperationReplace">
+        <xpath>Defs/DutyDef[defName="ExitMapRandom"]/thinkNode</xpath>
+        <value>
+          <thinkNode Class="ThinkNode_Priority">
+            <subNodes>
+              <li Class="SensibleNPCEvacuation.JobGiver_FriendlyRescue" />
+              <li Class="JobGiver_ExitMapRandom">
+                <defaultLocomotion>Walk</defaultLocomotion>
+              </li>
+            </subNodes>
+          </thinkNode>
+        </value>
+      </match>
+    </nomatch>
+  </Operation>
+
+  <Operation Class="PatchOperationInsert">
+    <xpath>Defs/DutyDef[defName="ExitMapBestAndDefendSelf"]/thinkNode/subNodes/li[@Class="JobGiver_ExitMapBest"]</xpath>
+    <value>
+      <li Class="SensibleNPCEvacuation.JobGiver_FriendlyRescue" />
+    </value>
+  </Operation>
+
+  <Operation Class="PatchOperationInsert">
+    <xpath>Defs/DutyDef[defName="ExitMapNearDutyTarget"]/thinkNode/subNodes/li[@Class="JobGiver_ExitMapNearDutyTarget"]</xpath>
+    <value>
+      <li Class="SensibleNPCEvacuation.JobGiver_FriendlyRescue" />
+    </value>
+  </Operation>
+
+  <Operation Class="PatchOperationInsert">
+    <xpath>Defs/DutyDef[defName="TravelOrLeave"]/thinkNode/subNodes/li[@Class="JobGiver_ExitMapRandom"]</xpath>
+    <value>
+      <li Class="SensibleNPCEvacuation.JobGiver_FriendlyRescue" />
+    </value>
+  </Operation>
+
+  <Operation Class="PatchOperationAdd">
+    <xpath>Defs/ThinkTreeDef[defName="MentalStateNonCritical"]/thinkRoot/subNodes/li[state="PanicFlee"]/subNodes</xpath>
+    <order>Prepend</order>
+    <value>
+      <li Class="SensibleNPCEvacuation.JobGiver_FriendlyRescue">
+        <fleeing>true</fleeing>
+      </li>
+    </value>
+  </Operation>
+</Patch>
