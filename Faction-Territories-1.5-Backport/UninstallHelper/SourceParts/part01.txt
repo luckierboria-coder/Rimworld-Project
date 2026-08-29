@@ -43,7 +43,7 @@
                     {
                         report.Blockers.Add("FTU_BlockVassalHasMap".Translate(wo.LabelCap, wo.Tile));
                     }
-                    int originalFactionId = ReadIntMember(wo, "originalFactionLoadID", ReadIntMember(wo, "originalFactionId", -1)));
+                    int originalFactionId = ReadIntMember(wo, "originalFactionLoadID", ReadIntMember(wo, "originalFactionId", -1));
                     if (FindFaction(originalFactionId) == null)
                     {
                         report.Blockers.Add("FTU_BlockVassalFactionMissing".Translate(wo.LabelCap, originalFactionId));
