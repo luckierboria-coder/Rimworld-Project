@@ -1,0 +1,54 @@
+name: Decompile Animal Apparel Framework 1.6
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/decompile-animal-apparel-framework-1.6.yml'
+  workflow_dispatch:
+
+jobs:
+  decompile:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download SteamCMD
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path steamcmd | Out-Null
+          Invoke-WebRequest -Uri 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile steamcmd.zip
+          Expand-Archive steamcmd.zip -DestinationPath steamcmd -Force
+
+      - name: Download Animal Apparel Framework
+        shell: pwsh
+        run: |
+          & .\steamcmd\steamcmd.exe +login anonymous +workshop_download_item 294100 3513825850 validate +quit
+          $global:LASTEXITCODE = 0
+          $root = Join-Path (Resolve-Path steamcmd).Path 'steamapps\workshop\content\294100\3513825850'
+          if (!(Test-Path $root)) { throw 'Animal Apparel Framework workshop download missing.' }
+          Copy-Item $root animal-apparel-framework -Recurse -Force
+          if (!(Test-Path 'animal-apparel-framework\1.6\Assemblies\AnimalGear.dll')) { throw 'Animal Apparel Framework 1.6 DLL missing.' }
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install ILSpy command line
+        shell: pwsh
+        run: dotnet tool install --global ilspycmd
+
+      - name: Decompile
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path decompiled | Out-Null
+          ilspycmd -p -o decompiled animal-apparel-framework\1.6\Assemblies\AnimalGear.dll
+          Get-ChildItem decompiled -Recurse -File | Select-Object FullName,Length
+
+      - name: Upload source
+        uses: actions/upload-artifact@v4
+        with:
+          name: Animal-Apparel-Framework-1.6-decompiled
+          path: decompiled
+          if-no-files-found: error
