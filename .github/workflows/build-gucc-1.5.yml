@@ -6,6 +6,11 @@ on:
     paths:
       - 'GUCC-1.5-Backport/**'
       - '.github/workflows/build-gucc-1.5.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'GUCC-1.5-Backport/**'
+      - '.github/workflows/build-gucc-1.5.yml'
   workflow_dispatch:
 
 jobs:
