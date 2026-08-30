@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
+using System.Text;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -12,7 +13,9 @@ namespace RimMTS52Diagnostics
     [StaticConstructorOnStartup]
     internal static class NoResultOriginProfilerS52
     {
-        private const string HarmonyId = "allen.rimmt.s52diagnostics";
+        // IMPORTANT: RimMT's WorkGiver compatibility guard treats only the exact core
+        // Harmony owner as trusted. Using a separate owner suppresses its own fast paths.
+        private const string HarmonyId = "allen.rimmt";
         private const int MaxTrackedPawnOrigins = 8192;
         private const int MaxOrigins = 2048;
         private const int TopN = 15;
@@ -51,7 +54,7 @@ namespace RimMTS52Diagnostics
                 MethodInfo postfix = AccessTools.Method(typeof(NoResultOriginProfilerS52), nameof(RuntimeReportPostfix));
                 if (report == null || prefix == null || postfix == null)
                 {
-                    Log.Warning("[RimMT-S5.2] NoResult Origin Profiler unavailable: RimMTDiagnostics.LogRuntimeReport was not found. Keep this sidecar loaded after allen.rimmt.");
+                    Log.Warning("[RimMT-S5.2] unavailable: RimMTDiagnostics.LogRuntimeReport not found.");
                     return;
                 }
 
@@ -59,7 +62,7 @@ namespace RimMTS52Diagnostics
                     prefix: new HarmonyMethod(prefix) { priority = Priority.First },
                     postfix: new HarmonyMethod(postfix) { priority = Priority.Last });
                 reportHookInstalled = true;
-                Log.Message("[RimMT-S5.2] NoResult Origin Profiler sidecar installed. Diagnostic-only: no JobGiver result is cached, suppressed, or replaced. First RimMT runtime report arms profiling; later reports print repeated-negative origins.");
+                Log.Message("[RimMT-S5.2] profiler installed with trusted owner=allen.rimmt. Diagnostic-only; no JobGiver result is changed.");
             }
             catch (Exception ex)
             {
@@ -82,6 +85,10 @@ namespace RimMTS52Diagnostics
                 campaignActive = PatchedMethods.Count > 0;
                 campaignStartedAtTimestamp = Stopwatch.GetTimestamp();
                 campaignStartedAtTick = CurrentTick();
+                Log.Message("[RimMT-S5.2] ARMED: patchedMethods=" + PatchedMethods.Count +
+                    ", patchFailures=" + patchFailures +
+                    ", owner=" + HarmonyId +
+                    ". Existing RimMT WorkGiver fast-path authority should remain eligible.");
             }
         }
 
@@ -94,18 +101,12 @@ namespace RimMTS52Diagnostics
             {
                 if (!campaignActive)
                 {
-                    Log.Message("[RimMT-S5.2] NoResult Origin Profiler could not arm: patchedMethods=0, patchFailures=" + patchFailures + ".");
+                    Log.Message("[RimMT-S5.2] profiler inactive: patchedMethods=0, patchFailures=" + patchFailures + ".");
                     return;
                 }
 
-                int nowTick = CurrentTick();
-                if (totalCalls == 0 || nowTick == campaignStartedAtTick)
-                {
-                    Log.Message("[RimMT-S5.2] ARMED: patchedMethods=" + PatchedMethods.Count + ", patchFailures=" + patchFailures + ". Play normally, then run the RimMT runtime report again. The next report will rank high-frequency repeated NoResult origins.");
-                    return;
-                }
-
-                Log.Message(BuildSummary(TopN));
+                if (totalCalls > 0)
+                    Log.Message(BuildSummary(TopN));
             }
         }
 
@@ -160,7 +161,8 @@ namespace RimMTS52Diagnostics
                 return false;
 
             string name = method.Name;
-            if (name != "ShouldSkip" && name != "NonScanJob" && name != "HasJobOnThing" && name != "HasJobOnCell" && name != "JobOnThing" && name != "JobOnCell")
+            if (name != "ShouldSkip" && name != "NonScanJob" && name != "HasJobOnThing" &&
+                name != "HasJobOnCell" && name != "JobOnThing" && name != "JobOnCell")
                 return false;
 
             ParameterInfo[] parameters = method.GetParameters();
@@ -179,7 +181,6 @@ namespace RimMTS52Diagnostics
         {
             if (__state == 0L || !campaignActive || __instance == null || __originalMethod == null)
                 return;
-
             Pawn pawn = ExtractPawn(__args);
             bool negative = __originalMethod.Name == "ShouldSkip" ? __result : !__result;
             Record(__instance, __originalMethod, pawn, negative, Stopwatch.GetTimestamp() - __state);
@@ -189,7 +190,6 @@ namespace RimMTS52Diagnostics
         {
             if (__state == 0L || !campaignActive || __instance == null || __originalMethod == null)
                 return;
-
             Pawn pawn = ExtractPawn(__args);
             Record(__instance, __originalMethod, pawn, __result == null, Stopwatch.GetTimestamp() - __state);
         }
@@ -227,16 +227,16 @@ namespace RimMTS52Diagnostics
                 stat.TotalTicks += elapsed;
                 if (elapsed > stat.MaxTicks) stat.MaxTicks = elapsed;
 
+                PawnOriginKey pawnOrigin = new PawnOriginKey(origin, pawn == null ? 0 : pawn.thingIDNumber);
                 if (!negative)
                 {
                     stat.Positive++;
-                    RepeatStates.Remove(new PawnOriginKey(origin, pawn == null ? 0 : pawn.thingIDNumber));
+                    RepeatStates.Remove(pawnOrigin);
                     return;
                 }
 
                 stat.Negative++;
                 int tick = CurrentTick();
-                PawnOriginKey pawnOrigin = new PawnOriginKey(origin, pawn == null ? 0 : pawn.thingIDNumber);
                 RepeatState repeat;
                 if (!RepeatStates.TryGetValue(pawnOrigin, out repeat))
                 {
@@ -287,8 +287,8 @@ namespace RimMTS52Diagnostics
             OriginStats.Clear();
             overflowedPawnOrigins = false;
             overflowedOrigins = false;
-            totalCalls = totalNegative = totalPositive = repeatNegative = 0;
-            repeats1 = repeats5 = repeats30 = repeats60 = repeats250 = 0;
+            totalCalls = totalNegative = totalPositive = repeatNegative = 0L;
+            repeats1 = repeats5 = repeats30 = repeats60 = repeats250 = 0L;
         }
 
         private static string BuildSummary(int topN)
@@ -307,15 +307,15 @@ namespace RimMTS52Diagnostics
             });
 
             if (topN > entries.Count) topN = entries.Count;
-            if (topN < 0) topN = 0;
-
             int elapsedGameTicks = CurrentTick() - campaignStartedAtTick;
-            double wallSeconds = campaignStartedAtTimestamp == 0L ? 0.0 : (Stopwatch.GetTimestamp() - campaignStartedAtTimestamp) / (double)Stopwatch.Frequency;
-            double negRatio = totalCalls <= 0 ? 0.0 : totalNegative * 100.0 / totalCalls;
-            double repeatRatio = totalNegative <= 0 ? 0.0 : repeatNegative * 100.0 / totalNegative;
+            double wallSeconds = campaignStartedAtTimestamp == 0L ? 0.0 :
+                (Stopwatch.GetTimestamp() - campaignStartedAtTimestamp) / (double)Stopwatch.Frequency;
+            double negRatio = totalCalls == 0 ? 0.0 : totalNegative * 100.0 / totalCalls;
+            double repeatRatio = totalNegative == 0 ? 0.0 : repeatNegative * 100.0 / totalNegative;
 
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("[RimMT] S5.2 NoResult Origin report: sidecar=True, patchedMethods=").Append(PatchedMethods.Count)
+            StringBuilder sb = new StringBuilder();
+            sb.Append("[RimMT] S5.2 NoResult Origin report: sidecar=True, owner=").Append(HarmonyId)
+                .Append(", patchedMethods=").Append(PatchedMethods.Count)
                 .Append(", patchFailures=").Append(patchFailures)
                 .Append(", gameTicks=").Append(elapsedGameTicks)
                 .Append(", wallSec=").Append(wallSeconds.ToString("F1"))
@@ -335,11 +335,12 @@ namespace RimMTS52Diagnostics
                 OriginEntry entry = entries[i];
                 OriginStat stat = entry.Stat;
                 double totalMs = stat.TotalTicks * 1000.0 / Stopwatch.Frequency;
-                double avgUs = stat.Calls <= 0 ? 0.0 : stat.TotalTicks * 1000000.0 / Stopwatch.Frequency / stat.Calls;
+                double avgUs = stat.Calls == 0 ? 0.0 : stat.TotalTicks * 1000000.0 / Stopwatch.Frequency / stat.Calls;
                 double maxMs = stat.MaxTicks * 1000.0 / Stopwatch.Frequency;
-                double noResultRatio = stat.Calls <= 0 ? 0.0 : stat.Negative * 100.0 / stat.Calls;
-                double originRepeatRatio = stat.Negative <= 0 ? 0.0 : stat.RepeatedNegative * 100.0 / stat.Negative;
-                double avgInterval = stat.RepeatIntervalSamples <= 0 ? 0.0 : stat.RepeatIntervalTickSum / (double)stat.RepeatIntervalSamples;
+                double noResultRatio = stat.Calls == 0 ? 0.0 : stat.Negative * 100.0 / stat.Calls;
+                double originRepeatRatio = stat.Negative == 0 ? 0.0 : stat.RepeatedNegative * 100.0 / stat.Negative;
+                double avgInterval = stat.RepeatIntervalSamples == 0 ? 0.0 :
+                    stat.RepeatIntervalTickSum / (double)stat.RepeatIntervalSamples;
 
                 sb.Append("\n  #").Append(i + 1).Append(' ')
                     .Append(entry.Key.DefName).Append(" / ")
@@ -356,19 +357,6 @@ namespace RimMTS52Diagnostics
                     .Append(", avgUs=").Append(avgUs.ToString("F2"))
                     .Append(", maxMs=").Append(maxMs.ToString("F3"));
             }
-
-            if (entries.Count > 0)
-            {
-                OriginEntry top = entries[0];
-                sb.Append("\n  dominantRepeatedNegativeSource=")
-                    .Append(top.Key.DefName).Append(" / ")
-                    .Append(top.Key.WorkerTypeName).Append('.').Append(top.Key.Method)
-                    .Append(" [asm=").Append(top.Key.AssemblyName).Append(']')
-                    .Append(", repeated=").Append(top.Stat.RepeatedNegative)
-                    .Append(", noResult=").Append(top.Stat.Negative)
-                    .Append(". Diagnostic signal only; no search was skipped or cached.");
-            }
-
             return sb.ToString();
         }
 
@@ -378,7 +366,6 @@ namespace RimMTS52Diagnostics
             internal readonly Type WorkerType;
             internal readonly string Method;
             internal readonly string AssemblyName;
-
             internal OriginKey(WorkGiverDef def, Type workerType, string method, string assemblyName)
             {
                 Def = def;
@@ -386,10 +373,12 @@ namespace RimMTS52Diagnostics
                 Method = method ?? "?";
                 AssemblyName = assemblyName ?? "<unknown-assembly>";
             }
-
             internal string DefName { get { return Def == null ? "<no-def>" : Def.defName; } }
             internal string WorkerTypeName { get { return WorkerType == null ? "<null>" : WorkerType.FullName; } }
-            public bool Equals(OriginKey other) { return ReferenceEquals(Def, other.Def) && WorkerType == other.WorkerType && Method == other.Method && AssemblyName == other.AssemblyName; }
+            public bool Equals(OriginKey other)
+            {
+                return ReferenceEquals(Def, other.Def) && WorkerType == other.WorkerType && Method == other.Method && AssemblyName == other.AssemblyName;
+            }
             public override bool Equals(object obj) { return obj is OriginKey && Equals((OriginKey)obj); }
             public override int GetHashCode()
             {
