@@ -1,0 +1,26 @@
+name: Inspect RW15 Apparel Verb
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/inspect-rw15-apparel-verb.yml'
+
+jobs:
+  inspect:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Resolve 1.5 ref and decompile type
+        shell: pwsh
+        run: |
+          dotnet restore Animal-Apparel-Framework-1.5-Backport/Source/AnimalApparelFramework15.csproj
+          dotnet tool install --global ilspycmd
+          $dll=(Get-ChildItem "$env:USERPROFILE\.nuget\packages\krafs.rimworld.ref\1.5.4063" -Recurse -Filter Assembly-CSharp.dll | Select-Object -First 1).FullName
+          if (!$dll) { throw 'Assembly-CSharp ref not found' }
+          Write-Host "DLL=$dll"
+          ilspycmd -t RimWorld.CompApparelVerbOwner $dll
