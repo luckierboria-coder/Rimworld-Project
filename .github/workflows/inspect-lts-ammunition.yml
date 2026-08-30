@@ -1,0 +1,39 @@
+name: Inspect LTS Ammunition Framework
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/inspect-lts-ammunition.yml'
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download SteamCMD
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path steamcmd | Out-Null
+          Invoke-WebRequest -Uri 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile steamcmd.zip
+          Expand-Archive steamcmd.zip -DestinationPath steamcmd -Force
+      - name: Download LTS Ammunition Framework
+        shell: pwsh
+        run: |
+          & .\steamcmd\steamcmd.exe +login anonymous +workshop_download_item 294100 2803605634 validate +quit
+          $global:LASTEXITCODE = 0
+          $candidate = Join-Path (Resolve-Path steamcmd).Path 'steamapps\workshop\content\294100\2803605634'
+          if (!(Test-Path $candidate)) {
+            $hit = Get-ChildItem -Path . -Directory -Recurse -Filter 2803605634 | Select-Object -First 1
+            if (!$hit) { throw 'SteamCMD did not download LTS Ammunition Framework.' }
+            $candidate = $hit.FullName
+          }
+          New-Item -ItemType Directory -Force -Path 'inspect\LTS_Ammunition_Framework' | Out-Null
+          Copy-Item (Join-Path $candidate '*') 'inspect\LTS_Ammunition_Framework' -Recurse -Force
+      - name: Upload framework
+        uses: actions/upload-artifact@v4
+        with:
+          name: LTS-Ammunition-Framework
+          path: inspect/LTS_Ammunition_Framework
+          if-no-files-found: error
