@@ -5,6 +5,7 @@ using HarmonyLib;
 using RimWorld;
 using UnityEngine;
 using Verse;
+using Verse.AI;
 
 namespace AnimalGear
 {
@@ -165,6 +166,23 @@ namespace AnimalGear.Graphics
         public static PawnRenderNodeTagDef AnimalApparel;
     }
 
+    public static class RenderTree15
+    {
+        public static PawnRenderNode FindNode(PawnRenderNode node, PawnRenderNodeTagDef tag)
+        {
+            if (node == null || tag == null) return null;
+            if (node.Props != null && node.Props.tagDef == tag) return node;
+            PawnRenderNode[] children = node.children;
+            if (children == null) return null;
+            for (int i = 0; i < children.Length; i++)
+            {
+                PawnRenderNode found = FindNode(children[i], tag);
+                if (found != null) return found;
+            }
+            return null;
+        }
+    }
+
     public static class RenderHelpers
     {
         public static Graphic GetGraphic(Apparel apparel, Pawn pawn)
@@ -204,8 +222,7 @@ namespace AnimalGear.Graphics
 
         public override GraphicMeshSet MeshSetFor(Pawn pawn)
         {
-            PawnRenderNode body;
-            tree.TryGetNodeByTag(PawnRenderNodeTagDefOf.Body, out body);
+            PawnRenderNode body = RenderTree15.FindNode(tree.rootNode, PawnRenderNodeTagDefOf.Body);
             if (body != null) return body.MeshSetFor(pawn);
             float size = 1f;
             if (pawn.ageTracker != null && pawn.ageTracker.CurKindLifeStage != null && pawn.ageTracker.CurKindLifeStage.bodyGraphicData != null)
@@ -229,8 +246,7 @@ namespace AnimalGear.Graphics
         {
             Pawn pawn = __instance == null ? null : __instance.pawn;
             if (!pawn.IsAnimalOfColony() || pawn.apparel == null || pawn.apparel.WornApparelCount == 0) return;
-            PawnRenderNode root;
-            __instance.TryGetNodeByTag(AnimalPawnRenderNodeTagDefOf.AnimalApparel, out root);
+            PawnRenderNode root = RenderTree15.FindNode(__instance.rootNode, AnimalPawnRenderNodeTagDefOf.AnimalApparel);
             if (root == null) return;
             foreach (Apparel apparel in pawn.apparel.WornApparel)
             {
