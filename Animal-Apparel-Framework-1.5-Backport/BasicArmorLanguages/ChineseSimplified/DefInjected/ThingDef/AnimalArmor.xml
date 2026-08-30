@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <Apparel_FlakJacket_Animal.label>动物防破片夹克</Apparel_FlakJacket_Animal.label>
+  <Apparel_PlateArmor_Animal.label>动物板甲</Apparel_PlateArmor_Animal.label>
+  <Apparel_AdvancedHelmet_Animal.label>动物防破片头盔</Apparel_AdvancedHelmet_Animal.label>
+  <Apparel_SimpleHelmet_Animal.label>动物简易头盔</Apparel_SimpleHelmet_Animal.label>
+  <Apparel_ArmorCataphract_Animal.label>动物甲胄装甲</Apparel_ArmorCataphract_Animal.label>
+  <Apparel_ArmorCataphract_Animal.description>为多种动物设计的重型动力装甲，以机动性换取最大程度的防护。多层塑钢织物装甲板与消融涂层能够抵挡绝大多数攻击，神经辅助系统则避免装甲重量完全拖垮穿戴动物。帝国常为战兽和坐骑配备此类装甲，用于突破坚固防线。</Apparel_ArmorCataphract_Animal.description>
+  <Apparel_ArmorHelmetCataphract_Animal.label>动物甲胄头盔</Apparel_ArmorHelmetCataphract_Animal.label>
+</LanguageData>
