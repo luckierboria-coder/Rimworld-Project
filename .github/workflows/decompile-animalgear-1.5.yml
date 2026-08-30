@@ -52,3 +52,5 @@ jobs:
           name: AnimalGear-1.5-decompiled
           path: decompiled
           if-no-files-found: error
+
+# Refreshed for 1.5 render API comparison.
