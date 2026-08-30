@@ -1,0 +1,58 @@
+name: Dump RimWorld 1.5 Render API
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/dump-rimworld-1.5-render-api.yml'
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Create probe project
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path probe | Out-Null
+          @'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup><TargetFramework>net472</TargetFramework><OutputType>Exe</OutputType></PropertyGroup>
+            <ItemGroup><PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4063" /></ItemGroup>
+          </Project>
+          '@ | Set-Content probe/probe.csproj -Encoding UTF8
+          @'
+          using System;
+          using System.Linq;
+          using System.Reflection;
+          using Verse;
+          class P {
+            static void Dump(Type t) {
+              Console.WriteLine("===== " + t.FullName + " =====");
+              foreach (var f in t.GetFields(BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic).OrderBy(x=>x.Name))
+                Console.WriteLine("FIELD " + f.FieldType.FullName + " " + f.Name);
+              foreach (var p in t.GetProperties(BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic).OrderBy(x=>x.Name))
+                Console.WriteLine("PROP " + p.PropertyType.FullName + " " + p.Name + " get=" + (p.GetGetMethod(true)!=null) + " set=" + (p.GetSetMethod(true)!=null));
+              foreach (var m in t.GetMethods(BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.DeclaredOnly).OrderBy(x=>x.Name))
+                Console.WriteLine("METHOD " + m.ReturnType.FullName + " " + m.Name + "(" + string.Join(", ", m.GetParameters().Select(x=>x.ParameterType.FullName+" "+x.Name)) + ") virtual=" + m.IsVirtual);
+            }
+            static void Main() {
+              Dump(typeof(PawnRenderTree));
+              Dump(typeof(PawnRenderNode));
+              Dump(typeof(PawnRenderNodeProperties));
+            }
+          }
+          '@ | Set-Content probe/Program.cs -Encoding UTF8
+      - name: Restore and run probe
+        shell: pwsh
+        run: |
+          dotnet restore probe/probe.csproj
+          dotnet run --project probe/probe.csproj --no-restore | Tee-Object -FilePath render-api.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RimWorld-1.5.4063-render-api
+          path: render-api.txt
