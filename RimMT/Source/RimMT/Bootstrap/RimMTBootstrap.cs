@@ -28,10 +28,11 @@ namespace RimMT
                 AdaptiveGenClosestAssist.Apply(harmony);
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
-                JobGiverSlowSearch0419S.Apply(harmony);
+                JobGiverLearnedAdmission0419S3.Apply(harmony);
 
-                // JS1.1S1 keeps the validated JS1.1R JobPackage baseline. The only changed search
-                // behavior from JS1.1S is lowering selective ClosestThingReachable admission to 256.
+                // S3 returns to the validated JS1.1S1 JobPackage/search baseline. Small/medium
+                // ClosestThingReachable calls remain Vanilla until sampled timings prove a query
+                // shape is persistently slow. The old S2 unconditional fanout path is not installed.
                 JobPackageLocalSearch0419.Apply(harmony);
 
                 // ReachProfile prediction/build behavior and the embedded rolling fuse are
@@ -45,7 +46,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1.1S1 Slow Search 256 initialized from validated JS1.1S. Ordinary JobPackages remain on JS1.1R. JobGiver-owned ClosestThingReachable calls with >=256 live ThingRequest candidates may use the selective nearest-first live-validator/live-CanReach path; 128-255 candidate sources are telemetry-only. JR1/JR1.1 remain absent and ReachProfile rolling-fuse behavior is unchanged.");
+                Log.Message("[RimMT] V0.4.19-JS1.1S3 Learned Admission initialized from validated JS1.1S1. >=256 ThingRequest searches retain the S1 fast path. 16-255 ThingRequest/custom IList searches default to Vanilla, are sampled by query shape, and only enter the fast path after sustained measured Vanilla cost; admitted shapes periodically return to Vanilla for re-sampling and self-revoke when acceleration no longer wins. Supplemental Global nearest-first handles 32-63 candidates while the original >=64 path remains unchanged. S2 fanout16 is absent; JR1/JR1.1 remain retired and ReachProfile rolling-fuse behavior is unchanged.");
             }
             catch (Exception ex)
             {
