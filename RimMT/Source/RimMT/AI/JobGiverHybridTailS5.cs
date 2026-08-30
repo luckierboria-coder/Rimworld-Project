@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Threading;
 using HarmonyLib;
 using Verse;
+using Verse.AI;
 
 namespace RimMT
 {
@@ -215,16 +216,12 @@ namespace RimMT
             {
                 Interlocked.Increment(ref knownLargeObserved);
 
-                // Before 32ms S4 would not touch the custom set anyway, so leave the call alone.
                 if (elapsedTicks < S4TailThresholdTicks)
                 {
                     Interlocked.Increment(ref knownLargePre32PassThrough);
                     return true;
                 }
 
-                // After 32ms, force S4's higher-than-Vanilla custom rescue to fail closed by
-                // temporarily poisoning maxDistance. RestorePrefix repairs the argument before
-                // the original Vanilla method executes.
                 restoreLargeBypass = true;
                 restoreMaxDistance = __5;
                 __5 = -1f;
@@ -256,9 +253,6 @@ namespace RimMT
                 __7, knownCount, __0, map, __3, __4, __5, __6, ref __result);
         }
 
-        // This prefix runs immediately after S4. It restores maxDistance only for known-large custom
-        // sets that S5 deliberately routed back to Vanilla, minimizing exposure of the temporary
-        // poison value to unrelated Harmony prefixes.
         public static void RestorePrefix(ref float __5)
         {
             if (!restoreLargeBypass)
@@ -329,9 +323,6 @@ namespace RimMT
                     candidates[kept++] = new Candidate(thing, distanceSquared, index);
                 }
 
-                // Count-bearing collections should normally enumerate exactly Count items. If a
-                // hostile/custom collection violates that contract and grows beyond the CD1-safe
-                // range, fail closed to Vanilla instead of extending S5 to an unmeasured shape.
                 if (sourceIndex > KnownFastMax)
                     return true;
 
