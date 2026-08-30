@@ -1,0 +1,34 @@
+name: Inspect AAF RPG Inventory Compat
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/inspect-aaf-rpg-compat.yml'
+
+jobs:
+  inspect:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Download framework and decompile RPG compat
+        shell: pwsh
+        run: |
+          dotnet tool install --global ilspycmd
+          New-Item -ItemType Directory -Force -Path steamcmd | Out-Null
+          Invoke-WebRequest -Uri 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile steamcmd.zip
+          Expand-Archive steamcmd.zip -DestinationPath steamcmd -Force
+          & .\steamcmd\steamcmd.exe +login anonymous +workshop_download_item 294100 3513825850 validate +quit
+          $global:LASTEXITCODE = 0
+          $dll=(Get-ChildItem -Recurse -Filter RPGInventory-patch.dll | Select-Object -First 1).FullName
+          if (!$dll) { throw 'RPG compat DLL not found' }
+          New-Item -ItemType Directory -Force -Path decompiled | Out-Null
+          ilspycmd -p -o decompiled $dll
+          Get-ChildItem decompiled -Recurse -Filter *.cs | ForEach-Object {
+            Write-Host "===== $($_.FullName) ====="
+            Get-Content $_.FullName
+          }
