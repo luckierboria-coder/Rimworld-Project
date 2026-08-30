@@ -1,0 +1,24 @@
+name: Fetch ILSpyCmd Recovery Tool
+
+on:
+  push:
+    branches: [ rimmt-v0.9.0-rc1 ]
+    paths:
+      - '.github/workflows/fetch-ilspycmd.yml'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install ilspycmd
+        run: dotnet tool install ilspycmd --tool-path ./ilspycmd --version 11.0.0.9375
+      - name: Upload tool
+        uses: actions/upload-artifact@v4
+        with:
+          name: ilspycmd-11
+          path: ilspycmd
+          if-no-files-found: error
