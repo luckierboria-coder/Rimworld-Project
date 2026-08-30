@@ -21,8 +21,8 @@ jobs:
       - name: Reconstruct source package
         shell: pwsh
         run: |
-          $parts = Get-ChildItem 'ci/source.part*' | Sort-Object Name
-          if ($parts.Count -eq 0) { throw 'Missing source payload parts.' }
+          $parts = Get-ChildItem 'ci/rasov.part*' | Sort-Object Name
+          if ($parts.Count -eq 0) { throw 'Missing RaS source payload parts.' }
           $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
           [IO.File]::WriteAllBytes('ras_source.zip', [Convert]::FromBase64String($b64))
           New-Item -ItemType Directory -Force -Path 'rasbuild' | Out-Null
@@ -32,14 +32,6 @@ jobs:
           $buildRoot = $buildScript.Directory.FullName
           "RAS_BUILD_ROOT=$buildRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Build root: $buildRoot"
-
-      - name: Remove broken legacy preflight guard
-        shell: pwsh
-        run: |
-          $p = Join-Path $env:RAS_BUILD_ROOT 'Build_All_1.5.ps1'
-          $txt = Get-Content $p -Raw
-          $txt = $txt -replace '(?m)^Assert-No16ApiResidue\s*$', '# Assert-No16ApiResidue disabled in CI; compiler is authoritative'
-          Set-Content $p $txt -Encoding UTF8
 
       - name: Build all three DLLs
         shell: pwsh
