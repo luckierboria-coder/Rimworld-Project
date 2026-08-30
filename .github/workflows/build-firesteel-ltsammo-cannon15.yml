@@ -1,0 +1,34 @@
+name: Build FireSteel LTS Ammo Cannon 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'FireSteel-LTSAmmo-Cannon15/**'
+      - '.github/workflows/build-firesteel-ltsammo-cannon15.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore FireSteel-LTSAmmo-Cannon15/Source/FireSteelLTSAmmoCompat.csproj
+      - name: Build Release
+        run: dotnet build FireSteel-LTSAmmo-Cannon15/Source/FireSteelLTSAmmoCompat.csproj --configuration Release --no-restore
+      - name: Verify DLL
+        shell: pwsh
+        run: |
+          $dll = 'FireSteel-LTSAmmo-Cannon15\1.5\Assemblies\FireSteelLTSAmmoCompat.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+          Get-Item $dll | Format-Table Name,Length,LastWriteTime
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: FireSteel-LTSAmmo-Cannon15-DLL
+          path: FireSteel-LTSAmmo-Cannon15/1.5/Assemblies/FireSteelLTSAmmoCompat.dll
+          if-no-files-found: error
