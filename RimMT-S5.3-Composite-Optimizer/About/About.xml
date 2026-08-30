@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT S5.3 Composite Optimizer</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt.s53composite</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li>
+    <li><packageId>allen.rimmt</packageId><displayName>RimMT</displayName></li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li><li>allen.rimmt</li></loadAfter>
+  <description>Experimental S5.3 composite WorkGiver optimizer for RimWorld 1.5. Includes BuildRoof candidate pruning, Tend map-state gating, GrowerHarvest pruning, ClearSnow pruning, GrowerSow candidate/index restructuring, and DoBill BillGiver indexing. Each feature is independent and fail-closed when incompatible Harmony authority patches are detected.</description>
+</ModMetaData>
