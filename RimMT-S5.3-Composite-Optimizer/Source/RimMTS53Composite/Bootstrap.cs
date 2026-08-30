@@ -87,9 +87,23 @@ namespace RimMTS53Composite
             MethodInfo wanted = AccessTools.Method(typeof(WorkGiver_Grower), nameof(WorkGiver_Grower.CalculateWantedPlantDef), new Type[] { typeof(IntVec3), typeof(Map) });
             string blocker;
             if (source == null) { Harvest.Disable("source lookup failed"); Sow.Disable("source lookup failed"); return; }
-            if (harvestAuthority == null || HasUnsafeForeignPatch(harvestAuthority, IsKnownSafeHarvestPatch, out blocker)) Harvest.Disable(harvestAuthority == null ? "authority lookup failed" : "foreign Harvest authority: " + blocker); else Harvest.Enable();
-            if (sowAuthority == null || wanted == null) Sow.Disable("authority/index lookup failed");
-            else if (HasUnsafeForeignPatch(sowAuthority, null, out blocker) || HasUnsafeForeignPatch(wanted, null, out blocker)) Sow.Disable("foreign Sow authority: " + blocker); else Sow.Enable();
+
+            if (harvestAuthority == null)
+                Harvest.Disable("authority lookup failed");
+            else if (HasUnsafeForeignPatch(harvestAuthority, IsKnownSafeHarvestPatch, out blocker))
+                Harvest.Disable("foreign Harvest authority: " + blocker);
+            else
+                Harvest.Enable();
+
+            if (sowAuthority == null || wanted == null)
+                Sow.Disable("authority/index lookup failed");
+            else if (HasUnsafeForeignPatch(sowAuthority, null, out blocker))
+                Sow.Disable("foreign Sow authority: " + blocker);
+            else if (HasUnsafeForeignPatch(wanted, null, out blocker))
+                Sow.Disable("foreign wanted-plant index patch: " + blocker);
+            else
+                Sow.Enable();
+
             harmony.Patch(source, postfix: new HarmonyMethod(typeof(CompositeOptimizerS53), nameof(GrowerCellsPostfix)) { priority = Priority.Last });
         }
 
