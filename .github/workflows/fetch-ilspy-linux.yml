@@ -1,0 +1,22 @@
+name: Fetch ILSpy Linux Recovery Tool
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ rimmt-v0.9.0-rc1 ]
+    paths:
+      - '.github/workflows/fetch-ilspy-linux.yml'
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download ILSpy Linux x64
+        run: |
+          curl -L --fail --retry 3 -o ILSpy_linux-x64.zip https://github.com/icsharpcode/ILSpy/releases/download/v11.0/ILSpy_linux-x64_11.0.0.9375.zip
+      - name: Upload ILSpy
+        uses: actions/upload-artifact@v4
+        with:
+          name: ilspy-linux-x64-11
+          path: ILSpy_linux-x64.zip
+          if-no-files-found: error
