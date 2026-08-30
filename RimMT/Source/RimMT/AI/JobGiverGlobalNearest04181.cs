@@ -20,9 +20,8 @@ namespace RimMT
     // optimization scoped strictly inside JobGiver_Work.TryIssueJobPackage to avoid changing
     // validator call order for unrelated gameplay systems.
     //
-    // Unspawned candidates and candidates outside maxDistance are omitted because Vanilla skips
-    // them before invoking validator/priorityGetter. Equal-distance candidates retain source order.
-    // No Verse/Unity objects are touched from worker threads and no main-thread worker wait exists.
+    // S4 adds only one piece of scope metadata here: the root JobPackage start timestamp. Tail
+    // Rescue reads that timestamp but does not add another JobGiver Harmony detour.
     internal static class JobGiverGlobalNearest04181
     {
         private const int MinSourceCount = 64;
@@ -30,6 +29,9 @@ namespace RimMT
 
         [ThreadStatic]
         private static int jobGiverDepth;
+
+        [ThreadStatic]
+        private static long jobGiverStartTicks;
 
         private static volatile bool globalPatched;
         private static volatile bool reachablePatched;
@@ -59,6 +61,11 @@ namespace RimMT
         internal static bool InJobGiverScope
         {
             get { return jobGiverDepth > 0; }
+        }
+
+        internal static long CurrentScopeStartTicks
+        {
+            get { return jobGiverDepth > 0 ? jobGiverStartTicks : 0L; }
         }
 
         internal static void Apply(Harmony harmony)
@@ -119,6 +126,8 @@ namespace RimMT
 
         public static void JobGiverPrefix()
         {
+            if (jobGiverDepth == 0)
+                jobGiverStartTicks = Stopwatch.GetTimestamp();
             jobGiverDepth++;
             Interlocked.Increment(ref jobGiverScopes);
         }
@@ -126,7 +135,11 @@ namespace RimMT
         public static Exception JobGiverFinalizer(Exception __exception)
         {
             if (jobGiverDepth > 0)
+            {
                 jobGiverDepth--;
+                if (jobGiverDepth == 0)
+                    jobGiverStartTicks = 0L;
+            }
             return __exception;
         }
 
@@ -154,8 +167,6 @@ namespace RimMT
                 return;
             }
 
-            // Priority search must inspect every candidate because a farther target may have a
-            // higher priority. Distance-only ordering cannot safely prune that case.
             if (args[priorityIndex] != null)
             {
                 Interlocked.Increment(ref priorityBypass);
@@ -197,7 +208,7 @@ namespace RimMT
                     if (raw == null)
                     {
                         Interlocked.Increment(ref nullElementBypass);
-                        return; // Preserve Vanilla's potential null failure semantics.
+                        return;
                     }
 
                     Thing thing = raw as Thing;
@@ -207,8 +218,6 @@ namespace RimMT
                         return;
                     }
 
-                    // Vanilla checks Spawned before distance/validator. Omitting this candidate
-                    // is therefore semantically equivalent for the supported no-priority path.
                     if (!thing.Spawned)
                     {
                         localUnspawned++;
@@ -284,7 +293,8 @@ namespace RimMT
                 (Interlocked.Read(ref sortTicks) * 1000000.0 / Stopwatch.Frequency) / calls;
             double maxSortUs = Interlocked.Read(ref maxSortTicks) * 1000000.0 / Stopwatch.Frequency;
 
-            return "JobGiver global nearest V0.4.18.1: patched(global/reachable)=" + globalPatched + "/" + reachablePatched +
+            return "JobGiver global nearest V0.4.18.1 + S4 timing scope: patched(global/reachable)=" + globalPatched + "/" + reachablePatched +
+                ", minSource=" + MinSourceCount +
                 ", jobGiverScopes=" + Interlocked.Read(ref jobGiverScopes) +
                 ", observed(global/reachable)=" + Interlocked.Read(ref globalObserved) + "/" + Interlocked.Read(ref reachableObserved) +
                 ", reordered=" + calls +
@@ -307,7 +317,7 @@ namespace RimMT
                 ", avgSortUs=" + avgSortUs.ToString("F2") +
                 ", maxSortUs=" + maxSortUs.ToString("F2") +
                 ", failures=" + Interlocked.Read(ref failures) +
-                ". Scoped to JobGiver_Work and priorityGetter=null; nearest result/tie order remain Vanilla-equivalent for predicate-style validators.";
+                ". S4 reuses this existing JobGiver scope timestamp; Global nearest behavior itself remains the validated S1 >=64 policy.";
         }
 
         private struct Candidate
