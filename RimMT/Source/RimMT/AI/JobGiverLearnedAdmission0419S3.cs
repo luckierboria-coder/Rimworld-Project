@@ -13,38 +13,31 @@ using Verse.AI;
 namespace RimMT
 {
     // V0.4.19-JS1.1S3 Learned Admission
-    //
-    // S2 proved that residual JobGiver tails contain many repeated small/medium searches, but also
-    // proved that blindly replacing those calls regresses the average. S3 therefore returns to the
-    // validated S1 >=256 ThingRequest fast path and learns admission for 16-255 ThingRequest/custom
-    // searches from sampled live Vanilla timings. Learned shapes periodically return to Vanilla for
-    // re-sampling and automatically cool down if the accelerated EMA is not materially faster.
-    //
-    // No worker wait is introduced. Candidate membership is unchanged for supported explicit sets;
-    // the original validator and live CanReach remain main-thread authoritative.
+    // Returns to the validated S1 >=256 path. Small/medium ThingRequest/custom-list searches stay
+    // Vanilla until sampled live timings prove that their query shape is persistently expensive.
+    // Admitted shapes periodically shadow Vanilla and self-revoke if the fast EMA stops winning.
     internal static class JobGiverLearnedAdmission0419S3
     {
         internal const string FeatureId = "ai.jobLearnedSearch";
 
-        private const int StaticLargeThreshold = 256;
+        private const int StaticThreshold = 256;
         private const int LearnMinSource = 16;
-        private const int MaxSourceCount = 16384;
-        private const int MaxLearnedShapes = 512;
-        private const int WarmupVanillaSamples = 8;
-        private const int VanillaSampleMask = 31;      // 1/32 while learning
-        private const int AdmittedShadowMask = 63;     // 1/64 while admitted
-        private const int MinFastSamplesForJudgement = 32;
+        private const int MaxSource = 16384;
+        private const int MaxShapes = 512;
+        private const int WarmupSamples = 8;
+        private const int LearnSampleMask = 31;      // 1/32 after warmup
+        private const int ShadowSampleMask = 63;     // 1/64 while admitted
+        private const int JudgeFastSamples = 32;
         private const int CooldownFrames = 3600;
-        private const double AdmissionEmaMs = 1.50;
-        private const double SlowVanillaMs = 2.00;
-        private const double StrongSlowVanillaMs = 4.00;
-        private const double RequiredFastRatio = 0.90; // fast EMA must be < 90% of Vanilla EMA
+        private const double AdmitEmaMs = 1.50;
+        private const double SlowMs = 2.00;
+        private const double StrongSlowMs = 4.00;
+        private const double RequiredFastRatio = 0.90;
 
-        [ThreadStatic] private static Candidate[] candidateScratch;
+        [ThreadStatic] private static Candidate[] scratch;
         [ThreadStatic] private static Candidate[] globalScratch;
 
-        private static readonly Dictionary<ShapeKey, ShapeStats> Shapes =
-            new Dictionary<ShapeKey, ShapeStats>(128);
+        private static readonly Dictionary<ShapeKey, ShapeStats> Shapes = new Dictionary<ShapeKey, ShapeStats>(128);
 
         private static volatile bool enabled = true;
         private static volatile bool patched;
@@ -53,16 +46,16 @@ namespace RimMT
 
         private static long observed;
         private static long inScope;
-        private static long staticLargeAccelerated;
+        private static long staticAccelerated;
         private static long learnedAccelerated;
-        private static long learnedThingRequestAccelerated;
+        private static long learnedThingAccelerated;
         private static long learnedCustomAccelerated;
-        private static long acceleratedFound;
-        private static long acceleratedNoResult;
+        private static long found;
+        private static long noResult;
         private static long vanillaSamples;
-        private static long learnedAdmissions;
-        private static long learnedDeAdmissions;
-        private static long admittedShadowSamples;
+        private static long shadowSamples;
+        private static long admissions;
+        private static long deAdmissions;
         private static long shapeCapBypass;
         private static long customUnsupportedBypass;
         private static long smallBypass;
@@ -70,14 +63,14 @@ namespace RimMT
         private static long unsupportedTraverseBypass;
         private static long invalidContextBypass;
         private static long sourceFaultBypass;
-        private static long source0To15;
-        private static long source16To31;
-        private static long source32To63;
-        private static long source64To127;
-        private static long source128To255;
-        private static long source256To383;
-        private static long source384To511;
-        private static long source512Plus;
+        private static long bucket0To15;
+        private static long bucket16To31;
+        private static long bucket32To63;
+        private static long bucket64To127;
+        private static long bucket128To255;
+        private static long bucket256To383;
+        private static long bucket384To511;
+        private static long bucket512Plus;
         private static long sourceCandidates;
         private static long keptCandidates;
         private static long examinedCandidates;
@@ -85,8 +78,8 @@ namespace RimMT
         private static long validatorRejected;
         private static long reachChecks;
         private static long reachRejected;
-        private static long acceleratedTicks;
-        private static long maxAcceleratedTicks;
+        private static long fastTicks;
+        private static long maxFastTicks;
         private static long sortTicks;
         private static long maxSortTicks;
         private static long maxSource;
@@ -102,102 +95,70 @@ namespace RimMT
 
         internal static void Apply(Harmony harmony)
         {
-            if (harmony == null)
-                return;
-
+            if (harmony == null) return;
             try
             {
-                MethodInfo prefixMethod = AccessTools.Method(typeof(JobGiverLearnedAdmission0419S3), nameof(Prefix));
-                MethodInfo postfixMethod = AccessTools.Method(typeof(JobGiverLearnedAdmission0419S3), nameof(Postfix));
+                MethodInfo ctrPrefix = AccessTools.Method(typeof(JobGiverLearnedAdmission0419S3), nameof(Prefix));
+                MethodInfo ctrPostfix = AccessTools.Method(typeof(JobGiverLearnedAdmission0419S3), nameof(Postfix));
                 MethodInfo globalPrefix = AccessTools.Method(typeof(JobGiverLearnedAdmission0419S3), nameof(Global32Prefix));
                 MethodInfo reachablePrefix = AccessTools.Method(typeof(JobGiverLearnedAdmission0419S3), nameof(GlobalReachable32Prefix));
 
                 MethodInfo[] methods = typeof(GenClosest).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                int ctrPatched = 0;
+                int ctrCount = 0;
                 for (int i = 0; i < methods.Length; i++)
                 {
                     MethodInfo method = methods[i];
-                    if (IsSupportedCtrOverload(method))
+                    if (IsCtrOverload(method))
                     {
-                        HarmonyMethod prefix = new HarmonyMethod(prefixMethod) { priority = Priority.First + 100 };
-                        HarmonyMethod postfix = new HarmonyMethod(postfixMethod) { priority = Priority.Last - 100 };
-                        harmony.Patch(method, prefix: prefix, postfix: postfix);
-                        ctrPatched++;
+                        harmony.Patch(method,
+                            prefix: new HarmonyMethod(ctrPrefix) { priority = Priority.First + 100 },
+                            postfix: new HarmonyMethod(ctrPostfix) { priority = Priority.Last - 100 });
+                        ctrCount++;
                         continue;
                     }
 
                     ParameterInfo[] p = method == null ? null : method.GetParameters();
-                    if (method != null && p != null && string.Equals(method.Name, "ClosestThing_Global", StringComparison.Ordinal) &&
-                        p.Length == 5 && p[0].ParameterType == typeof(IntVec3))
+                    if (method != null && p != null && method.Name == "ClosestThing_Global" && p.Length == 5 && p[0].ParameterType == typeof(IntVec3))
                     {
-                        HarmonyMethod prefix = new HarmonyMethod(globalPrefix) { priority = Priority.First + 80 };
-                        harmony.Patch(method, prefix: prefix);
+                        harmony.Patch(method, prefix: new HarmonyMethod(globalPrefix) { priority = Priority.First + 80 });
                         global32Patched = true;
                     }
-                    else if (method != null && p != null && string.Equals(method.Name, "ClosestThing_Global_Reachable", StringComparison.Ordinal) &&
-                        p.Length == 8 && p[0].ParameterType == typeof(IntVec3))
+                    else if (method != null && p != null && method.Name == "ClosestThing_Global_Reachable" && p.Length == 8 && p[0].ParameterType == typeof(IntVec3))
                     {
-                        HarmonyMethod prefix = new HarmonyMethod(reachablePrefix) { priority = Priority.First + 80 };
-                        harmony.Patch(method, prefix: prefix);
+                        harmony.Patch(method, prefix: new HarmonyMethod(reachablePrefix) { priority = Priority.First + 80 });
                         globalReachable32Patched = true;
                     }
                 }
 
-                patched = ctrPatched > 0;
-                if (patched)
-                {
-                    Log.Message("[RimMT] V0.4.19-JS1.1S3 Learned Admission installed on " + ctrPatched +
-                        " ClosestThingReachable overload(s). >=256 ThingRequest searches keep the validated S1 fast path; 16-255 ThingRequest/custom IList searches default to Vanilla and are admitted only after sampled live timings show sustained cost. Admitted shapes periodically shadow Vanilla and auto-cooldown if acceleration is not materially faster. Supplemental Global nearest-first covers 32-63 candidates; >=64 remains owned by V0.4.18.1.");
-                }
-                else
-                {
-                    Log.Warning("[RimMT] V0.4.19-JS1.1S3 found no compatible ClosestThingReachable overload; learned admission is inert.");
-                }
+                patched = ctrCount > 0;
+                Log.Message("[RimMT] V0.4.19-JS1.1S3 Learned Admission installed on " + ctrCount +
+                    " ClosestThingReachable overload(s). >=256 normal ThingRequest searches keep S1 fast-path behavior. 16-255 normal/custom-list searches stay Vanilla until sampled shape timing admits them; admitted shapes shadow Vanilla every 64 calls and self-revoke when fast EMA is not materially better. Global32 supplement covers only 32-63 candidates.");
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
                 patched = false;
-                Log.Warning("[RimMT] V0.4.19-JS1.1S3 install failed; S1/Vanilla paths remain authoritative. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] V0.4.19-JS1.1S3 install failed; S1/Vanilla remain authoritative. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
-        internal static void SetEnabled(bool value)
-        {
-            enabled = value;
-        }
+        internal static void SetEnabled(bool value) { enabled = value; }
 
-        private static bool IsSupportedCtrOverload(MethodInfo method)
+        private static bool IsCtrOverload(MethodInfo method)
         {
-            if (method == null || method.ReturnType != typeof(Thing) ||
-                !string.Equals(method.Name, "ClosestThingReachable", StringComparison.Ordinal))
-                return false;
-
+            if (method == null || method.ReturnType != typeof(Thing) || method.Name != "ClosestThingReachable") return false;
             ParameterInfo[] p = method.GetParameters();
-            if (p.Length < 8)
-                return false;
-
-            return p[0].ParameterType == typeof(IntVec3) &&
-                p[1].ParameterType == typeof(Map) &&
-                p[2].ParameterType == typeof(ThingRequest) &&
-                p[3].ParameterType == typeof(PathEndMode) &&
-                p[4].ParameterType == typeof(TraverseParms) &&
-                p[5].ParameterType == typeof(float) &&
-                p[6].ParameterType == typeof(Predicate<Thing>) &&
-                typeof(IEnumerable<Thing>).IsAssignableFrom(p[7].ParameterType);
+            return p.Length >= 8 &&
+                p[0].ParameterType == typeof(IntVec3) && p[1].ParameterType == typeof(Map) &&
+                p[2].ParameterType == typeof(ThingRequest) && p[3].ParameterType == typeof(PathEndMode) &&
+                p[4].ParameterType == typeof(TraverseParms) && p[5].ParameterType == typeof(float) &&
+                p[6].ParameterType == typeof(Predicate<Thing>) && typeof(IEnumerable<Thing>).IsAssignableFrom(p[7].ParameterType);
         }
 
         public static bool Prefix(
-            IntVec3 __0,
-            Map __1,
-            ThingRequest __2,
-            PathEndMode __3,
-            TraverseParms __4,
-            float __5,
-            Predicate<Thing> __6,
-            IEnumerable<Thing> __7,
-            ref Thing __result,
-            ref SampleState __state)
+            IntVec3 __0, Map __1, ThingRequest __2, PathEndMode __3, TraverseParms __4,
+            float __5, Predicate<Thing> __6, IEnumerable<Thing> __7,
+            ref Thing __result, ref SampleState __state)
         {
             __state = default(SampleState);
             Interlocked.Increment(ref observed);
@@ -205,7 +166,6 @@ namespace RimMT
             if (!enabled || !FeatureGate.IsEnabled(FeatureId) || !JobGiverGlobalNearest04181.InJobGiverScope ||
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return true;
-
             Interlocked.Increment(ref inScope);
 
             Map map = __1;
@@ -237,33 +197,18 @@ namespace RimMT
             }
             else
             {
-                try
-                {
-                    source = map.listerThings.ThingsMatching(__2);
-                }
-                catch
-                {
-                    Interlocked.Increment(ref sourceFaultBypass);
-                    return true;
-                }
-                if (source == null)
-                {
-                    Interlocked.Increment(ref sourceFaultBypass);
-                    return true;
-                }
+                try { source = map.listerThings.ThingsMatching(__2); }
+                catch { Interlocked.Increment(ref sourceFaultBypass); return true; }
+                if (source == null) { Interlocked.Increment(ref sourceFaultBypass); return true; }
             }
 
             int count = source.Count;
-            RecordSourceBucket(count);
-            if (count > MaxSourceCount)
-            {
-                Interlocked.Increment(ref tooLargeBypass);
-                return true;
-            }
+            RecordBucket(count);
+            if (count > MaxSource) { Interlocked.Increment(ref tooLargeBypass); return true; }
 
-            // Preserve the validated S1 static path exactly for normal ThingRequest-backed >=256 searches.
-            if (!custom && count >= StaticLargeThreshold)
-                return Accelerate(source, count, false, null, __0, map, __3, __4, __5, __6, ref __result);
+            // Validated S1 path remains unconditional only for normal ThingRequest sources >=256.
+            if (!custom && count >= StaticThreshold)
+                return RunFast(source, count, null, false, __0, map, __3, __4, __5, __6, ref __result);
 
             if (count < LearnMinSource)
             {
@@ -271,15 +216,11 @@ namespace RimMT
                 return true;
             }
 
-            ShapeStats stats = GetOrCreateShape(new ShapeKey(
-                custom,
-                BucketFor(count),
-                __3,
-                mode,
+            ShapeKey key = new ShapeKey(custom, BucketFor(count), __3, mode,
                 __6 == null ? null : __6.Method,
                 __6 == null || __6.Target == null ? null : __6.Target.GetType(),
-                custom ? source.GetType() : null));
-
+                custom ? source.GetType() : null);
+            ShapeStats stats = GetShape(key, custom);
             if (stats == null)
             {
                 Interlocked.Increment(ref shapeCapBypass);
@@ -290,352 +231,274 @@ namespace RimMT
             long frame = RimMTRuntime.MainThreadFrames;
             if (stats.CooldownUntilFrame > frame)
             {
-                if (ShouldSampleLearning(stats))
-                    BeginVanillaSample(stats, ref __state, false);
+                if (ShouldSample(stats)) BeginSample(stats, false, ref __state);
                 return true;
             }
-
             if (stats.CooldownUntilFrame != 0 && stats.CooldownUntilFrame <= frame)
             {
                 stats.CooldownUntilFrame = 0;
-                ResetLearningWindow(stats);
+                ResetWindow(stats);
             }
 
             if (!stats.Admitted)
             {
-                if (ShouldSampleLearning(stats))
-                    BeginVanillaSample(stats, ref __state, false);
+                if (ShouldSample(stats)) BeginSample(stats, false, ref __state);
                 return true;
             }
 
             stats.AdmittedCalls++;
-            if ((stats.AdmittedCalls & AdmittedShadowMask) == 0)
+            if ((stats.AdmittedCalls & ShadowSampleMask) == 0)
             {
-                BeginVanillaSample(stats, ref __state, true);
+                BeginSample(stats, true, ref __state);
                 return true;
             }
 
-            return Accelerate(source, count, true, stats, __0, map, __3, __4, __5, __6, ref __result);
+            return RunFast(source, count, stats, true, __0, map, __3, __4, __5, __6, ref __result);
         }
 
         public static void Postfix(SampleState __state)
         {
-            if (!__state.Sample || __state.Stats == null || __state.Started == 0L)
-                return;
-
+            if (!__state.Sample || __state.Stats == null || __state.Started == 0) return;
             long elapsed = Stopwatch.GetTimestamp() - __state.Started;
             ShapeStats stats = __state.Stats;
             stats.VanillaSamples++;
             stats.VanillaEmaTicks = stats.VanillaSamples == 1 ? elapsed : Ema(stats.VanillaEmaTicks, elapsed, 0.20);
-            if (elapsed > stats.VanillaMaxTicks)
-                stats.VanillaMaxTicks = elapsed;
-            if (TicksToMs(elapsed) >= SlowVanillaMs)
-                stats.VanillaSlowSamples++;
+            if (elapsed > stats.VanillaMaxTicks) stats.VanillaMaxTicks = elapsed;
+            if (ToMs(elapsed) >= SlowMs) stats.VanillaSlowSamples++;
             Interlocked.Increment(ref vanillaSamples);
-            if (__state.AdmittedShadow)
-                Interlocked.Increment(ref admittedShadowSamples);
+            if (__state.Shadow) Interlocked.Increment(ref shadowSamples);
 
-            if (!stats.Admitted && stats.CooldownUntilFrame == 0 && IsAdmissionReady(stats))
+            if (!stats.Admitted && stats.CooldownUntilFrame == 0 && ReadyToAdmit(stats))
             {
                 stats.Admitted = true;
                 stats.AdmittedCalls = 0;
                 stats.FastSamples = 0;
-                stats.FastEmaTicks = 0.0;
-                stats.FastMaxTicks = 0L;
-                stats.Admissions++;
-                Interlocked.Increment(ref learnedAdmissions);
+                stats.FastEmaTicks = 0;
+                stats.FastMaxTicks = 0;
+                Interlocked.Increment(ref admissions);
             }
         }
 
-        private static bool Accelerate(
-            IList source,
-            int count,
-            bool learned,
-            ShapeStats stats,
-            IntVec3 root,
-            Map map,
-            PathEndMode endMode,
-            TraverseParms traverseParms,
-            float maxDistance,
-            Predicate<Thing> validator,
-            ref Thing result)
+        private static bool RunFast(
+            IList source, int count, ShapeStats stats, bool learned,
+            IntVec3 root, Map map, PathEndMode endMode, TraverseParms parms, float maxDistance,
+            Predicate<Thing> validator, ref Thing result)
         {
             long started = Stopwatch.GetTimestamp();
             try
             {
-                Candidate[] candidates = EnsureCandidateScratch(count);
-                double maxDistanceSquared = (double)maxDistance * maxDistance;
+                Candidate[] candidates = EnsureScratch(count, false);
+                double maxDistSq = (double)maxDistance * maxDistance;
                 int kept = 0;
-
                 for (int i = 0; i < count; i++)
                 {
                     Thing thing = source[i] as Thing;
-                    if (thing == null || !thing.Spawned || thing.Map != map)
-                        continue;
-
+                    if (thing == null || !thing.Spawned || thing.Map != map) continue;
                     IntVec3 pos = thing.Position;
-                    if (!pos.IsValid)
-                        continue;
-
+                    if (!pos.IsValid) continue;
                     long dx = (long)pos.x - root.x;
                     long dz = (long)pos.z - root.z;
                     long dist = dx * dx + dz * dz;
-                    if (dist > maxDistanceSquared)
-                        continue;
-
+                    if (dist > maxDistSq) continue;
                     candidates[kept++] = new Candidate(thing, dist, i);
                 }
 
                 long sortStarted = Stopwatch.GetTimestamp();
-                if (kept > 1)
-                    Array.Sort(candidates, 0, kept, CandidateComparer.Instance);
+                if (kept > 1) Array.Sort(candidates, 0, kept, CandidateComparer.Instance);
                 long sortElapsed = Stopwatch.GetTimestamp() - sortStarted;
                 Interlocked.Add(ref sortTicks, sortElapsed);
                 UpdateMax(ref maxSortTicks, sortElapsed);
 
-                int examined = 0;
-                int localValidatorCalls = 0;
-                int localValidatorRejected = 0;
-                int localReachChecks = 0;
-                int localReachRejected = 0;
-
+                int examined = 0, vCalls = 0, vReject = 0, rCalls = 0, rReject = 0;
                 for (int i = 0; i < kept; i++)
                 {
                     Thing thing = candidates[i].Thing;
                     examined++;
-
                     if (validator != null)
                     {
-                        localValidatorCalls++;
-                        if (!validator(thing))
-                        {
-                            localValidatorRejected++;
-                            continue;
-                        }
+                        vCalls++;
+                        if (!validator(thing)) { vReject++; continue; }
                     }
-
-                    localReachChecks++;
-                    if (!map.reachability.CanReach(root, new LocalTargetInfo(thing), endMode, traverseParms))
+                    rCalls++;
+                    if (!map.reachability.CanReach(root, new LocalTargetInfo(thing), endMode, parms))
                     {
-                        localReachRejected++;
+                        rReject++;
                         continue;
                     }
 
                     result = thing;
-                    CommitAcceleration(count, kept, examined, localValidatorCalls, localValidatorRejected, localReachChecks, localReachRejected, learned);
-                    Interlocked.Increment(ref acceleratedFound);
-                    RecordFastElapsed(started, learned ? stats : null);
+                    CommitFast(count, kept, examined, vCalls, vReject, rCalls, rReject, learned, stats);
+                    Interlocked.Increment(ref found);
+                    RecordFast(started, stats);
                     return false;
                 }
 
                 result = null;
-                CommitAcceleration(count, kept, examined, localValidatorCalls, localValidatorRejected, localReachChecks, localReachRejected, learned);
-                Interlocked.Increment(ref acceleratedNoResult);
-                RecordFastElapsed(started, learned ? stats : null);
+                CommitFast(count, kept, examined, vCalls, vReject, rCalls, rReject, learned, stats);
+                Interlocked.Increment(ref noResult);
+                RecordFast(started, stats);
                 return false;
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
-                if (stats != null)
-                    PutShapeOnCooldown(stats);
+                if (stats != null) Revoke(stats);
                 if (Interlocked.Read(ref failures) <= 8)
                     Log.Warning("[RimMT] V0.4.19-JS1.1S3 fast search failed; this call falls back to Vanilla. " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
         }
 
-        private static void CommitAcceleration(int source, int kept, int examined, int validators, int validatorFalse, int reaches, int reachFalse, bool learned)
+        private static void CommitFast(int source, int kept, int examined, int vCalls, int vReject, int rCalls, int rReject, bool learned, ShapeStats stats)
         {
             if (learned)
+            {
                 Interlocked.Increment(ref learnedAccelerated);
-            else
-                Interlocked.Increment(ref staticLargeAccelerated);
+                if (stats != null && stats.Custom) Interlocked.Increment(ref learnedCustomAccelerated);
+                else Interlocked.Increment(ref learnedThingAccelerated);
+            }
+            else Interlocked.Increment(ref staticAccelerated);
+
             Interlocked.Add(ref sourceCandidates, source);
             Interlocked.Add(ref keptCandidates, kept);
             Interlocked.Add(ref examinedCandidates, examined);
-            Interlocked.Add(ref validatorCalls, validators);
-            Interlocked.Add(ref validatorRejected, validatorFalse);
-            Interlocked.Add(ref reachChecks, reaches);
-            Interlocked.Add(ref reachRejected, reachFalse);
+            Interlocked.Add(ref validatorCalls, vCalls);
+            Interlocked.Add(ref validatorRejected, vReject);
+            Interlocked.Add(ref reachChecks, rCalls);
+            Interlocked.Add(ref reachRejected, rReject);
             UpdateMax(ref maxSource, source);
             UpdateMax(ref maxExamined, examined);
         }
 
-        private static void RecordFastElapsed(long started, ShapeStats stats)
+        private static void RecordFast(long started, ShapeStats stats)
         {
             long elapsed = Stopwatch.GetTimestamp() - started;
-            Interlocked.Add(ref acceleratedTicks, elapsed);
-            UpdateMax(ref maxAcceleratedTicks, elapsed);
-
-            if (stats == null)
-                return;
+            Interlocked.Add(ref fastTicks, elapsed);
+            UpdateMax(ref maxFastTicks, elapsed);
+            if (stats == null) return;
 
             stats.FastSamples++;
             stats.FastEmaTicks = stats.FastSamples == 1 ? elapsed : Ema(stats.FastEmaTicks, elapsed, 0.20);
-            if (elapsed > stats.FastMaxTicks)
-                stats.FastMaxTicks = elapsed;
+            if (elapsed > stats.FastMaxTicks) stats.FastMaxTicks = elapsed;
 
-            if (stats.FastSamples >= MinFastSamplesForJudgement && stats.VanillaSamples >= WarmupVanillaSamples &&
+            if (stats.FastSamples >= JudgeFastSamples && stats.VanillaSamples >= WarmupSamples &&
                 stats.FastEmaTicks >= stats.VanillaEmaTicks * RequiredFastRatio)
-            {
-                stats.Admitted = false;
-                stats.CooldownUntilFrame = RimMTRuntime.MainThreadFrames + CooldownFrames;
-                stats.DeAdmissions++;
-                Interlocked.Increment(ref learnedDeAdmissions);
-            }
+                Revoke(stats);
         }
 
-        private static ShapeStats GetOrCreateShape(ShapeKey key)
+        private static ShapeStats GetShape(ShapeKey key, bool custom)
         {
             ShapeStats stats;
-            if (Shapes.TryGetValue(key, out stats))
-                return stats;
-            if (Shapes.Count >= MaxLearnedShapes)
-                return null;
-            stats = new ShapeStats(key.Custom);
+            if (Shapes.TryGetValue(key, out stats)) return stats;
+            if (Shapes.Count >= MaxShapes) return null;
+            stats = new ShapeStats(custom);
             Shapes.Add(key, stats);
             return stats;
         }
 
-        private static bool ShouldSampleLearning(ShapeStats stats)
+        private static bool ShouldSample(ShapeStats stats)
         {
-            return stats.VanillaSamples < WarmupVanillaSamples || (stats.Seen & VanillaSampleMask) == 0;
+            return stats.VanillaSamples < WarmupSamples || (stats.Seen & LearnSampleMask) == 0;
         }
 
-        private static void BeginVanillaSample(ShapeStats stats, ref SampleState state, bool admittedShadow)
+        private static void BeginSample(ShapeStats stats, bool shadow, ref SampleState state)
         {
-            state.Sample = true;
             state.Stats = stats;
             state.Started = Stopwatch.GetTimestamp();
-            state.AdmittedShadow = admittedShadow;
+            state.Sample = true;
+            state.Shadow = shadow;
         }
 
-        private static bool IsAdmissionReady(ShapeStats stats)
+        private static bool ReadyToAdmit(ShapeStats stats)
         {
-            if (stats.VanillaSamples < WarmupVanillaSamples)
-                return false;
-            double emaMs = TicksToMs(stats.VanillaEmaTicks);
-            double maxMs = TicksToMs(stats.VanillaMaxTicks);
-            return emaMs >= AdmissionEmaMs && (maxMs >= StrongSlowVanillaMs || stats.VanillaSlowSamples >= 2);
+            if (stats.VanillaSamples < WarmupSamples) return false;
+            return ToMs(stats.VanillaEmaTicks) >= AdmitEmaMs &&
+                (ToMs(stats.VanillaMaxTicks) >= StrongSlowMs || stats.VanillaSlowSamples >= 2);
         }
 
-        private static void PutShapeOnCooldown(ShapeStats stats)
+        private static void Revoke(ShapeStats stats)
         {
+            if (stats.Admitted || stats.CooldownUntilFrame == 0)
+                Interlocked.Increment(ref deAdmissions);
             stats.Admitted = false;
             stats.CooldownUntilFrame = RimMTRuntime.MainThreadFrames + CooldownFrames;
-            stats.DeAdmissions++;
-            Interlocked.Increment(ref learnedDeAdmissions);
         }
 
-        private static void ResetLearningWindow(ShapeStats stats)
+        private static void ResetWindow(ShapeStats stats)
         {
             stats.VanillaSamples = 0;
-            stats.VanillaEmaTicks = 0.0;
-            stats.VanillaMaxTicks = 0L;
+            stats.VanillaEmaTicks = 0;
+            stats.VanillaMaxTicks = 0;
             stats.VanillaSlowSamples = 0;
             stats.FastSamples = 0;
-            stats.FastEmaTicks = 0.0;
-            stats.FastMaxTicks = 0L;
+            stats.FastEmaTicks = 0;
+            stats.FastMaxTicks = 0;
             stats.AdmittedCalls = 0;
         }
 
         public static void Global32Prefix(object[] __args)
         {
             Interlocked.Increment(ref global32Observed);
-            if (__args == null || __args.Length < 5)
-                return;
-            TryGlobal32(__args, 0, 1, 2, 4);
+            if (__args != null && __args.Length >= 5) TryGlobal32(__args, 0, 1, 2, 4);
         }
 
         public static void GlobalReachable32Prefix(object[] __args)
         {
             Interlocked.Increment(ref global32Observed);
-            if (__args == null || __args.Length < 8)
-                return;
-            TryGlobal32(__args, 0, 2, 5, 7);
+            if (__args != null && __args.Length >= 8) TryGlobal32(__args, 0, 2, 5, 7);
         }
 
-        private static void TryGlobal32(object[] args, int centerIndex, int setIndex, int maxDistanceIndex, int priorityIndex)
+        private static void TryGlobal32(object[] args, int centerIndex, int setIndex, int distanceIndex, int priorityIndex)
         {
             if (!enabled || !FeatureGate.IsEnabled(FeatureId) || !JobGiverGlobalNearest04181.InJobGiverScope ||
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing || args[priorityIndex] != null)
                 return;
 
             IList source = args[setIndex] as IList;
-            if (source == null)
-                return;
-            int count = source.Count;
-            if (count < 32 || count >= 64)
-                return; // >=64 remains owned by JobGiverGlobalNearest04181
+            if (source == null || source.Count < 32 || source.Count >= 64) return;
 
             try
             {
                 IntVec3 center = (IntVec3)args[centerIndex];
-                float maxDistance = Convert.ToSingle(args[maxDistanceIndex]);
-                double maxDistanceSquared = (double)maxDistance * maxDistance;
-                Candidate[] candidates = EnsureGlobalScratch(count);
+                float maxDistance = Convert.ToSingle(args[distanceIndex]);
+                double maxDistSq = (double)maxDistance * maxDistance;
+                Candidate[] candidates = EnsureScratch(source.Count, true);
                 int kept = 0;
-                for (int i = 0; i < count; i++)
+                for (int i = 0; i < source.Count; i++)
                 {
                     Thing thing = source[i] as Thing;
-                    if (thing == null || !thing.Spawned)
-                        continue;
+                    if (thing == null || !thing.Spawned) continue;
                     IntVec3 pos = thing.Position;
-                    if (!pos.IsValid)
-                        return;
+                    if (!pos.IsValid) return;
                     long dx = (long)pos.x - center.x;
                     long dz = (long)pos.z - center.z;
                     long dist = dx * dx + dz * dz;
-                    if (dist > maxDistanceSquared)
-                        continue;
+                    if (dist > maxDistSq) continue;
                     candidates[kept++] = new Candidate(thing, dist, i);
                 }
 
                 long started = Stopwatch.GetTimestamp();
-                if (kept > 1)
-                    Array.Sort(candidates, 0, kept, CandidateComparer.Instance);
+                if (kept > 1) Array.Sort(candidates, 0, kept, CandidateComparer.Instance);
                 long elapsed = Stopwatch.GetTimestamp() - started;
                 Thing[] ordered = new Thing[kept];
-                for (int i = 0; i < kept; i++)
-                    ordered[i] = candidates[i].Thing;
+                for (int i = 0; i < kept; i++) ordered[i] = candidates[i].Thing;
                 args[setIndex] = ordered;
                 Interlocked.Increment(ref global32Reordered);
-                Interlocked.Add(ref global32Candidates, count);
+                Interlocked.Add(ref global32Candidates, source.Count);
                 Interlocked.Add(ref global32SortTicks, elapsed);
                 UpdateMax(ref global32MaxSortTicks, elapsed);
             }
-            catch
-            {
-                Interlocked.Increment(ref global32Failures);
-            }
+            catch { Interlocked.Increment(ref global32Failures); }
         }
 
-        private static Candidate[] EnsureCandidateScratch(int required)
+        private static Candidate[] EnsureScratch(int required, bool global)
         {
-            Candidate[] current = candidateScratch;
-            if (current != null && current.Length >= required)
-                return current;
-            int capacity = 256;
-            while (capacity < required && capacity < MaxSourceCount)
-                capacity <<= 1;
-            if (capacity < required)
-                capacity = required;
+            Candidate[] current = global ? globalScratch : scratch;
+            if (current != null && current.Length >= required) return current;
+            int capacity = global ? 64 : 256;
+            while (capacity < required) capacity <<= 1;
             current = new Candidate[capacity];
-            candidateScratch = current;
-            return current;
-        }
-
-        private static Candidate[] EnsureGlobalScratch(int required)
-        {
-            Candidate[] current = globalScratch;
-            if (current != null && current.Length >= required)
-                return current;
-            int capacity = 64;
-            while (capacity < required)
-                capacity <<= 1;
-            current = new Candidate[capacity];
-            globalScratch = current;
+            if (global) globalScratch = current; else scratch = current;
             return current;
         }
 
@@ -648,98 +511,72 @@ namespace RimMT
             return 4;
         }
 
-        private static void RecordSourceBucket(int count)
+        private static void RecordBucket(int count)
         {
-            if (count < 16) Interlocked.Increment(ref source0To15);
-            else if (count < 32) Interlocked.Increment(ref source16To31);
-            else if (count < 64) Interlocked.Increment(ref source32To63);
-            else if (count < 128) Interlocked.Increment(ref source64To127);
-            else if (count < 256) Interlocked.Increment(ref source128To255);
-            else if (count < 384) Interlocked.Increment(ref source256To383);
-            else if (count < 512) Interlocked.Increment(ref source384To511);
-            else Interlocked.Increment(ref source512Plus);
+            if (count < 16) Interlocked.Increment(ref bucket0To15);
+            else if (count < 32) Interlocked.Increment(ref bucket16To31);
+            else if (count < 64) Interlocked.Increment(ref bucket32To63);
+            else if (count < 128) Interlocked.Increment(ref bucket64To127);
+            else if (count < 256) Interlocked.Increment(ref bucket128To255);
+            else if (count < 384) Interlocked.Increment(ref bucket256To383);
+            else if (count < 512) Interlocked.Increment(ref bucket384To511);
+            else Interlocked.Increment(ref bucket512Plus);
         }
 
-        private static double Ema(double prior, double sample, double alpha)
-        {
-            return prior + (sample - prior) * alpha;
-        }
-
-        private static double TicksToMs(double ticks)
-        {
-            return ticks * 1000.0 / Stopwatch.Frequency;
-        }
+        private static double Ema(double prior, double sample, double alpha) { return prior + (sample - prior) * alpha; }
+        private static double ToMs(double ticks) { return ticks * 1000.0 / Stopwatch.Frequency; }
 
         private static void UpdateMax(ref long field, long value)
         {
             long seen;
             while (value > (seen = Interlocked.Read(ref field)))
-            {
-                if (Interlocked.CompareExchange(ref field, value, seen) == seen)
-                    break;
-            }
+                if (Interlocked.CompareExchange(ref field, value, seen) == seen) break;
         }
 
         internal static string Summary()
         {
-            int admitted = 0;
-            int cooling = 0;
+            int admitted = 0, cooling = 0;
             long frame = RimMTRuntime.MainThreadFrames;
             foreach (KeyValuePair<ShapeKey, ShapeStats> pair in Shapes)
             {
-                ShapeStats stats = pair.Value;
-                if (stats.Admitted) admitted++;
-                else if (stats.CooldownUntilFrame > frame) cooling++;
+                if (pair.Value.Admitted) admitted++;
+                else if (pair.Value.CooldownUntilFrame > frame) cooling++;
             }
 
-            long staticCalls = Interlocked.Read(ref staticLargeAccelerated);
+            long staticCalls = Interlocked.Read(ref staticAccelerated);
             long learnedCalls = Interlocked.Read(ref learnedAccelerated);
-            long calls = staticCalls + learnedCalls;
-            double avgMs = calls == 0 ? 0.0 : TicksToMs(Interlocked.Read(ref acceleratedTicks)) / calls;
-            double maxMs = TicksToMs(Interlocked.Read(ref maxAcceleratedTicks));
-            double avgSortUs = calls == 0 ? 0.0 :
-                (Interlocked.Read(ref sortTicks) * 1000000.0 / Stopwatch.Frequency) / calls;
+            long totalCalls = staticCalls + learnedCalls;
+            double avgFastMs = totalCalls == 0 ? 0 : ToMs(Interlocked.Read(ref fastTicks)) / totalCalls;
+            double maxFastMs = ToMs(Interlocked.Read(ref maxFastTicks));
+            double avgSortUs = totalCalls == 0 ? 0 : (Interlocked.Read(ref sortTicks) * 1000000.0 / Stopwatch.Frequency) / totalCalls;
             double maxSortUs = Interlocked.Read(ref maxSortTicks) * 1000000.0 / Stopwatch.Frequency;
             long gCalls = Interlocked.Read(ref global32Reordered);
-            double gAvgUs = gCalls == 0 ? 0.0 :
-                (Interlocked.Read(ref global32SortTicks) * 1000000.0 / Stopwatch.Frequency) / gCalls;
+            double gAvgUs = gCalls == 0 ? 0 : (Interlocked.Read(ref global32SortTicks) * 1000000.0 / Stopwatch.Frequency) / gCalls;
             double gMaxUs = Interlocked.Read(ref global32MaxSortTicks) * 1000000.0 / Stopwatch.Frequency;
-
-            long learnedThing = 0;
-            long learnedCustom = 0;
-            foreach (KeyValuePair<ShapeKey, ShapeStats> pair in Shapes)
-            {
-                if (pair.Value.FastSamples <= 0)
-                    continue;
-                if (pair.Key.Custom) learnedCustom += pair.Value.FastSamples;
-                else learnedThing += pair.Value.FastSamples;
-            }
-            Interlocked.Exchange(ref learnedThingRequestAccelerated, learnedThing);
-            Interlocked.Exchange(ref learnedCustomAccelerated, learnedCustom);
 
             return "JobGiver learned-search JS1.1S3: patched=" + patched +
                 ", enabled=" + enabled +
-                ", staticThreshold=" + StaticLargeThreshold +
+                ", staticThreshold=" + StaticThreshold +
                 ", learnMin=" + LearnMinSource +
-                ", admission[vanillaSamples/emaMs/slowMs/strongMs]=" + WarmupVanillaSamples + "/" + AdmissionEmaMs.ToString("F2") + "/" + SlowVanillaMs.ToString("F2") + "/" + StrongSlowVanillaMs.ToString("F2") +
-                ", shadowEvery=64, judgeFastSamples=" + MinFastSamplesForJudgement +
+                ", admission[warmup/emaMs/slowMs/strongMs]=" + WarmupSamples + "/" + AdmitEmaMs.ToString("F2") + "/" + SlowMs.ToString("F2") + "/" + StrongSlowMs.ToString("F2") +
+                ", shadowEvery=64, judgeFast=" + JudgeFastSamples +
                 ", requiredFastRatio=" + RequiredFastRatio.ToString("F2") +
                 ", cooldownFrames=" + CooldownFrames +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", inScope=" + Interlocked.Read(ref inScope) +
                 ", shapes=" + Shapes.Count +
                 ", admitted/cooling=" + admitted + "/" + cooling +
-                ", admissions/deAdmissions=" + Interlocked.Read(ref learnedAdmissions) + "/" + Interlocked.Read(ref learnedDeAdmissions) +
+                ", admissions/deAdmissions=" + Interlocked.Read(ref admissions) + "/" + Interlocked.Read(ref deAdmissions) +
                 ", vanillaSamples=" + Interlocked.Read(ref vanillaSamples) +
-                ", admittedShadowSamples=" + Interlocked.Read(ref admittedShadowSamples) +
-                ", accelerated=" + calls +
+                ", shadowSamples=" + Interlocked.Read(ref shadowSamples) +
+                ", accelerated=" + totalCalls +
                 ", static/learned=" + staticCalls + "/" + learnedCalls +
-                ", learnedThing/custom~=" + learnedThing + "/" + learnedCustom +
-                ", found/noResult=" + Interlocked.Read(ref acceleratedFound) + "/" + Interlocked.Read(ref acceleratedNoResult) +
+                ", learnedThing/custom=" + Interlocked.Read(ref learnedThingAccelerated) + "/" + Interlocked.Read(ref learnedCustomAccelerated) +
+                ", found/noResult=" + Interlocked.Read(ref found) + "/" + Interlocked.Read(ref noResult) +
                 ", sourceBuckets0-15/16-31/32-63/64-127/128-255/256-383/384-511/512+=" +
-                    Interlocked.Read(ref source0To15) + "/" + Interlocked.Read(ref source16To31) + "/" + Interlocked.Read(ref source32To63) + "/" +
-                    Interlocked.Read(ref source64To127) + "/" + Interlocked.Read(ref source128To255) + "/" + Interlocked.Read(ref source256To383) + "/" +
-                    Interlocked.Read(ref source384To511) + "/" + Interlocked.Read(ref source512Plus) +
+                    Interlocked.Read(ref bucket0To15) + "/" + Interlocked.Read(ref bucket16To31) + "/" + Interlocked.Read(ref bucket32To63) + "/" +
+                    Interlocked.Read(ref bucket64To127) + "/" + Interlocked.Read(ref bucket128To255) + "/" + Interlocked.Read(ref bucket256To383) + "/" +
+                    Interlocked.Read(ref bucket384To511) + "/" + Interlocked.Read(ref bucket512Plus) +
                 ", shapeCapBypass=" + Interlocked.Read(ref shapeCapBypass) +
                 ", customUnsupportedBypass=" + Interlocked.Read(ref customUnsupportedBypass) +
                 ", smallBypass=" + Interlocked.Read(ref smallBypass) +
@@ -747,16 +584,16 @@ namespace RimMT
                 ", unsupportedTraverseBypass=" + Interlocked.Read(ref unsupportedTraverseBypass) +
                 ", invalidContextBypass=" + Interlocked.Read(ref invalidContextBypass) +
                 ", sourceFaultBypass=" + Interlocked.Read(ref sourceFaultBypass) +
-                ", avgSource=" + (calls == 0 ? 0.0 : Interlocked.Read(ref sourceCandidates) / (double)calls).ToString("F1") +
-                ", avgExamined=" + (calls == 0 ? 0.0 : Interlocked.Read(ref examinedCandidates) / (double)calls).ToString("F1") +
+                ", avgSource=" + (totalCalls == 0 ? 0 : Interlocked.Read(ref sourceCandidates) / (double)totalCalls).ToString("F1") +
+                ", avgExamined=" + (totalCalls == 0 ? 0 : Interlocked.Read(ref examinedCandidates) / (double)totalCalls).ToString("F1") +
                 ", maxSource=" + Interlocked.Read(ref maxSource) +
                 ", maxExamined=" + Interlocked.Read(ref maxExamined) +
                 ", validatorCalls=" + Interlocked.Read(ref validatorCalls) +
                 ", validatorRejected=" + Interlocked.Read(ref validatorRejected) +
                 ", reachChecks=" + Interlocked.Read(ref reachChecks) +
                 ", reachRejected=" + Interlocked.Read(ref reachRejected) +
-                ", avgAcceleratedMs=" + avgMs.ToString("F3") +
-                ", maxAcceleratedMs=" + maxMs.ToString("F3") +
+                ", avgFastMs=" + avgFastMs.ToString("F3") +
+                ", maxFastMs=" + maxFastMs.ToString("F3") +
                 ", avgSortUs=" + avgSortUs.ToString("F2") +
                 ", maxSortUs=" + maxSortUs.ToString("F2") +
                 ", global32[patched=" + global32Patched + "/" + globalReachable32Patched +
@@ -767,7 +604,7 @@ namespace RimMT
                     ", maxSortUs=" + gMaxUs.ToString("F2") +
                     ", failures=" + Interlocked.Read(ref global32Failures) + "]" +
                 ", failures=" + Interlocked.Read(ref failures) +
-                ". Small/medium searches remain Vanilla until their sampled live shape is measurably slow; admitted shapes periodically re-sample Vanilla and self-revoke when the fast path stops winning.";
+                ". Small/medium searches remain Vanilla until their sampled shape is measurably slow; admitted shapes re-sample Vanilla and self-revoke if the fast path stops winning.";
         }
 
         internal struct SampleState
@@ -775,10 +612,10 @@ namespace RimMT
             internal ShapeStats Stats;
             internal long Started;
             internal bool Sample;
-            internal bool AdmittedShadow;
+            internal bool Shadow;
         }
 
-        private sealed class ShapeStats
+        internal sealed class ShapeStats
         {
             internal readonly bool Custom;
             internal long Seen;
@@ -792,18 +629,13 @@ namespace RimMT
             internal double FastEmaTicks;
             internal long FastMaxTicks;
             internal long CooldownUntilFrame;
-            internal int Admissions;
-            internal int DeAdmissions;
 
-            internal ShapeStats(bool custom)
-            {
-                Custom = custom;
-            }
+            internal ShapeStats(bool custom) { Custom = custom; }
         }
 
         private struct ShapeKey : IEquatable<ShapeKey>
         {
-            internal readonly bool Custom;
+            private readonly bool custom;
             private readonly int bucket;
             private readonly PathEndMode endMode;
             private readonly TraverseMode traverseMode;
@@ -814,7 +646,7 @@ namespace RimMT
             internal ShapeKey(bool custom, int bucket, PathEndMode endMode, TraverseMode traverseMode,
                 MethodBase validatorMethod, Type validatorTargetType, Type sourceType)
             {
-                Custom = custom;
+                this.custom = custom;
                 this.bucket = bucket;
                 this.endMode = endMode;
                 this.traverseMode = traverseMode;
@@ -825,21 +657,17 @@ namespace RimMT
 
             public bool Equals(ShapeKey other)
             {
-                return Custom == other.Custom && bucket == other.bucket && endMode == other.endMode && traverseMode == other.traverseMode &&
+                return custom == other.custom && bucket == other.bucket && endMode == other.endMode && traverseMode == other.traverseMode &&
                     ReferenceEquals(validatorMethod, other.validatorMethod) && ReferenceEquals(validatorTargetType, other.validatorTargetType) &&
                     ReferenceEquals(sourceType, other.sourceType);
             }
 
-            public override bool Equals(object obj)
-            {
-                return obj is ShapeKey && Equals((ShapeKey)obj);
-            }
-
+            public override bool Equals(object obj) { return obj is ShapeKey && Equals((ShapeKey)obj); }
             public override int GetHashCode()
             {
                 unchecked
                 {
-                    int hash = Custom ? 1 : 0;
+                    int hash = custom ? 1 : 0;
                     hash = hash * 397 ^ bucket;
                     hash = hash * 397 ^ (int)endMode;
                     hash = hash * 397 ^ (int)traverseMode;
@@ -856,7 +684,6 @@ namespace RimMT
             internal readonly Thing Thing;
             internal readonly long DistanceSquared;
             internal readonly int SourceIndex;
-
             internal Candidate(Thing thing, long distanceSquared, int sourceIndex)
             {
                 Thing = thing;
