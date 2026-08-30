@@ -52,13 +52,13 @@ jobs:
           Copy-Item "$src/LoadFolders.xml" $stage
           Copy-Item "$src/README.md" $stage
           Get-ChildItem $stage -Recurse -Filter '*.pdb' | Remove-Item -Force
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.4.19_JS1.1S4_Tail_Rescue.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.4.19_JS1.1S4_CD1_CustomSet_AB.zip' -Force
 
       - name: Upload playtest artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.4.19-JS1.1S4-Tail-Rescue
-          path: build/RimMT_V0.4.19_JS1.1S4_Tail_Rescue.zip
+          name: RimMT-V0.4.19-JS1.1S4-CD1-CustomSet-AB
+          path: build/RimMT_V0.4.19_JS1.1S4_CD1_CustomSet_AB.zip
           if-no-files-found: error
 
       - name: Publish downloadable artifact to repository
@@ -66,11 +66,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path 'dist-artifacts' | Out-Null
-          Copy-Item 'build/RimMT_V0.4.19_JS1.1S4_Tail_Rescue.zip' 'dist-artifacts/RimMT_V0.4.19_JS1.1S4_Tail_Rescue.zip' -Force
+          Copy-Item 'build/RimMT_V0.4.19_JS1.1S4_CD1_CustomSet_AB.zip' 'dist-artifacts/RimMT_V0.4.19_JS1.1S4_CD1_CustomSet_AB.zip' -Force
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add 'dist-artifacts/RimMT_V0.4.19_JS1.1S4_Tail_Rescue.zip'
+          git add 'dist-artifacts/RimMT_V0.4.19_JS1.1S4_CD1_CustomSet_AB.zip'
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 0) { exit 0 }
-          git commit -m 'Build RimMT V0.4.19 JS1.1S4 Tail Rescue artifact'
+          git commit -m 'Build RimMT V0.4.19 JS1.1S4-CD1 CustomSet A-B artifact'
           git push
