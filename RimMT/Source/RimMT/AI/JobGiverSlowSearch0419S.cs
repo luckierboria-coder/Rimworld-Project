@@ -10,23 +10,34 @@ using Verse.AI;
 
 namespace RimMT
 {
-    // V0.4.19-JS1.1S1: extend the validated JS1.1S selective tail accelerator downward.
+    // V0.4.19-JS1.1S2 Fanout Search
     //
-    // JS1.1S proved that large ThingRequest-backed JobGiver ClosestThingReachable calls can bypass
-    // RegionTraverser safely enough for the performance-first playtest branch: the original validator
-    // and live CanReach remain main-thread authoritative, while no-result scans collapse to a bounded
-    // nearest-first candidate pass. S1 lowers the intervention threshold from 512 to 256 candidates.
-    // Sources in the 128-255 range are telemetry-only and remain JS1.1R/Vanilla so the next threshold
-    // decision is evidence-based rather than speculative.
+    // JD2 showed that the residual JobGiver tail is no longer dominated by one huge source.
+    // Slow packages repeatedly issue ~100 ClosestThingReachable calls whose individual sources
+    // are usually only a few dozen Things, including many explicit custom search sets. S2 keeps
+    // the validated S1 >=256 fast path, adds a conservative IList-backed custom-set path, and
+    // switches later small/medium searches to the same validator-first/live-CanReach algorithm
+    // once the current JobPackage has demonstrated search fanout.
+    //
+    // All decisions are synchronous and main-thread only. The original validator remains
+    // authoritative and reachability is checked against the live map. Unsupported source shapes,
+    // traverse modes, invalid contexts, and failures fall back to Vanilla.
     internal static class JobGiverSlowSearch0419S
     {
         internal const string FeatureId = "ai.jobSlowSearch";
 
         private const int LargeSearchThreshold = 256;
+        private const int CustomSetThreshold = 32;
+        private const int FanoutCallThreshold = 24;
+        private const long FanoutCandidateVolumeThreshold = 1024;
+        private const int FanoutMinSource = 16;
         private const int MaxSourceCount = 16384;
 
-        [ThreadStatic]
-        private static Candidate[] candidateScratch;
+        [ThreadStatic] private static Candidate[] candidateScratch;
+        [ThreadStatic] private static int packageCtrCalls;
+        [ThreadStatic] private static long packageCandidateVolume;
+        [ThreadStatic] private static bool packageFanoutActive;
+        [ThreadStatic] private static bool packageActive;
 
         private static volatile bool enabled = true;
         private static volatile bool patched;
@@ -35,13 +46,24 @@ namespace RimMT
         private static long inJobGiverScope;
         private static long smallBypass;
         private static long tooLargeBypass;
-        private static long customSetBypass;
+        private static long customSetUnsupportedBypass;
+        private static long customSetSmallBypass;
         private static long unsupportedTraverseBypass;
         private static long invalidContextBypass;
         private static long sourceFaultBypass;
         private static long accelerated;
         private static long acceleratedFound;
         private static long acceleratedNoResult;
+        private static long staticLargeAccelerated;
+        private static long customSetAccelerated;
+        private static long fanoutAccelerated;
+        private static long fanoutPackages;
+        private static long fanoutByCalls;
+        private static long fanoutByVolume;
+        private static long source0To15;
+        private static long source16To31;
+        private static long source32To63;
+        private static long source64To127;
         private static long source128To255;
         private static long source256To383;
         private static long source384To511;
@@ -60,6 +82,8 @@ namespace RimMT
         private static long maxAcceleratedTicks;
         private static long maxSource;
         private static long maxExamined;
+        private static long maxPackageCtrCalls;
+        private static long maxPackageCandidateVolume;
         private static long failures;
 
         internal static void Apply(Harmony harmony)
@@ -86,20 +110,23 @@ namespace RimMT
                 patched = patchedCount > 0;
                 if (patched)
                 {
-                    Log.Message("[RimMT] V0.4.19-JS1.1S1 selective slow-search accelerator installed on " + patchedCount +
-                        " GenClosest.ClosestThingReachable overload(s). JobGiver searches with >=" + LargeSearchThreshold +
-                        " live ThingRequest candidates are replaced; 128-255 candidates are telemetry-only; validator and live CanReach remain main-thread authoritative.");
+                    Log.Message("[RimMT] V0.4.19-JS1.1S2 Fanout Search installed on " + patchedCount +
+                        " GenClosest.ClosestThingReachable overload(s). Static >=" + LargeSearchThreshold +
+                        " ThingRequest sources retain the S1 fast path; IList-backed custom sets >=" + CustomSetThreshold +
+                        " and later >=" + FanoutMinSource + " sources after JobPackage fanout (calls>=" + FanoutCallThreshold +
+                        " or candidateVolume>=" + FanoutCandidateVolumeThreshold +
+                        ") may use stable nearest-first validator/live-CanReach search.");
                 }
                 else
                 {
-                    Log.Warning("[RimMT] V0.4.19-JS1.1S1 slow-search accelerator found no compatible ClosestThingReachable overload; JS1.1R behavior remains unchanged.");
+                    Log.Warning("[RimMT] V0.4.19-JS1.1S2 found no compatible ClosestThingReachable overload; JS1.1R behavior remains unchanged.");
                 }
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
                 patched = false;
-                Log.Warning("[RimMT] V0.4.19-JS1.1S1 slow-search patch failed; JS1.1R remains authoritative. " +
+                Log.Warning("[RimMT] V0.4.19-JS1.1S2 slow-search patch failed; JS1.1R remains authoritative. " +
                     ex.GetType().Name + ": " + ex.Message);
             }
         }
@@ -107,6 +134,30 @@ namespace RimMT
         internal static void SetEnabled(bool value)
         {
             enabled = value;
+        }
+
+        internal static void BeginJobPackage()
+        {
+            packageCtrCalls = 0;
+            packageCandidateVolume = 0L;
+            packageFanoutActive = false;
+            packageActive = true;
+        }
+
+        internal static void EndJobPackage()
+        {
+            if (!packageActive)
+                return;
+
+            UpdateMax(ref maxPackageCtrCalls, packageCtrCalls);
+            UpdateMax(ref maxPackageCandidateVolume, packageCandidateVolume);
+            if (packageFanoutActive)
+                Interlocked.Increment(ref fanoutPackages);
+
+            packageCtrCalls = 0;
+            packageCandidateVolume = 0L;
+            packageFanoutActive = false;
+            packageActive = false;
         }
 
         private static bool IsSupportedOverload(MethodInfo method)
@@ -129,7 +180,6 @@ namespace RimMT
                 typeof(IEnumerable<Thing>).IsAssignableFrom(p[7].ParameterType);
         }
 
-        // __0..__7 deliberately bind by position so the patch does not depend on RimWorld parameter names.
         public static bool Prefix(
             IntVec3 __0,
             Map __1,
@@ -149,14 +199,6 @@ namespace RimMT
 
             Interlocked.Increment(ref inJobGiverScope);
 
-            // Explicit custom sets may have ordering/membership semantics supplied by another mod.
-            // Keep those on Vanilla; the selective path is for normal ThingRequest-backed scans.
-            if (__7 != null)
-            {
-                Interlocked.Increment(ref customSetBypass);
-                return true;
-            }
-
             Map map = __1;
             Pawn pawn = __4.pawn;
             if (map == null || map.Disposed || pawn == null || !pawn.Spawned || pawn.Map != map ||
@@ -173,15 +215,28 @@ namespace RimMT
                 return true;
             }
 
-            List<Thing> source;
-            try
+            IList<Thing> source;
+            bool customSet = __7 != null;
+            if (customSet)
             {
-                source = map.listerThings.ThingsMatching(__2);
+                source = __7 as IList<Thing>;
+                if (source == null)
+                {
+                    Interlocked.Increment(ref customSetUnsupportedBypass);
+                    return true;
+                }
             }
-            catch
+            else
             {
-                Interlocked.Increment(ref sourceFaultBypass);
-                return true;
+                try
+                {
+                    source = map.listerThings.ThingsMatching(__2);
+                }
+                catch
+                {
+                    Interlocked.Increment(ref sourceFaultBypass);
+                    return true;
+                }
             }
 
             if (source == null)
@@ -190,17 +245,33 @@ namespace RimMT
                 return true;
             }
 
-            int count = source.Count;
-            RecordSourceBucket(count);
-
-            if (count < LargeSearchThreshold)
+            int count;
+            try { count = source.Count; }
+            catch
             {
-                Interlocked.Increment(ref smallBypass);
+                Interlocked.Increment(ref sourceFaultBypass);
                 return true;
             }
+
+            RecordSourceBucket(count);
+            ObserveFanout(count);
+
             if (count > MaxSourceCount)
             {
                 Interlocked.Increment(ref tooLargeBypass);
+                return true;
+            }
+
+            bool staticLarge = !customSet && count >= LargeSearchThreshold;
+            bool customEligible = customSet && count >= CustomSetThreshold;
+            bool fanoutEligible = packageFanoutActive && count >= FanoutMinSource;
+
+            if (!staticLarge && !customEligible && !fanoutEligible)
+            {
+                if (customSet)
+                    Interlocked.Increment(ref customSetSmallBypass);
+                else
+                    Interlocked.Increment(ref smallBypass);
                 return true;
             }
 
@@ -266,6 +337,7 @@ namespace RimMT
                     }
 
                     __result = thing;
+                    CommitAccelerationKind(staticLarge, customSet, fanoutEligible);
                     Interlocked.Increment(ref accelerated);
                     Interlocked.Increment(ref acceleratedFound);
                     CommitCounters(count, kept, examined, localValidatorCalls, localValidatorRejected, localReachChecks, localReachRejected);
@@ -274,6 +346,7 @@ namespace RimMT
                 }
 
                 __result = null;
+                CommitAccelerationKind(staticLarge, customSet, fanoutEligible);
                 Interlocked.Increment(ref accelerated);
                 Interlocked.Increment(ref acceleratedNoResult);
                 CommitCounters(count, kept, examined, localValidatorCalls, localValidatorRejected, localReachChecks, localReachRejected);
@@ -285,24 +358,64 @@ namespace RimMT
                 Interlocked.Increment(ref failures);
                 if (Interlocked.Read(ref failures) <= 8)
                 {
-                    Log.Warning("[RimMT] V0.4.19-JS1.1S1 accelerated search failed; this call falls back to Vanilla. " +
+                    Log.Warning("[RimMT] V0.4.19-JS1.1S2 accelerated search failed; this call falls back to Vanilla. " +
                         ex.GetType().Name + ": " + ex.Message);
                 }
                 return true;
             }
         }
 
+        private static void ObserveFanout(int count)
+        {
+            if (!packageActive)
+                return;
+
+            packageCtrCalls++;
+            packageCandidateVolume += count;
+            if (packageFanoutActive)
+                return;
+
+            if (packageCtrCalls >= FanoutCallThreshold)
+            {
+                packageFanoutActive = true;
+                Interlocked.Increment(ref fanoutByCalls);
+            }
+            else if (packageCandidateVolume >= FanoutCandidateVolumeThreshold)
+            {
+                packageFanoutActive = true;
+                Interlocked.Increment(ref fanoutByVolume);
+            }
+        }
+
+        private static void CommitAccelerationKind(bool staticLarge, bool customSet, bool fanoutEligible)
+        {
+            if (staticLarge)
+                Interlocked.Increment(ref staticLargeAccelerated);
+            if (customSet)
+                Interlocked.Increment(ref customSetAccelerated);
+            if (fanoutEligible && !staticLarge)
+                Interlocked.Increment(ref fanoutAccelerated);
+        }
+
         private static void RecordSourceBucket(int count)
         {
-            if (count >= 128 && count <= 255)
+            if (count <= 15)
+                Interlocked.Increment(ref source0To15);
+            else if (count <= 31)
+                Interlocked.Increment(ref source16To31);
+            else if (count <= 63)
+                Interlocked.Increment(ref source32To63);
+            else if (count <= 127)
+                Interlocked.Increment(ref source64To127);
+            else if (count <= 255)
                 Interlocked.Increment(ref source128To255);
-            else if (count >= 256 && count <= 383)
+            else if (count <= 383)
                 Interlocked.Increment(ref source256To383);
-            else if (count >= 384 && count <= 511)
+            else if (count <= 511)
                 Interlocked.Increment(ref source384To511);
-            else if (count >= 512 && count <= 767)
+            else if (count <= 767)
                 Interlocked.Increment(ref source512To767);
-            else if (count >= 768)
+            else
                 Interlocked.Increment(ref source768Plus);
         }
 
@@ -367,22 +480,34 @@ namespace RimMT
                 (Interlocked.Read(ref sortTicks) * 1000000.0 / Stopwatch.Frequency) / calls;
             double maxSortUs = Interlocked.Read(ref maxSortTicks) * 1000000.0 / Stopwatch.Frequency;
 
-            return "JobGiver slow-search JS1.1S1: patched=" + patched +
+            return "JobGiver slow-search JS1.1S2 Fanout: patched=" + patched +
                 ", enabled=" + enabled +
-                ", threshold=" + LargeSearchThreshold +
+                ", staticThreshold=" + LargeSearchThreshold +
+                ", customThreshold=" + CustomSetThreshold +
+                ", fanoutCalls/volume/minSource=" + FanoutCallThreshold + "/" + FanoutCandidateVolumeThreshold + "/" + FanoutMinSource +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", inScope=" + Interlocked.Read(ref inJobGiverScope) +
                 ", accelerated=" + calls +
+                ", staticLarge/custom/fanout=" + Interlocked.Read(ref staticLargeAccelerated) + "/" + Interlocked.Read(ref customSetAccelerated) + "/" + Interlocked.Read(ref fanoutAccelerated) +
                 ", found/noResult=" + Interlocked.Read(ref acceleratedFound) + "/" + Interlocked.Read(ref acceleratedNoResult) +
-                ", sourceBuckets128-255/256-383/384-511/512-767/768+=" +
+                ", fanoutPackages=" + Interlocked.Read(ref fanoutPackages) +
+                ", fanoutActivation(calls/volume)=" + Interlocked.Read(ref fanoutByCalls) + "/" + Interlocked.Read(ref fanoutByVolume) +
+                ", maxPackageCtrCalls=" + Interlocked.Read(ref maxPackageCtrCalls) +
+                ", maxPackageCandidateVolume=" + Interlocked.Read(ref maxPackageCandidateVolume) +
+                ", sourceBuckets0-15/16-31/32-63/64-127/128-255/256-383/384-511/512-767/768+=" +
+                    Interlocked.Read(ref source0To15) + "/" +
+                    Interlocked.Read(ref source16To31) + "/" +
+                    Interlocked.Read(ref source32To63) + "/" +
+                    Interlocked.Read(ref source64To127) + "/" +
                     Interlocked.Read(ref source128To255) + "/" +
                     Interlocked.Read(ref source256To383) + "/" +
                     Interlocked.Read(ref source384To511) + "/" +
                     Interlocked.Read(ref source512To767) + "/" +
                     Interlocked.Read(ref source768Plus) +
                 ", smallBypass=" + Interlocked.Read(ref smallBypass) +
+                ", customUnsupportedBypass=" + Interlocked.Read(ref customSetUnsupportedBypass) +
+                ", customSmallBypass=" + Interlocked.Read(ref customSetSmallBypass) +
                 ", tooLargeBypass=" + Interlocked.Read(ref tooLargeBypass) +
-                ", customSetBypass=" + Interlocked.Read(ref customSetBypass) +
                 ", unsupportedTraverseBypass=" + Interlocked.Read(ref unsupportedTraverseBypass) +
                 ", invalidContextBypass=" + Interlocked.Read(ref invalidContextBypass) +
                 ", sourceFaultBypass=" + Interlocked.Read(ref sourceFaultBypass) +
@@ -402,7 +527,7 @@ namespace RimMT
                 ", avgSortUs=" + avgSortUs.ToString("F2") +
                 ", maxSortUs=" + maxSortUs.ToString("F2") +
                 ", failures=" + Interlocked.Read(ref failures) +
-                ". >=256 ThingRequest-backed JobGiver searches use stable nearest-first live candidates + original validator + live CanReach; 128-255 remains telemetry-only; smaller searches remain JS1.1R/Vanilla.";
+                ". S2 keeps S1 >=256 ThingRequest acceleration, adds IList custom-set >=32 acceleration, and switches later >=16 searches after per-JobPackage fanout; original validator and live CanReach remain authoritative.";
         }
 
         private struct Candidate
