@@ -29,6 +29,7 @@ namespace RimMT
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
                 JobGiverLearnedAdmission0419S3.Apply(harmony);
+                S3DiagnosticsBridge.Apply(harmony);
 
                 // S3 returns to the validated JS1.1S1 JobPackage/search baseline. Small/medium
                 // ClosestThingReachable calls remain Vanilla until sampled timings prove a query
