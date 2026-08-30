@@ -30,8 +30,9 @@ namespace RimMT
                 JobGiverGlobalNearest04181.Apply(harmony);
                 JobGiverSlowSearch0419S.Apply(harmony);
 
-                // JS1.1S1 keeps the validated JS1.1R JobPackage baseline. The only changed search
-                // behavior from JS1.1S is lowering selective ClosestThingReachable admission to 256.
+                // S4 is built directly on the validated S1 baseline. S2 fanout and S3 learned
+                // admission are absent. The only new behavior is elapsed-time Tail Rescue after
+                // the current JobPackage is already over 32ms.
                 JobPackageLocalSearch0419.Apply(harmony);
 
                 // ReachProfile prediction/build behavior and the embedded rolling fuse are
@@ -45,7 +46,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1.1S1 Slow Search 256 initialized from validated JS1.1S. Ordinary JobPackages remain on JS1.1R. JobGiver-owned ClosestThingReachable calls with >=256 live ThingRequest candidates may use the selective nearest-first live-validator/live-CanReach path; 128-255 candidate sources are telemetry-only. JR1/JR1.1 remain absent and ReachProfile rolling-fuse behavior is unchanged.");
+                Log.Message("[RimMT] V0.4.19-JS1.1S4 Tail Rescue initialized from validated JS1.1S1. Ordinary JobPackages remain S1: >=256 ThingRequest ClosestThingReachable calls may use the validated fast path. Small/medium searches remain Vanilla until the current TryIssueJobPackage has already exceeded 32ms; only then may later >=16 ThingRequest searches and explicit custom IEnumerable<Thing> sets use nearest-first validator-first/live-CanReach rescue. S2 fanout16 and S3 learned admission are absent. JR1/JR1.1 remain retired and ReachProfile rolling-fuse behavior is unchanged.");
             }
             catch (Exception ex)
             {
