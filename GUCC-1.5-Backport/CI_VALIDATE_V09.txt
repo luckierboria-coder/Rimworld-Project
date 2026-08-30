@@ -1,1 +1,2 @@
 Trigger PR compilation validation for GUCC v0.9 multi-unit build.
+Validation pass 2: force patched-source target verification.
