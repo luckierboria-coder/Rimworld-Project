@@ -19,6 +19,7 @@ jobs:
       - name: Upload tool
         uses: actions/upload-artifact@v4
         with:
-          name: ilspycmd-11
+          name: ilspycmd-11-full
           path: ilspycmd
+          include-hidden-files: true
           if-no-files-found: error
