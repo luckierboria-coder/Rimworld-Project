@@ -10,26 +10,12 @@ using Verse;
 
 namespace RimMT
 {
-    // V0.4.18.1: attack the measured JobGiver -> GenClosest.ClosestThing_Global hotspot directly.
-    //
-    // Vanilla ClosestThing_Global (when priorityGetter == null) only evaluates the validator for
-    // a candidate whose squared distance is better than the best valid distance seen so far.
-    // Therefore a stable nearest-first ordering is result-equivalent for a pure predicate and can
-    // dramatically reduce expensive Reachability/HasJob validator calls after the first valid
-    // nearby target is found. JobGiver validators are predicates by contract; RimMT keeps this
-    // optimization scoped strictly inside JobGiver_Work.TryIssueJobPackage to avoid changing
-    // validator call order for unrelated gameplay systems.
-    //
-    // Unspawned candidates and candidates outside maxDistance are omitted because Vanilla skips
-    // them before invoking validator/priorityGetter. Equal-distance candidates retain source order.
-    // No Verse/Unity objects are touched from worker threads and no main-thread worker wait exists.
     internal static class JobGiverGlobalNearest04181
     {
-        private const int MinSourceCount = 64;
+        private const int MinSourceCount = 32;
         private const int MaxSourceCount = 16384;
 
-        [ThreadStatic]
-        private static int jobGiverDepth;
+        [ThreadStatic] private static int jobGiverDepth;
 
         private static volatile bool globalPatched;
         private static volatile bool reachablePatched;
@@ -56,22 +42,17 @@ namespace RimMT
         private static long maxSourceCount;
         private static long failures;
 
-        internal static bool InJobGiverScope
-        {
-            get { return jobGiverDepth > 0; }
-        }
+        internal static bool InJobGiverScope { get { return jobGiverDepth > 0; } }
 
         internal static void Apply(Harmony harmony)
         {
-            if (harmony == null)
-                return;
-
+            if (harmony == null) return;
             try
             {
                 MethodBase jobGiver = AccessTools.Method(typeof(JobGiver_Work), "TryIssueJobPackage");
                 if (jobGiver == null)
                 {
-                    Log.Warning("[RimMT] V0.4.18.1 JobGiver nearest-first unavailable: JobGiver_Work.TryIssueJobPackage not found.");
+                    Log.Warning("[RimMT] JobGiver nearest-first unavailable: JobGiver_Work.TryIssueJobPackage not found.");
                     return;
                 }
 
@@ -85,9 +66,7 @@ namespace RimMT
                 for (int i = 0; i < methods.Length; i++)
                 {
                     MethodBase method = methods[i];
-                    if (method == null)
-                        continue;
-
+                    if (method == null) continue;
                     ParameterInfo[] p = method.GetParameters();
                     if (string.Equals(method.Name, "ClosestThing_Global", StringComparison.Ordinal) && p.Length == 5 && p[0].ParameterType == typeof(IntVec3))
                     {
@@ -105,26 +84,30 @@ namespace RimMT
                     }
                 }
 
-                Log.Message("[RimMT] V0.4.18.1 JobGiver global nearest-first active: ClosestThing_Global=" + globalPatched +
+                Log.Message("[RimMT] V0.4.18.1 + JS1.1S2 JobGiver global nearest-first active: ClosestThing_Global=" + globalPatched +
                     ", ClosestThing_Global_Reachable=" + reachablePatched +
+                    ", minSource=" + MinSourceCount +
                     ". Only priorityGetter=null calls inside JobGiver_Work are reordered; Vanilla validator/Reachability/final choice remains authoritative.");
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
-                Log.Warning("[RimMT] V0.4.18.1 JobGiver global nearest-first patch failed; Vanilla search order remains. " +
-                    ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] JobGiver global nearest-first patch failed; Vanilla search order remains. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
         public static void JobGiverPrefix()
         {
             jobGiverDepth++;
+            if (jobGiverDepth == 1)
+                JobGiverSlowSearch0419S.BeginJobPackage();
             Interlocked.Increment(ref jobGiverScopes);
         }
 
         public static Exception JobGiverFinalizer(Exception __exception)
         {
+            if (jobGiverDepth == 1)
+                JobGiverSlowSearch0419S.EndJobPackage();
             if (jobGiverDepth > 0)
                 jobGiverDepth--;
             return __exception;
@@ -133,16 +116,14 @@ namespace RimMT
         public static void GlobalPrefix(object[] __args)
         {
             Interlocked.Increment(ref globalObserved);
-            if (__args == null || __args.Length < 5)
-                return;
+            if (__args == null || __args.Length < 5) return;
             TryReorder(__args, 0, 1, 2, 4, false);
         }
 
         public static void GlobalReachablePrefix(object[] __args)
         {
             Interlocked.Increment(ref reachableObserved);
-            if (__args == null || __args.Length < 8)
-                return;
+            if (__args == null || __args.Length < 8) return;
             TryReorder(__args, 0, 2, 5, 7, true);
         }
 
@@ -153,9 +134,6 @@ namespace RimMT
                 Interlocked.Increment(ref outsideScope);
                 return;
             }
-
-            // Priority search must inspect every candidate because a farther target may have a
-            // higher priority. Distance-only ordering cannot safely prune that case.
             if (args[priorityIndex] != null)
             {
                 Interlocked.Increment(ref priorityBypass);
@@ -197,31 +175,25 @@ namespace RimMT
                     if (raw == null)
                     {
                         Interlocked.Increment(ref nullElementBypass);
-                        return; // Preserve Vanilla's potential null failure semantics.
+                        return;
                     }
-
                     Thing thing = raw as Thing;
                     if (thing == null)
                     {
                         Interlocked.Increment(ref typeBypass);
                         return;
                     }
-
-                    // Vanilla checks Spawned before distance/validator. Omitting this candidate
-                    // is therefore semantically equivalent for the supported no-priority path.
                     if (!thing.Spawned)
                     {
                         localUnspawned++;
                         continue;
                     }
-
                     IntVec3 pos = thing.Position;
                     if (!pos.IsValid)
                     {
                         Interlocked.Increment(ref invalidPositionBypass);
                         return;
                     }
-
                     long dx = (long)pos.x - center.x;
                     long dz = (long)pos.z - center.z;
                     long distanceSquared = dx * dx + dz * dz;
@@ -230,7 +202,6 @@ namespace RimMT
                         localOutOfRange++;
                         continue;
                     }
-
                     candidates[kept++] = new Candidate(thing, distanceSquared, i);
                 }
 
@@ -240,13 +211,11 @@ namespace RimMT
                 long elapsed = Stopwatch.GetTimestamp() - started;
 
                 Thing[] ordered = new Thing[kept];
-                for (int i = 0; i < kept; i++)
-                    ordered[i] = candidates[i].Thing;
+                for (int i = 0; i < kept; i++) ordered[i] = candidates[i].Thing;
 
                 args[setIndex] = ordered;
                 Interlocked.Increment(ref reordered);
-                if (reachable)
-                    Interlocked.Increment(ref reorderedReachable);
+                if (reachable) Interlocked.Increment(ref reorderedReachable);
                 Interlocked.Add(ref sourceCandidates, count);
                 Interlocked.Add(ref keptCandidates, kept);
                 Interlocked.Add(ref skippedUnspawned, localUnspawned);
@@ -258,8 +227,8 @@ namespace RimMT
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
-                Log.Warning("[RimMT] V0.4.18.1 nearest-first reorder failed for one JobGiver query; Vanilla continues with the original arguments when possible. " +
-                    ex.GetType().Name + ": " + ex.Message);
+                if (Interlocked.Read(ref failures) <= 8)
+                    Log.Warning("[RimMT] nearest-first reorder failed for one JobGiver query; Vanilla continues when possible. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -267,10 +236,7 @@ namespace RimMT
         {
             long seen;
             while (value > (seen = Interlocked.Read(ref field)))
-            {
-                if (Interlocked.CompareExchange(ref field, value, seen) == seen)
-                    break;
-            }
+                if (Interlocked.CompareExchange(ref field, value, seen) == seen) break;
         }
 
         internal static string Summary()
@@ -280,11 +246,11 @@ namespace RimMT
             long kept = Interlocked.Read(ref keptCandidates);
             double avgSource = calls == 0 ? 0.0 : source / (double)calls;
             double avgKept = calls == 0 ? 0.0 : kept / (double)calls;
-            double avgSortUs = calls == 0 ? 0.0 :
-                (Interlocked.Read(ref sortTicks) * 1000000.0 / Stopwatch.Frequency) / calls;
+            double avgSortUs = calls == 0 ? 0.0 : (Interlocked.Read(ref sortTicks) * 1000000.0 / Stopwatch.Frequency) / calls;
             double maxSortUs = Interlocked.Read(ref maxSortTicks) * 1000000.0 / Stopwatch.Frequency;
 
-            return "JobGiver global nearest V0.4.18.1: patched(global/reachable)=" + globalPatched + "/" + reachablePatched +
+            return "JobGiver global nearest V0.4.18.1 + S2: patched(global/reachable)=" + globalPatched + "/" + reachablePatched +
+                ", minSource=" + MinSourceCount +
                 ", jobGiverScopes=" + Interlocked.Read(ref jobGiverScopes) +
                 ", observed(global/reachable)=" + Interlocked.Read(ref globalObserved) + "/" + Interlocked.Read(ref reachableObserved) +
                 ", reordered=" + calls +
@@ -307,7 +273,7 @@ namespace RimMT
                 ", avgSortUs=" + avgSortUs.ToString("F2") +
                 ", maxSortUs=" + maxSortUs.ToString("F2") +
                 ", failures=" + Interlocked.Read(ref failures) +
-                ". Scoped to JobGiver_Work and priorityGetter=null; nearest result/tie order remain Vanilla-equivalent for predicate-style validators.";
+                ". S2 lowers the no-priority JobGiver nearest-order threshold to 32; equal-distance source order is stable and Vanilla remains authoritative after reorder.";
         }
 
         private struct Candidate
@@ -315,7 +281,6 @@ namespace RimMT
             internal readonly Thing Thing;
             internal readonly long DistanceSquared;
             internal readonly int SourceIndex;
-
             internal Candidate(Thing thing, long distanceSquared, int sourceIndex)
             {
                 Thing = thing;
@@ -327,7 +292,6 @@ namespace RimMT
         private sealed class CandidateComparer : IComparer<Candidate>
         {
             internal static readonly CandidateComparer Instance = new CandidateComparer();
-
             public int Compare(Candidate a, Candidate b)
             {
                 int distance = a.DistanceSquared.CompareTo(b.DistanceSquared);
