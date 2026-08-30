@@ -108,16 +108,13 @@ namespace RimMT
             if (outerStarted == 0L || RuntimeCompatibility.ButterPlusPlusActive)
                 return;
 
-            long now = Stopwatch.GetTimestamp();
-            double totalMs = TicksToMs(now - outerStarted);
-
+            double totalMs = TicksToMs(Stopwatch.GetTimestamp() - outerStarted);
             if (captureActive)
             {
                 inCapturedTick = false;
                 captureTicks++;
                 if (totalMs >= SlowThresholdMs)
                     RecordSlowTick(totalMs);
-
                 if (SlowSamples.Count >= TargetSlowTicks || captureTicks >= MaxCaptureTicks)
                     StopCapture();
                 return;
@@ -125,7 +122,6 @@ namespace RimMT
 
             if (completed || installAttempted || seenTicks < WarmupTicks || Current.ProgramState != ProgramState.Playing)
                 return;
-
             if (totalMs >= SlowThresholdMs)
                 StartCapture(totalMs);
         }
@@ -159,7 +155,6 @@ namespace RimMT
         {
             if (!__state.Entered || __state.Slot < 0 || __state.Slot >= CategoryNames.Length)
                 return;
-
             int[] depths = categoryDepth;
             if (depths == null)
                 return;
@@ -167,14 +162,11 @@ namespace RimMT
             int slot = __state.Slot;
             if (depths[slot] > 0)
                 depths[slot]--;
-
             if (__state.Started == 0L || depths[slot] != 0 || !inCapturedTick)
                 return;
 
             long elapsed = Stopwatch.GetTimestamp() - __state.Started;
-            if (elapsed < 0L)
-                elapsed = 0L;
-            CurrentTicks[slot] += elapsed;
+            CurrentTicks[slot] += elapsed < 0L ? 0L : elapsed;
             CurrentCalls[slot]++;
         }
 
@@ -186,7 +178,6 @@ namespace RimMT
             try
             {
                 tempHarmony = new Harmony(TempHarmonyId);
-
                 PatchNamedType("Verse.TickList", "Tick", TickListSlot, true, false);
                 PatchNamedType("Verse.Pawn", "Tick", PawnSlot, true, false);
                 PatchNamedType("RimWorld.JobGiver_Work", "TryIssueJobPackage", JobGiverSlot, false, false);
@@ -208,7 +199,6 @@ namespace RimMT
                 PatchNamedType("RimWorld.Planet.WorldPawns", "WorldPawnsTick", WorldPawnsSlot, true, false);
                 PatchNamedType("Verse.AI.PathFinder", "FindPath", PathFinderSlot, false, false);
                 PatchNamedType("Verse.LetterStack", "LettersTick", LettersSlot, true, false);
-
                 captureActive = patchedMethods > 0;
                 if (!captureActive)
                 {
@@ -244,7 +234,7 @@ namespace RimMT
         {
             Type type = null;
             try { type = AccessTools.TypeByName(typeName); }
-            catch { type = null; }
+            catch { }
             if (type == null)
             {
                 resolverMisses++;
@@ -273,7 +263,6 @@ namespace RimMT
         {
             if (type == null)
                 return;
-
             MethodInfo[] methods;
             try
             {
@@ -285,7 +274,6 @@ namespace RimMT
                 return;
             }
 
-            bool found = false;
             for (int i = 0; i < methods.Length; i++)
             {
                 MethodInfo method = methods[i];
@@ -293,19 +281,14 @@ namespace RimMT
                     continue;
                 if (zeroArgsOnly && method.GetParameters().Length != 0)
                     continue;
-                found = true;
                 PatchMethod(method, slot);
             }
-
-            if (!found && type.BaseType == null)
-                resolverMisses++;
         }
 
         private static void PatchMethod(MethodBase method, int slot)
         {
             if (method == null || MethodSlots.ContainsKey(method))
                 return;
-
             try
             {
                 MethodSlots.Add(method, slot);
@@ -325,22 +308,22 @@ namespace RimMT
 
         private static void RecordSlowTick(double totalMs)
         {
-            TickTailSlowSample sample = new TickTailSlowSample();
-            sample.TotalMs = totalMs;
-            sample.Frame = RimMTRuntime.MainThreadFrames;
-            sample.CategoryTicks = (long[])CurrentTicks.Clone();
-            sample.CategoryCalls = (int[])CurrentCalls.Clone();
-            sample.Gc0 = Math.Max(0, GC.CollectionCount(0) - gc0Start);
-            sample.Gc1 = Math.Max(0, GC.CollectionCount(1) - gc1Start);
-            sample.Gc2 = Math.Max(0, GC.CollectionCount(2) - gc2Start);
+            TickTailSlowSample sample = new TickTailSlowSample
+            {
+                TotalMs = totalMs,
+                Frame = RimMTRuntime.MainThreadFrames,
+                CategoryTicks = (long[])CurrentTicks.Clone(),
+                CategoryCalls = (int[])CurrentCalls.Clone(),
+                Gc0 = Math.Max(0, GC.CollectionCount(0) - gc0Start),
+                Gc1 = Math.Max(0, GC.CollectionCount(1) - gc1Start),
+                Gc2 = Math.Max(0, GC.CollectionCount(2) - gc2Start)
+            };
             SlowSamples.Add(sample);
-
             for (int i = 0; i < CategoryNames.Length; i++)
             {
                 SlowAggregateTicks[i] += CurrentTicks[i];
                 SlowAggregateCalls[i] += CurrentCalls[i];
             }
-
             if (SlowSamples.Count <= 3)
                 Log.Message("[RimMT] TD1 slow tick sample #" + SlowSamples.Count + ": " + FormatSample(sample, 8));
         }
@@ -356,10 +339,23 @@ namespace RimMT
 
         private static void TryUnpatch()
         {
+            if (tempHarmony == null)
+                return;
             try
             {
-                if (tempHarmony != null)
-                    tempHarmony.UnpatchSelf();
+                List<MethodBase> methods = new List<MethodBase>(MethodSlots.Keys);
+                for (int i = 0; i < methods.Count; i++)
+                {
+                    try
+                    {
+                        tempHarmony.Unpatch(methods[i], HarmonyPatchType.All, TempHarmonyId);
+                    }
+                    catch
+                    {
+                        patchFailures++;
+                    }
+                }
+                MethodSlots.Clear();
             }
             catch (Exception ex)
             {
@@ -388,13 +384,12 @@ namespace RimMT
             {
                 sb.Append("\nTD1 slow-category avg: ");
                 AppendAverageCategories(sb, 12);
-
                 double tickList = AverageMs(TickListSlot);
                 double pawn = AverageMs(PawnSlot);
                 double pawnChildren = AverageMs(PawnJobSlot) + AverageMs(PawnHealthSlot) + AverageMs(PawnNeedsSlot) + AverageMs(PawnPathSlot) + AverageMs(PawnMindSlot) + AverageMs(PawnStanceSlot);
                 sb.Append("\nTD1 derived estimates: nonPawnThing~=").Append(Math.Max(0.0, tickList - pawn).ToString("F3"))
                     .Append("ms/slowTick, pawnOther~=").Append(Math.Max(0.0, pawn - pawnChildren).ToString("F3"))
-                    .Append("ms/slowTick. These are approximate subtraction views of inclusive timings.");
+                    .Append("ms/slowTick. Approximate subtraction views of inclusive timings.");
 
                 List<TickTailSlowSample> ordered = new List<TickTailSlowSample>(SlowSamples);
                 ordered.Sort(delegate(TickTailSlowSample a, TickTailSlowSample b) { return b.TotalMs.CompareTo(a.TotalMs); });
@@ -409,19 +404,15 @@ namespace RimMT
         {
             List<int> slots = new List<int>();
             for (int i = 0; i < CategoryNames.Length; i++)
-            {
-                if (SlowAggregateTicks[i] > 0L)
-                    slots.Add(i);
-            }
+                if (SlowAggregateTicks[i] > 0L) slots.Add(i);
             slots.Sort(delegate(int a, int b) { return SlowAggregateTicks[b].CompareTo(SlowAggregateTicks[a]); });
             int show = Math.Min(maxCategories, slots.Count);
             for (int i = 0; i < show; i++)
             {
                 if (i > 0) sb.Append(" | ");
                 int slot = slots[i];
-                double avgMs = AverageMs(slot);
                 double avgCalls = SlowSamples.Count == 0 ? 0.0 : (double)SlowAggregateCalls[slot] / SlowSamples.Count;
-                sb.Append(CategoryNames[slot]).Append('=').Append(avgMs.ToString("F3")).Append("ms/").Append(avgCalls.ToString("F1")).Append("calls");
+                sb.Append(CategoryNames[slot]).Append('=').Append(AverageMs(slot).ToString("F3")).Append("ms/").Append(avgCalls.ToString("F1")).Append("calls");
             }
         }
 
@@ -430,13 +421,9 @@ namespace RimMT
             StringBuilder sb = new StringBuilder();
             sb.Append("total=").Append(sample.TotalMs.ToString("F3")).Append("ms frame=").Append(sample.Frame)
                 .Append(" GC=").Append(sample.Gc0).Append('/').Append(sample.Gc1).Append('/').Append(sample.Gc2).Append(" :: ");
-
             List<int> slots = new List<int>();
             for (int i = 0; i < CategoryNames.Length; i++)
-            {
-                if (sample.CategoryTicks[i] > 0L)
-                    slots.Add(i);
-            }
+                if (sample.CategoryTicks[i] > 0L) slots.Add(i);
             slots.Sort(delegate(int a, int b) { return sample.CategoryTicks[b].CompareTo(sample.CategoryTicks[a]); });
             int show = Math.Min(maxCategories, slots.Count);
             for (int i = 0; i < show; i++)
@@ -446,8 +433,7 @@ namespace RimMT
                 sb.Append(CategoryNames[slot]).Append('=').Append(TicksToMs(sample.CategoryTicks[slot]).ToString("F3"))
                     .Append("ms(").Append(sample.CategoryCalls[slot]).Append(')');
             }
-            if (show == 0)
-                sb.Append("no category probe activity");
+            if (show == 0) sb.Append("no category probe activity");
             return sb.ToString();
         }
 
@@ -460,7 +446,7 @@ namespace RimMT
 
         private static double TicksToMs(long ticks)
         {
-            return ticks <= 0L ? 0.0 : (ticks * 1000.0 / Stopwatch.Frequency);
+            return ticks <= 0L ? 0.0 : ticks * 1000.0 / Stopwatch.Frequency;
         }
     }
 }
