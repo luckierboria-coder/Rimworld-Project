@@ -19,6 +19,8 @@ namespace RimMT
             // replays foreign DoSingleTick prefixes/postfixes itself. Do not start a wall-clock
             // sample here in that mode; TickManagerUpdate slices are measured instead.
             __state = RuntimeCompatibility.ButterPlusPlusActive ? 0L : Stopwatch.GetTimestamp();
+            if (__state != 0L)
+                TickTailTraceTD1.TickBegin();
         }
 
         public static void TickPostfix(long __state)
@@ -27,6 +29,7 @@ namespace RimMT
                 return;
             HotPathProfiler.End("TickManager.DoSingleTick", __state);
             AdaptiveLoadBalancer.RecordTick(__state);
+            TickTailTraceTD1.TickEnd(__state);
         }
 
         public static void PathPrefix(PathFinder __instance, object[] __args, ref PathPatchState __state)
