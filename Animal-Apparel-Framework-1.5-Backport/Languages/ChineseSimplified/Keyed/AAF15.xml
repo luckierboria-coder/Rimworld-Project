@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LanguageData>
-  <AAF15_WrongBodyType>这件装备不适合该动物。</AAF15_WrongBodyType>
-  <AAF15_ForceWearSelf>穿戴 {0}</AAF15_ForceWearSelf>
-  <AAF15_ForceEquipOn>强制让动物穿戴 {0}...</AAF15_ForceEquipOn>
-  <AAF15_NoEligibleAnimals>没有可穿戴这件装备的己方动物。</AAF15_NoEligibleAnimals>
-  <AAF15_OrderedWear>已命令 {0} 穿戴 {1}。</AAF15_OrderedWear>
+  <ANG_WrongBodyType>体型不匹配</ANG_WrongBodyType>
+  <ANG_RequireBodyType>需要指定体型</ANG_RequireBodyType>
+  <ANG_RequiresBodyTypeDesc>该装备仅适用于指定体型。</ANG_RequiresBodyTypeDesc>
+  <ANG_SuitableFor>适用对象</ANG_SuitableFor>
+  <ANG_SuitableAnimal>仅动物</ANG_SuitableAnimal>
+  <ANG_SuitableHuman>仅人类</ANG_SuitableHuman>
+  <ANG_SuitableAnimalHuman>人类与动物</ANG_SuitableAnimalHuman>
+  <ANG_SuitableSpecific>特定生物</ANG_SuitableSpecific>
+  <ANG_SuitableSpecificAnimal>特定动物</ANG_SuitableSpecificAnimal>
+  <ANG_RequireDefName>仅限以下生物</ANG_RequireDefName>
+  <AAF15_ForceEquipOn>让动物穿戴 {0}...</AAF15_ForceEquipOn>
+  <AAF15_NoEligibleAnimals>没有己方动物能够穿戴这件装备。</AAF15_NoEligibleAnimals>
+  <AAF15_OrderedWear>{0} 已穿上 {1}。</AAF15_OrderedWear>
 </LanguageData>
