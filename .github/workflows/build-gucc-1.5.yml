@@ -62,16 +62,35 @@ jobs:
           foreach ($part in $parts) {
             [IO.File]::AppendAllText($patch, [IO.File]::ReadAllText($part.FullName))
           }
-          Push-Location 'GUCC-1.5-Backport\work\Source'
-          try {
-            & git apply --check $patch
-            if ($LASTEXITCODE -ne 0) { throw 'GUCC v0.9 patch validation failed.' }
-            & git apply $patch
-            if ($LASTEXITCODE -ne 0) { throw 'GUCC v0.9 patch application failed.' }
+
+          $sourceDir = 'GUCC-1.5-Backport/work/Source'
+          & git apply --check --directory=$sourceDir $patch
+          if ($LASTEXITCODE -ne 0) { throw 'GUCC v0.9 patch validation failed.' }
+          & git apply --directory=$sourceDir $patch
+          if ($LASTEXITCODE -ne 0) { throw 'GUCC v0.9 patch application failed.' }
+
+          $requiredFiles = @(
+            "$sourceDir/Core/Window_CavalryManager.cs",
+            "$sourceDir/Core/CavalryUnitTemplateRecord.cs",
+            "$sourceDir/Core/CavalryTemplatePairRecord.cs"
+          )
+          foreach ($requiredFile in $requiredFiles) {
+            if (!(Test-Path $requiredFile)) {
+              throw "GUCC v0.9 patch did not create required source file: $requiredFile"
+            }
           }
-          finally {
-            Pop-Location
+
+          $worldSource = Get-Content "$sourceDir/Core/ChargeWorldComponent.cs" -Raw
+          foreach ($needle in @('GetUnitsSnapshot', 'SaveUnitAsTemplate', 'RestoreTemplate', 'NormalizeMultiUnitAfterLoad')) {
+            if ($worldSource -notmatch [regex]::Escape($needle)) {
+              throw "GUCC v0.9 patch missing required world-component method: $needle"
+            }
           }
+          $harmonySource = Get-Content "$sourceDir/Core/HarmonyPatches.cs" -Raw
+          if ($harmonySource -notmatch 'new Window_CavalryManager') {
+            throw 'GUCC v0.9 manager gizmo wiring is missing after patch application.'
+          }
+          Write-Host 'GUCC v0.9 source verification passed.'
 
       - name: Apply bilingual localization and v0.9 metadata
         shell: pwsh
@@ -140,9 +159,17 @@ jobs:
       - name: Verify assembly
         shell: pwsh
         run: |
-          $dlls = Get-ChildItem 'GUCC-1.5-Backport\work\1.5\Assemblies\*.dll' -File
-          if (!$dlls) { throw 'No compiled GUCC DLL found.' }
-          $dlls | Format-Table Name,Length,LastWriteTime
+          $dll = Get-ChildItem 'GUCC-1.5-Backport\work\1.5\Assemblies\GiddyUpCavalryCharge.dll' -File | Select-Object -First 1
+          if (!$dll) { throw 'No compiled GUCC DLL found.' }
+          $bytes = [IO.File]::ReadAllBytes($dll.FullName)
+          $ascii = [Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($needle in @('Window_CavalryManager', 'CavalryUnitTemplateRecord', 'SaveUnitAsTemplate', 'RestoreTemplate')) {
+            if (!$ascii.Contains($needle)) {
+              throw "Compiled GUCC DLL is missing v0.9 symbol: $needle"
+            }
+          }
+          $dll | Format-Table Name,Length,LastWriteTime
+          Write-Host 'GUCC v0.9 assembly symbol verification passed.'
 
       - name: Package playtest build
         shell: pwsh
