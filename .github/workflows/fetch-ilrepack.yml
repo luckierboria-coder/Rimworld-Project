@@ -1,0 +1,25 @@
+name: Fetch ILRepack Recovery Tool
+
+on:
+  push:
+    branches: [ rimmt-v0.9.0-rc1 ]
+    paths:
+      - '.github/workflows/fetch-ilrepack.yml'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install ILRepack
+        run: dotnet tool install dotnet-ilrepack --tool-path ./ilrepack --version 2.0.47
+      - name: Upload tool
+        uses: actions/upload-artifact@v4
+        with:
+          name: ilrepack-2.0.47-full
+          path: ilrepack
+          include-hidden-files: true
+          if-no-files-found: error
