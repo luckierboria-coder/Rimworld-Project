@@ -49,21 +49,15 @@ jobs:
           $stage='build\Animal_Apparel_Framework_1.5_Backport'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item 'original-framework\Languages' $stage -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item 'Animal-Apparel-Framework-1.5-Backport\Languages' $stage -Recurse -Force
           Copy-Item 'original-framework\Textures' $stage -Recurse -Force -ErrorAction SilentlyContinue
           Copy-Item 'original-framework\1.6' "$stage\1.5" -Recurse -Force
           Remove-Item "$stage\1.5\Assemblies" -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
           Copy-Item 'Animal-Apparel-Framework-1.5-Backport\1.5\Assemblies\AnimalGear.dll' "$stage\1.5\Assemblies\AnimalGear.dll" -Force
-
           if (Test-Path 'original-framework\DLC\Royalty\1.6') {
             New-Item -ItemType Directory -Force -Path "$stage\DLC\Royalty" | Out-Null
             Copy-Item 'original-framework\DLC\Royalty\1.6' "$stage\DLC\Royalty\1.5" -Recurse -Force
-          }
-          foreach ($mod in @('sarg.alphaanimals','Sandy.RPGStyleInventory.avilmask.Revamped')) {
-            if (Test-Path "original-framework\Mods\$mod\1.6") {
-              New-Item -ItemType Directory -Force -Path "$stage\Mods\$mod" | Out-Null
-              Copy-Item "original-framework\Mods\$mod\1.6" "$stage\Mods\$mod\1.5" -Recurse -Force
-            }
           }
           New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
           @'
@@ -72,8 +66,8 @@ jobs:
             <author>Ingendum; 1.5 backport</author>
             <supportedVersions><li>1.5</li></supportedVersions>
             <packageId>Ingendum.AnimalApparelFramework.Backport15</packageId>
-            <description>RimWorld 1.5.4063 backport of Animal Apparel: Framework. Dedicated animal apparel render nodes; no legacy Animal Gear dependency.</description>
-            <modDependencies><li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li></modDependencies>
+            <description>RimWorld 1.5.4063 backport of Animal Apparel: Framework. Dedicated animal apparel render nodes, animal Gear tab support, and force-equip animal picker. English and Simplified Chinese included.</description>
+            <modDependencies><li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li></modDependencies>
             <incompatibleWith><li>Dylan.AnimalGear</li><li>Ingendum.AnimalApparelFramework</li></incompatibleWith>
           </ModMetaData>
           '@ | Set-Content "$stage\About\About.xml" -Encoding UTF8
@@ -83,8 +77,6 @@ jobs:
               <li>/</li>
               <li>1.5/</li>
               <li IfModActive="Ludeon.RimWorld.Royalty">DLC/Royalty/1.5/</li>
-              <li IfModActive="sarg.alphaanimals">Mods/sarg.alphaanimals/1.5/</li>
-              <li IfModActive="Sandy.RPGStyleInventory.avilmask.Revamped">Mods/Sandy.RPGStyleInventory.avilmask.Revamped/1.5/</li>
             </v1.5>
           </loadFolders>
           '@ | Set-Content "$stage\LoadFolders.xml" -Encoding UTF8
@@ -100,12 +92,6 @@ jobs:
           if (Test-Path 'original-basic\DLC\Royalty\1.6') {
             New-Item -ItemType Directory -Force -Path "$stage\DLC\Royalty" | Out-Null
             Copy-Item 'original-basic\DLC\Royalty\1.6' "$stage\DLC\Royalty\1.5" -Recurse -Force
-          }
-          foreach ($mod in @('sarg.alphaanimals','spincrus.dinosauria')) {
-            if (Test-Path "original-basic\Mods\$mod\1.6") {
-              New-Item -ItemType Directory -Force -Path "$stage\Mods\$mod" | Out-Null
-              Copy-Item "original-basic\Mods\$mod\1.6" "$stage\Mods\$mod\1.5" -Recurse -Force
-            }
           }
           New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
           @'
@@ -125,8 +111,6 @@ jobs:
               <li>/</li>
               <li>1.5/</li>
               <li IfModActive="Ludeon.RimWorld.Royalty">DLC/Royalty/1.5/</li>
-              <li IfModActive="sarg.alphaanimals">Mods/sarg.alphaanimals/1.5/</li>
-              <li IfModActive="spincrus.dinosauria">Mods/spincrus.dinosauria/1.5/</li>
             </v1.5>
           </loadFolders>
           '@ | Set-Content "$stage\LoadFolders.xml" -Encoding UTF8
@@ -134,14 +118,14 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          Compress-Archive -Path 'build\Animal_Apparel_Framework_1.5_Backport' -DestinationPath 'build\Animal_Apparel_Framework_1.5_Backport_v0.1.zip' -Force
-          Compress-Archive -Path 'build\Animal_Apparel_Basic_Armor_1.5_Backport' -DestinationPath 'build\Animal_Apparel_Basic_Armor_1.5_Backport_v0.1.zip' -Force
+          Compress-Archive -Path 'build\Animal_Apparel_Framework_1.5_Backport' -DestinationPath 'build\Animal_Apparel_Framework_1.5_Backport_v0.2.zip' -Force
+          Compress-Archive -Path 'build\Animal_Apparel_Basic_Armor_1.5_Backport' -DestinationPath 'build\Animal_Apparel_Basic_Armor_1.5_Backport_v0.2.zip' -Force
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Animal-Apparel-1.5-Backport-v0.1
+          name: Animal-Apparel-1.5-Backport-v0.2
           path: |
-            build/Animal_Apparel_Framework_1.5_Backport_v0.1.zip
-            build/Animal_Apparel_Basic_Armor_1.5_Backport_v0.1.zip
+            build/Animal_Apparel_Framework_1.5_Backport_v0.2.zip
+            build/Animal_Apparel_Basic_Armor_1.5_Backport_v0.2.zip
           if-no-files-found: error
