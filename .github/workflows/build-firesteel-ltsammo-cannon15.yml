@@ -6,6 +6,11 @@ on:
     paths:
       - 'FireSteel-LTSAmmo-Cannon15/**'
       - '.github/workflows/build-firesteel-ltsammo-cannon15.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'FireSteel-LTSAmmo-Cannon15/**'
+      - '.github/workflows/build-firesteel-ltsammo-cannon15.yml'
   workflow_dispatch:
 
 jobs:
