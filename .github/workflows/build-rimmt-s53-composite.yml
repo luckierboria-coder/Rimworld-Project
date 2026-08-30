@@ -1,0 +1,62 @@
+name: Build RimMT S5.3 Composite Optimizer
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'RimMT-S5.3-Composite-Optimizer/**'
+      - '.github/workflows/build-rimmt-s53-composite.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore RimMT-S5.3-Composite-Optimizer/Source/RimMTS53Composite/RimMTS53Composite.csproj
+      - name: Build Release
+        run: dotnet build RimMT-S5.3-Composite-Optimizer/Source/RimMTS53Composite/RimMTS53Composite.csproj --configuration Release --no-restore
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dll = 'RimMT-S5.3-Composite-Optimizer/1.5/Assemblies/RimMTS53Composite.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+      - name: Package S5.3
+        shell: pwsh
+        run: |
+          $src = 'RimMT-S5.3-Composite-Optimizer'
+          $stage = 'build/RimMT-S5.3-Composite-Optimizer'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "$src/About" $stage -Recurse
+          Copy-Item "$src/1.5" $stage -Recurse
+          Copy-Item "$src/LoadFolders.xml" $stage
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_S5.3_Composite_Optimizer.zip' -Force
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-S5.3-Composite-Optimizer
+          path: build/RimMT_S5.3_Composite_Optimizer.zip
+          if-no-files-found: error
+      - name: Publish downloadable artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'dist-artifacts' | Out-Null
+          Copy-Item 'build/RimMT_S5.3_Composite_Optimizer.zip' 'dist-artifacts/RimMT_S5.3_Composite_Optimizer.zip' -Force
+          git config user.name 'github-actions[bot]'
+          git config user.email '4189826+github-actions[bot]@users.noreply.github.com'
+          git add 'dist-artifacts/RimMT_S5.3_Composite_Optimizer.zip'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m 'Build RimMT S5.3 composite optimizer'
+          git push
