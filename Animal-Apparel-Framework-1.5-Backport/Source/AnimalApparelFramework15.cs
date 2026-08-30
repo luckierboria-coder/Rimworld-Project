@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using HarmonyLib;
 using RimWorld;
 using UnityEngine;
@@ -14,6 +15,12 @@ namespace AnimalGear
         public BodyDef showCoverageForBodyType;
     }
 
+    [DefOf]
+    public static class AAF15JobDefOf
+    {
+        public static JobDef AAF15_EquipAnimal;
+    }
+
     public static class AnimalGearHelper
     {
         private static readonly Dictionary<ThingDef, bool> invisibleCache = new Dictionary<ThingDef, bool>();
@@ -25,7 +32,8 @@ namespace AnimalGear
 
         public static bool IsAnimalOfColony(this Pawn pawn)
         {
-            return pawn != null && pawn.Faction != null && pawn.Faction.IsPlayer && pawn.IsAnimal() && pawn.RaceProps.FleshType != FleshTypeDefOf.Mechanoid;
+            RaceProperties race = pawn == null || pawn.def == null ? null : pawn.def.race;
+            return pawn != null && pawn.Faction != null && pawn.Faction.IsPlayer && race != null && race.intelligence == Intelligence.Animal && race.FleshType != FleshTypeDefOf.Mechanoid;
         }
 
         public static void EnsureInitApparelTrackers(this Pawn pawn)
@@ -53,25 +61,69 @@ namespace AnimalGear
 
         public static bool CanEquipApparel(ThingDef thing, Pawn pawn, ref string cantReason)
         {
-            if (thing == null || thing.apparel == null || pawn == null) return false;
-            List<string> tags = thing.apparel.tags;
-            bool animal = pawn.IsAnimal();
+            return thing != null && CanEquipApparel(thing.apparel, pawn, ref cantReason);
+        }
+
+        public static bool CanEquipApparel(ApparelProperties properties, Pawn pawn, ref string cantReason)
+        {
+            if (properties == null || pawn == null) return false;
+            List<string> tags = properties.tags;
             if (tags == null || tags.Count == 0)
             {
-                if (animal) { cantReason = "AAF15_WrongBodyType".Translate(); return false; }
+                if (pawn.IsAnimal()) { cantReason = "ANG_WrongBodyType".Translate(); return false; }
                 return true;
             }
-            if (tags.Any(x => x.StartsWith("defName", StringComparison.Ordinal)))
+
+            List<ThingDef> required = RequiredThingDefFromTags(properties);
+            if (required.Count > 0)
             {
-                bool ok = RequiredThingDefFromTags(thing.apparel).Contains(pawn.def);
-                if (!ok) { cantReason = "AAF15_WrongBodyType".Translate(); return false; }
+                if (!required.Contains(pawn.def))
+                {
+                    cantReason = "ANG_WrongBodyType".Translate();
+                    return false;
+                }
                 return true;
             }
+
             bool animalApparel = tags.Contains("AnimalApparel");
             bool animalOnly = tags.Contains("AnimalOnly");
-            if (animal && !(animalApparel || animalOnly)) { cantReason = "AAF15_WrongBodyType".Translate(); return false; }
-            if (animalOnly && !animal) { cantReason = "AAF15_WrongBodyType".Translate(); return false; }
+            if (pawn.IsAnimal() && !(animalApparel || animalOnly))
+            {
+                cantReason = "ANG_WrongBodyType".Translate();
+                return false;
+            }
+            if (animalOnly && !pawn.IsAnimal())
+            {
+                cantReason = "ANG_WrongBodyType".Translate();
+                return false;
+            }
             return true;
+        }
+
+        public static BodyDef GetBodyDefForCoverageInfo(ThingDef thing)
+        {
+            BodyDef body = thing == null ? null : thing.race == null ? null : thing.race.body;
+            if (body != null) return body;
+            AnimalApparelDefExtension ext = thing == null ? null : thing.GetModExtension<AnimalApparelDefExtension>();
+            return ext != null && ext.showCoverageForBodyType != null ? ext.showCoverageForBodyType : BodyDefOf.Human;
+        }
+
+        public static string EquippableByString(ThingDef thing)
+        {
+            if (thing == null || thing.apparel == null) return "ANG_SuitableHuman".Translate();
+            List<string> tags = thing.apparel.tags ?? new List<string>();
+            bool specific = tags.Any(x => x.StartsWith("defName", StringComparison.Ordinal));
+            bool animalOnly = tags.Contains("AnimalOnly");
+            bool animal = tags.Contains("AnimalApparel");
+            if (specific) return (animalOnly ? "ANG_SuitableSpecificAnimal" : "ANG_SuitableSpecific").Translate();
+            if (animalOnly) return "ANG_SuitableAnimal".Translate();
+            if (animal) return "ANG_SuitableAnimalHuman".Translate();
+            return "ANG_SuitableHuman".Translate();
+        }
+
+        public static string EquippableByStringFull(ThingDef thing)
+        {
+            return "ANG_SuitableFor".Translate() + ": " + EquippableByString(thing);
         }
 
         public static bool InvisibleForAnimal(ThingDef def)
@@ -85,31 +137,81 @@ namespace AnimalGear
             return value;
         }
 
-        public static IEnumerable<Pawn> EligibleAnimalsFor(Apparel apparel, Map map)
+        public static IEnumerable<Pawn> EligibleAnimalsFor(Apparel apparel, Pawn worker)
         {
+            Map map = worker == null ? null : worker.Map;
             if (apparel == null || map == null) yield break;
-            List<Pawn> pawns = map.mapPawns.AllPawnsSpawned;
+            IReadOnlyList<Pawn> pawns = map.mapPawns.AllPawnsSpawned;
             for (int i = 0; i < pawns.Count; i++)
             {
                 Pawn animal = pawns[i];
-                if (!animal.IsAnimalOfColony() || animal.Dead || animal.Downed) continue;
+                if (!animal.IsAnimalOfColony() || animal.Dead) continue;
                 animal.EnsureInitApparelTrackers();
                 string reason = null;
                 if (!CanEquipApparel(apparel.def, animal, ref reason)) continue;
                 if (!ApparelUtility.HasPartsToWear(animal, apparel.def)) continue;
-                if (!animal.CanReach(apparel, PathEndMode.Touch, Danger.Deadly)) continue;
+                if (!worker.CanReserveAndReach(apparel, PathEndMode.Touch, Danger.Deadly)) continue;
+                if (!worker.CanReserveAndReach(animal, PathEndMode.Touch, Danger.Deadly)) continue;
                 yield return animal;
             }
         }
 
-        public static void OrderAnimalWear(Pawn animal, Apparel apparel)
+        public static bool CanEquipThing(bool result, ThingDef thing, Pawn pawn, ref string cantReason)
         {
-            if (animal == null || apparel == null || animal.Map == null) return;
-            animal.EnsureInitApparelTrackers();
-            apparel.SetForbidden(false, false);
-            Job job = JobMaker.MakeJob(JobDefOf.Wear, apparel);
-            animal.jobs.TryTakeOrderedJob(job, JobTag.Misc);
-            Messages.Message("AAF15_OrderedWear".Translate(animal.LabelShortCap, apparel.LabelShort), animal, MessageTypeDefOf.TaskCompletion, false);
+            if (!result || thing == null || pawn == null || !thing.IsApparel) return result;
+            return CanEquipApparel(thing, pawn, ref cantReason);
+        }
+
+        public static void StartEquipAnimalJob(Pawn worker, Pawn animal, Apparel apparel)
+        {
+            if (worker == null || animal == null || apparel == null) return;
+            Job job = JobMaker.MakeJob(AAF15JobDefOf.AAF15_EquipAnimal, apparel, animal);
+            job.count = 1;
+            worker.jobs.TryTakeOrderedJob(job, JobTag.Misc);
+        }
+    }
+
+    public class JobDriver_EquipAnimal : JobDriver
+    {
+        private Apparel Apparel => job.GetTarget(TargetIndex.A).Thing as Apparel;
+        private Pawn Animal => job.GetTarget(TargetIndex.B).Pawn;
+
+        public override bool TryMakePreToilReservations(bool errorOnFailed)
+        {
+            return pawn.Reserve(job.GetTarget(TargetIndex.A), job, 1, 1, null, errorOnFailed)
+                && pawn.Reserve(job.GetTarget(TargetIndex.B), job, 1, -1, null, errorOnFailed);
+        }
+
+        protected override IEnumerable<Toil> MakeNewToils()
+        {
+            this.FailOnDestroyedOrNull(TargetIndex.A);
+            this.FailOnDestroyedOrNull(TargetIndex.B);
+            this.FailOnForbidden(TargetIndex.A);
+
+            yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.Touch);
+            yield return Toils_Haul.StartCarryThing(TargetIndex.A, false, false, false);
+            yield return Toils_Goto.GotoThing(TargetIndex.B, PathEndMode.Touch);
+            yield return Toils_General.Wait(60).WithProgressBarToilDelay(TargetIndex.B);
+
+            Toil equip = new Toil();
+            equip.initAction = delegate
+            {
+                Pawn animal = Animal;
+                Apparel apparel = pawn.carryTracker.CarriedThing as Apparel ?? Apparel;
+                if (animal == null || apparel == null) return;
+                animal.EnsureInitApparelTrackers();
+                string reason = null;
+                if (!AnimalGearHelper.CanEquipApparel(apparel.def, animal, ref reason) || !ApparelUtility.HasPartsToWear(animal, apparel.def))
+                {
+                    Messages.Message(reason.NullOrEmpty() ? "ANG_WrongBodyType".Translate() : reason, animal, MessageTypeDefOf.RejectInput, false);
+                    return;
+                }
+                animal.apparel.Wear(apparel, true, false);
+                animal.Drawer.renderer.SetAllGraphicsDirty();
+                Messages.Message("AAF15_OrderedWear".Translate(animal.LabelShortCap, apparel.LabelShort), animal, MessageTypeDefOf.TaskCompletion, false);
+            };
+            equip.defaultCompleteMode = ToilCompleteMode.Instant;
+            yield return equip;
         }
     }
 
@@ -139,10 +241,7 @@ namespace AnimalGear
     [HarmonyPatch(typeof(Pawn), "SpawnSetup")]
     public static class PatchPawnSpawnSetup
     {
-        public static void Postfix(Pawn __instance)
-        {
-            if (__instance.IsAnimalOfColony()) __instance.EnsureInitApparelTrackers();
-        }
+        public static void Postfix(Pawn __instance) { if (__instance.IsAnimalOfColony()) __instance.EnsureInitApparelTrackers(); }
     }
 
     [HarmonyPatch(typeof(Pawn_ApparelTracker), "Notify_ApparelChanged")]
@@ -174,10 +273,83 @@ namespace AnimalGear
         }
     }
 
-    [HarmonyPatch(typeof(FloatMenuMakerMap), "CanTakeOrder")]
-    public static class PatchCanTakeOrder
+    [HarmonyPatch(typeof(ITab_Pawn_Gear), "get_CanControlColonist")]
+    public static class PatchGearTabControl
     {
-        public static void Postfix(Pawn pawn, ref bool __result) { if (pawn.IsAnimalOfColony()) __result = true; }
+        public static bool Prefix(ITab_Pawn_Gear __instance, ref bool __result)
+        {
+            MethodInfo selGetter = AccessTools.PropertyGetter(typeof(ITab_Pawn_Gear), "SelPawnForGear");
+            Pawn pawn = selGetter == null ? null : selGetter.Invoke(__instance, null) as Pawn;
+            if (!pawn.IsAnimalOfColony()) return true;
+            pawn.EnsureInitApparelTrackers();
+            __result = pawn.Spawned;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(Apparel), "PawnCanWear")]
+    public static class PatchApparelPawnCanWear
+    {
+        public static void Postfix(Apparel __instance, Pawn pawn, bool ignoreGender, ref bool __result)
+        {
+            if (!__result) return;
+            string reason = null;
+            __result = AnimalGearHelper.CanEquipThing(__result, __instance.def, pawn, ref reason);
+        }
+    }
+
+    [HarmonyPatch(typeof(ApparelProperties), "PawnCanWear", new Type[] { typeof(Pawn), typeof(bool) })]
+    public static class PatchApparelPropertiesPawnCanWear
+    {
+        public static void Postfix(ApparelProperties __instance, Pawn pawn, bool ignoreGender, ref bool __result)
+        {
+            if (!__result) return;
+            string reason = null;
+            __result = AnimalGearHelper.CanEquipApparel(__instance, pawn, ref reason);
+        }
+    }
+
+    [HarmonyPatch(typeof(ApparelRequirement), "AllowedForPawn")]
+    public static class PatchApparelRequirementAllowed
+    {
+        public static void Postfix(Pawn p, ThingDef apparel, bool ignoreGender, ref bool __result)
+        {
+            if (!__result) return;
+            string reason = null;
+            __result = AnimalGearHelper.CanEquipThing(__result, apparel, p, ref reason);
+        }
+    }
+
+    [HarmonyPatch(typeof(ApparelRequirement), "RequiredForPawn")]
+    public static class PatchApparelRequirementRequired
+    {
+        public static void Postfix(Pawn p, ThingDef apparel, bool ignoreGender, ref bool __result)
+        {
+            if (!__result) return;
+            string reason = null;
+            __result = AnimalGearHelper.CanEquipThing(__result, apparel, p, ref reason);
+        }
+    }
+
+    [HarmonyPatch(typeof(ThingDef), "SpecialDisplayStats")]
+    public static class PatchSpecialDisplayStats
+    {
+        public static IEnumerable<StatDrawEntry> Postfix(IEnumerable<StatDrawEntry> values, StatRequest req, ThingDef __instance)
+        {
+            bool inserted = false;
+            foreach (StatDrawEntry entry in values)
+            {
+                if (!inserted && __instance.apparel != null && entry.category == StatCategoryDefOf.Apparel)
+                {
+                    yield return new StatDrawEntry(StatCategoryDefOf.Apparel, "ANG_SuitableFor".Translate(), AnimalGearHelper.EquippableByString(__instance), AnimalGearHelper.EquippableByStringFull(__instance), 2750);
+                    List<ThingDef> required = AnimalGearHelper.RequiredThingDefFromTags(__instance.apparel);
+                    if (required.Count > 0)
+                        yield return new StatDrawEntry(StatCategoryDefOf.Apparel, "ANG_RequireDefName".Translate(), required.Select(d => d.LabelCap.ToString()).ToCommaList(), "ANG_RequiresBodyTypeDesc".Translate(), 2751);
+                    inserted = true;
+                }
+                yield return entry;
+            }
+        }
     }
 
     [HarmonyPatch(typeof(FloatMenuMakerMap), "ChoicesAtFor")]
@@ -185,29 +357,13 @@ namespace AnimalGear
     {
         public static void Postfix(Vector3 clickPos, Pawn pawn, bool suppressAutoTakeableGoto, ref List<FloatMenuOption> __result)
         {
-            if (pawn == null || pawn.Map == null || __result == null) return;
+            if (pawn == null || pawn.Map == null || __result == null || !pawn.IsColonistPlayerControlled || pawn.Downed) return;
             IntVec3 cell = IntVec3.FromVector3(clickPos);
             if (!cell.InBounds(pawn.Map)) return;
             Apparel apparel = pawn.Map.thingGrid.ThingAt<Apparel>(cell);
             if (apparel == null || !AnimalGearHelper.IsAnimalApparel(apparel.def)) return;
 
-            if (pawn.IsAnimalOfColony())
-            {
-                pawn.EnsureInitApparelTrackers();
-                string reason = null;
-                if (AnimalGearHelper.CanEquipApparel(apparel.def, pawn, ref reason) && ApparelUtility.HasPartsToWear(pawn, apparel.def) && pawn.CanReach(apparel, PathEndMode.Touch, Danger.Deadly))
-                {
-                    FloatMenuOption wear = new FloatMenuOption("AAF15_ForceWearSelf".Translate(apparel.LabelShort), delegate
-                    {
-                        AnimalGearHelper.OrderAnimalWear(pawn, apparel);
-                    }, MenuOptionPriority.High);
-                    __result.Add(FloatMenuUtility.DecoratePrioritizedTask(wear, pawn, apparel, "ReservedBy"));
-                }
-                return;
-            }
-
-            if (!pawn.IsColonistPlayerControlled || pawn.Downed) return;
-            List<Pawn> animals = AnimalGearHelper.EligibleAnimalsFor(apparel, pawn.Map).OrderBy(x => x.LabelShortCap).ToList();
+            List<Pawn> animals = AnimalGearHelper.EligibleAnimalsFor(apparel, pawn).OrderBy(x => x.LabelShortCap).ToList();
             if (animals.Count == 0)
             {
                 __result.Add(new FloatMenuOption("AAF15_NoEligibleAnimals".Translate(), null));
@@ -222,7 +378,8 @@ namespace AnimalGear
                     Pawn chosen = animal;
                     animalOptions.Add(new FloatMenuOption(chosen.LabelShortCap, delegate
                     {
-                        AnimalGearHelper.OrderAnimalWear(chosen, apparel);
+                        apparel.SetForbidden(false, false);
+                        AnimalGearHelper.StartEquipAnimalJob(pawn, chosen, apparel);
                     }));
                 }
                 Find.WindowStack.Add(new FloatMenu(animalOptions));
@@ -276,7 +433,11 @@ namespace AnimalGear.Graphics
                     return null;
                 }
             }
-            Shader shader = ContentFinder<Texture2D>.Get(chosen + "_eastm", false) != null ? ShaderDatabase.CutoutComplex : ShaderDatabase.Cutout;
+            Shader shader = ShaderDatabase.Cutout;
+            if (apparel.StyleDef != null && apparel.StyleDef.graphicData != null && apparel.StyleDef.graphicData.shaderType != null)
+                shader = apparel.StyleDef.graphicData.shaderType.Shader;
+            else if (ContentFinder<Texture2D>.Get(chosen + "_eastm", false) != null)
+                shader = ShaderDatabase.CutoutComplex;
             return GraphicDatabase.Get<Graphic_Multi>(chosen, shader, apparel.def.graphicData.drawSize, apparel.DrawColor);
         }
     }
