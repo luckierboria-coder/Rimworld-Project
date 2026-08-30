@@ -17,16 +17,19 @@ namespace RimMTS53Composite
             if (__instance == null || pawn == null || pawn.Map == null || __result != null) return;
 
             WorkGiver_Tend tendGiver = __instance as WorkGiver_Tend;
-            if (Tend.Enabled && tendGiver != null && __instance.GetType().Name.IndexOf("TendOther", StringComparison.OrdinalIgnoreCase) >= 0)
+            string typeName = __instance.GetType().Name;
+            if (Tend.Enabled && tendGiver != null && typeName.IndexOf("TendOther", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 if (!Tend.ShouldParityBypass())
                 {
                     TendMapCache cache = TendCaches.GetValue(pawn.Map, delegate(Map m) { return new TendMapCache(); });
                     cache.RefreshIfNeeded(pawn.Map);
-                    bool urgent = __instance is WorkGiver_TendOtherUrgent;
+                    bool urgent = __instance is WorkGiver_TendOtherUrgent || typeName.IndexOf("Urgent", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool humanlikeOnly = typeName.IndexOf("Humanlike", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool animalOnly = typeName.IndexOf("Animal", StringComparison.OrdinalIgnoreCase) >= 0;
                     bool hasTarget;
-                    if (tendGiver.def.tendToHumanlikesOnly) hasTarget = urgent ? cache.UrgentHumanlike : cache.AnyHumanlike;
-                    else if (tendGiver.def.tendToAnimalsOnly) hasTarget = urgent ? cache.UrgentAnimal : cache.AnyAnimal;
+                    if (humanlikeOnly) hasTarget = urgent ? cache.UrgentHumanlike : cache.AnyHumanlike;
+                    else if (animalOnly) hasTarget = urgent ? cache.UrgentAnimal : cache.AnyAnimal;
                     else hasTarget = urgent ? cache.UrgentAny : cache.Any;
                     Tend.GateCheck();
                     if (!hasTarget)
@@ -62,7 +65,7 @@ namespace RimMTS53Composite
                 tick = now;
                 Any = AnyHumanlike = AnyAnimal = UrgentAny = UrgentHumanlike = UrgentAnimal = false;
 
-                List<Pawn> pawns = map.mapPawns.AllPawnsSpawned;
+                IReadOnlyList<Pawn> pawns = map.mapPawns.AllPawnsSpawned;
                 for (int i = 0; i < pawns.Count; i++)
                 {
                     Pawn patient = pawns[i];
