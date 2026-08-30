@@ -27,7 +27,7 @@ jobs:
           Invoke-WebRequest -Uri 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile steamcmd.zip
           Expand-Archive steamcmd.zip -DestinationPath steamcmd -Force
 
-      - name: Download GUCC workshop source
+      - name: Download GUCC workshop source to temp
         shell: pwsh
         run: |
           & .\steamcmd\steamcmd.exe +login anonymous +workshop_download_item 294100 3778461890 validate +quit
@@ -40,17 +40,20 @@ jobs:
             if (!$hit) { throw 'SteamCMD did not download GUCC workshop item 3778461890.' }
             $candidate = $hit.FullName
           }
-          New-Item -ItemType Directory -Force -Path 'GUCC-1.5-Backport\work' | Out-Null
-          Copy-Item (Join-Path $candidate '*') 'GUCC-1.5-Backport\work' -Recurse -Force
-          if (!(Test-Path 'GUCC-1.5-Backport\work\Source\GiddyUpCavalryCharge.csproj')) {
+          $modRoot = Join-Path $env:RUNNER_TEMP 'GUCC_1.5_Backport'
+          Remove-Item $modRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $modRoot | Out-Null
+          Copy-Item (Join-Path $candidate '*') $modRoot -Recurse -Force
+          if (!(Test-Path (Join-Path $modRoot 'Source\GiddyUpCavalryCharge.csproj'))) {
             throw 'Downloaded GUCC does not contain Source/GiddyUpCavalryCharge.csproj.'
           }
+          "GUCC_MOD_ROOT=$modRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Apply RimWorld 1.5 backport
         shell: pwsh
         run: |
-          ./GUCC-1.5-Backport/Apply_15_Backport.ps1 -ModRoot 'GUCC-1.5-Backport/work'
-          ./GUCC-1.5-Backport/Fix_15_JobDriverAccess.ps1 -ModRoot 'GUCC-1.5-Backport/work'
+          ./GUCC-1.5-Backport/Apply_15_Backport.ps1 -ModRoot $env:GUCC_MOD_ROOT
+          ./GUCC-1.5-Backport/Fix_15_JobDriverAccess.ps1 -ModRoot $env:GUCC_MOD_ROOT
 
       - name: Apply GUCC v0.9 cavalry organization patch
         shell: pwsh
@@ -62,59 +65,60 @@ jobs:
           foreach ($part in $parts) {
             [IO.File]::AppendAllText($patch, [IO.File]::ReadAllText($part.FullName))
           }
-          Push-Location 'GUCC-1.5-Backport\work\Source'
+
+          $sourceDir = Join-Path $env:GUCC_MOD_ROOT 'Source'
+          Push-Location $sourceDir
           try {
             & git apply --check $patch
             if ($LASTEXITCODE -ne 0) { throw 'GUCC v0.9 patch validation failed.' }
             & git apply $patch
             if ($LASTEXITCODE -ne 0) { throw 'GUCC v0.9 patch application failed.' }
           }
-          finally {
-            Pop-Location
+          finally { Pop-Location }
+
+          $requiredFiles = @(
+            (Join-Path $sourceDir 'Core\Window_CavalryManager.cs'),
+            (Join-Path $sourceDir 'Core\CavalryUnitTemplateRecord.cs'),
+            (Join-Path $sourceDir 'Core\CavalryTemplatePairRecord.cs')
+          )
+          foreach ($requiredFile in $requiredFiles) {
+            if (!(Test-Path $requiredFile)) { throw "Missing v0.9 source file: $requiredFile" }
           }
+          $worldSource = Get-Content (Join-Path $sourceDir 'Core\ChargeWorldComponent.cs') -Raw
+          foreach ($needle in @('GetUnitsSnapshot','SaveUnitAsTemplate','RestoreTemplate','NormalizeMultiUnitAfterLoad')) {
+            if ($worldSource -notmatch [regex]::Escape($needle)) { throw "Missing v0.9 method: $needle" }
+          }
+          Write-Host 'GUCC v0.9 source verification passed.'
 
       - name: Apply bilingual localization and v0.9 metadata
         shell: pwsh
         run: |
-          $modRoot = 'GUCC-1.5-Backport\work'
+          $modRoot = $env:GUCC_MOD_ROOT
           $locRoot = 'GUCC-1.5-Backport\Localization'
-
           foreach ($lang in @('English', 'ChineseSimplified')) {
             $source = Join-Path $locRoot $lang
             if (Test-Path $source) {
-              $dest = Join-Path "$modRoot\Languages" $lang
+              $dest = Join-Path (Join-Path $modRoot 'Languages') $lang
               New-Item -ItemType Directory -Force -Path $dest | Out-Null
               Copy-Item (Join-Path $source '*') $dest -Recurse -Force
             }
           }
 
-          $aboutPath = "$modRoot\About\About.xml"
+          $aboutPath = Join-Path $modRoot 'About\About.xml'
           $about = Get-Content $aboutPath -Raw
           $about = $about.Replace('<modVersion>0.8.5-1.5-backport</modVersion>', '<modVersion>0.9-1.5-backport-bilingual</modVersion>')
           $description = '<description>Adds player-drawn solo and synchronized formation cavalry charges to Giddy-Up 2. The 0.9 1.5 backport adds multiple persistent cavalry units, per-unit commanders and target sizes, saved cavalry templates, and exact or auto-filled one-click reconstruction.' + [Environment]::NewLine + [Environment]::NewLine + '为 Giddy-Up 2 增加可由玩家绘制路线的单骑与编队冲锋。0.9 的 1.5 回移版新增多支持久骑兵队、独立指挥官和编制人数、骑兵编制模板，以及精确重组或自动补员的一键恢复。</description>'
           $about = [regex]::Replace($about, '(?s)<description>.*?</description>', $description)
           Set-Content $aboutPath $about -Encoding UTF8
 
-          $sourceTextParts = @()
-          foreach ($sourceFile in Get-ChildItem "$modRoot\Source\Core\*.cs" -File) {
-            $sourceTextParts += Get-Content $sourceFile.FullName -Raw
-          }
-          $sourceText = $sourceTextParts -join [Environment]::NewLine
-          $matches = [regex]::Matches($sourceText, '"(GUCC_[A-Za-z0-9_]+)"\.Translate')
-          $keys = $matches | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
-
+          $sourceText = (Get-ChildItem (Join-Path $modRoot 'Source\Core\*.cs') -File | ForEach-Object { Get-Content $_.FullName -Raw }) -join [Environment]::NewLine
+          $keys = [regex]::Matches($sourceText, '"(GUCC_[A-Za-z0-9_]+)"\.Translate') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
           foreach ($lang in @('English', 'ChineseSimplified')) {
-            $keyedFiles = Get-ChildItem "$modRoot\Languages\$lang\Keyed\*.xml" -File
+            $keyedFiles = Get-ChildItem (Join-Path $modRoot "Languages\$lang\Keyed\*.xml") -File
             if (!$keyedFiles) { throw "No Keyed XML files found for $lang." }
-            $combinedParts = @()
-            foreach ($keyedFile in $keyedFiles) {
-              $combinedParts += Get-Content $keyedFile.FullName -Raw
-            }
-            $combined = $combinedParts -join [Environment]::NewLine
+            $combined = ($keyedFiles | ForEach-Object { Get-Content $_.FullName -Raw }) -join [Environment]::NewLine
             foreach ($key in $keys) {
-              if ($combined -notmatch ('<' + [regex]::Escape($key) + '>')) {
-                throw "Missing $lang localization key: $key"
-              }
+              if ($combined -notmatch ('<' + [regex]::Escape($key) + '>')) { throw "Missing $lang localization key: $key" }
             }
             Write-Host "$lang localization coverage: $($keys.Count)/$($keys.Count)"
           }
@@ -123,7 +127,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: GUCC-1.5-v0.9-Patched-Source
-          path: GUCC-1.5-Backport/work/Source
+          path: ${{ runner.temp }}/GUCC_1.5_Backport/Source
           if-no-files-found: error
 
       - name: Setup .NET
@@ -132,33 +136,44 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore
-        run: dotnet restore GUCC-1.5-Backport/work/Source/GiddyUpCavalryCharge.csproj
+        shell: pwsh
+        run: dotnet restore "$env:GUCC_MOD_ROOT\Source\GiddyUpCavalryCharge.csproj"
 
       - name: Build Release
-        run: dotnet build GUCC-1.5-Backport/work/Source/GiddyUpCavalryCharge.csproj --configuration Release --no-restore
+        shell: pwsh
+        run: dotnet build "$env:GUCC_MOD_ROOT\Source\GiddyUpCavalryCharge.csproj" --configuration Release --no-restore
 
-      - name: Verify assembly
+      - name: Verify compiled v0.9 assembly
         shell: pwsh
         run: |
-          $dlls = Get-ChildItem 'GUCC-1.5-Backport\work\1.5\Assemblies\*.dll' -File
-          if (!$dlls) { throw 'No compiled GUCC DLL found.' }
-          $dlls | Format-Table Name,Length,LastWriteTime
+          $dll = Join-Path $env:GUCC_MOD_ROOT '1.5\Assemblies\GiddyUpCavalryCharge.dll'
+          if (!(Test-Path $dll)) { throw 'No compiled GUCC DLL found.' }
+          $bytes = [IO.File]::ReadAllBytes($dll)
+          $text = [Text.Encoding]::UTF8.GetString($bytes)
+          foreach ($needle in @('Window_CavalryManager','CavalryUnitTemplateRecord','CavalryTemplatePairRecord','GetUnitsSnapshot','SaveUnitAsTemplate','RestoreTemplate','NormalizeMultiUnitAfterLoad')) {
+            if ($text -notmatch [regex]::Escape($needle)) { throw "Compiled DLL missing v0.9 symbol: $needle" }
+          }
+          Get-Item $dll | Format-Table Name,Length,LastWriteTime
+          Write-Host 'Compiled DLL v0.9 symbol verification passed.'
 
       - name: Package playtest build
         shell: pwsh
         run: |
-          $src = 'GUCC-1.5-Backport\work'
-          $stage = 'build\GUCC_1.5_Backport'
+          $src = $env:GUCC_MOD_ROOT
+          $stage = Join-Path $env:RUNNER_TEMP 'package\GUCC_1.5_Backport_v0.9'
+          Remove-Item (Split-Path $stage -Parent) -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           foreach ($dir in @('About','Defs','Sounds','Languages','1.5')) {
-            if (Test-Path "$src\$dir") { Copy-Item "$src\$dir" $stage -Recurse -Force }
+            if (Test-Path (Join-Path $src $dir)) { Copy-Item (Join-Path $src $dir) $stage -Recurse -Force }
           }
-          if (Test-Path "$src\README_1.5_BACKPORT.txt") { Copy-Item "$src\README_1.5_BACKPORT.txt" $stage }
-          Compress-Archive -Path $stage -DestinationPath 'build\GUCC_1.5_Backport_v0.9.zip' -Force
+          if (Test-Path (Join-Path $src 'README_1.5_BACKPORT.txt')) { Copy-Item (Join-Path $src 'README_1.5_BACKPORT.txt') $stage }
+          $zip = Join-Path $env:RUNNER_TEMP 'GUCC_1.5_Backport_v0.9_MULTIUNIT_FIXED.zip'
+          Compress-Archive -Path $stage -DestinationPath $zip -Force
+          "GUCC_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GUCC-1.5-Backport-v0.9
-          path: build/GUCC_1.5_Backport_v0.9.zip
+          name: GUCC-1.5-Backport-v0.9-MULTIUNIT-FIXED
+          path: ${{ runner.temp }}/GUCC_1.5_Backport_v0.9_MULTIUNIT_FIXED.zip
           if-no-files-found: error
