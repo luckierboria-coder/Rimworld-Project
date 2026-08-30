@@ -1,0 +1,41 @@
+name: Export RimWorld 1.5 Reference Assemblies
+
+on:
+  push:
+    branches: [ rimmt-v0.9.0-rc1 ]
+    paths:
+      - '.github/workflows/export-rimworld-refs.yml'
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore reference packages
+        shell: bash
+        run: |
+          mkdir -p tmpref
+          cat > tmpref/refs.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup><TargetFramework>net472</TargetFramework></PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4063" />
+              <PackageReference Include="Lib.Harmony" Version="2.3.3" />
+              <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" />
+            </ItemGroup>
+          </Project>
+          EOF
+          dotnet restore tmpref/refs.csproj
+          mkdir -p exported-refs
+          cp -R "$HOME/.nuget/packages/krafs.rimworld.ref/1.5.4063" exported-refs/krafs.rimworld.ref
+          cp -R "$HOME/.nuget/packages/lib.harmony/2.3.3" exported-refs/lib.harmony
+          cp -R "$HOME/.nuget/packages/microsoft.netframework.referenceassemblies.net472/1.0.3" exported-refs/net472
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rimworld-1.5.4063-merge-refs
+          path: exported-refs
+          include-hidden-files: true
+          if-no-files-found: error
