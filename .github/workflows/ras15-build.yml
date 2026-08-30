@@ -27,11 +27,16 @@ jobs:
           [IO.File]::WriteAllBytes('ras_source.zip', [Convert]::FromBase64String($b64))
           New-Item -ItemType Directory -Force -Path 'rasbuild' | Out-Null
           Expand-Archive 'ras_source.zip' 'rasbuild' -Force
+          $buildScript = Get-ChildItem 'rasbuild' -Recurse -Filter 'Build_All_1.5.ps1' | Select-Object -First 1
+          if (!$buildScript) { throw 'Could not locate Build_All_1.5.ps1 after extraction.' }
+          $buildRoot = $buildScript.Directory.FullName
+          "RAS_BUILD_ROOT=$buildRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Build root: $buildRoot"
 
       - name: Remove broken legacy preflight guard
         shell: pwsh
         run: |
-          $p = 'rasbuild/Build_All_1.5.ps1'
+          $p = Join-Path $env:RAS_BUILD_ROOT 'Build_All_1.5.ps1'
           $txt = Get-Content $p -Raw
           $txt = $txt -replace '(?m)^Assert-No16ApiResidue\s*$', '# Assert-No16ApiResidue disabled in CI; compiler is authoritative'
           Set-Content $p $txt -Encoding UTF8
@@ -39,16 +44,16 @@ jobs:
       - name: Build all three DLLs
         shell: pwsh
         run: |
-          Set-Location rasbuild
+          Set-Location $env:RAS_BUILD_ROOT
           ./Build_All_1.5.ps1 -NoPause
 
       - name: Verify outputs
         shell: pwsh
         run: |
           $dlls = @(
-            'rasbuild/Mods/RegionsAndSocieties-1.5/Assemblies/RegionsAndSocieties.dll',
-            'rasbuild/Mods/RegionsAndSocieties-VFECP-1.5/Assemblies/RegionsAndSocieties.VFECP.dll',
-            'rasbuild/Mods/RegionsAndSocieties-VOECP-1.5/Assemblies/RegionsAndSocieties.VOECP.dll'
+            (Join-Path $env:RAS_BUILD_ROOT 'Mods/RegionsAndSocieties-1.5/Assemblies/RegionsAndSocieties.dll'),
+            (Join-Path $env:RAS_BUILD_ROOT 'Mods/RegionsAndSocieties-VFECP-1.5/Assemblies/RegionsAndSocieties.VFECP.dll'),
+            (Join-Path $env:RAS_BUILD_ROOT 'Mods/RegionsAndSocieties-VOECP-1.5/Assemblies/RegionsAndSocieties.VOECP.dll')
           )
           foreach ($dll in $dlls) {
             if (!(Test-Path $dll)) { throw "Missing compiled DLL: $dll" }
@@ -59,9 +64,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path 'build/RaS_1.5.4063_Full_Backport' | Out-Null
-          Copy-Item 'rasbuild/Mods/RegionsAndSocieties-1.5' 'build/RaS_1.5.4063_Full_Backport/' -Recurse
-          Copy-Item 'rasbuild/Mods/RegionsAndSocieties-VFECP-1.5' 'build/RaS_1.5.4063_Full_Backport/' -Recurse
-          Copy-Item 'rasbuild/Mods/RegionsAndSocieties-VOECP-1.5' 'build/RaS_1.5.4063_Full_Backport/' -Recurse
+          Copy-Item (Join-Path $env:RAS_BUILD_ROOT 'Mods/RegionsAndSocieties-1.5') 'build/RaS_1.5.4063_Full_Backport/' -Recurse
+          Copy-Item (Join-Path $env:RAS_BUILD_ROOT 'Mods/RegionsAndSocieties-VFECP-1.5') 'build/RaS_1.5.4063_Full_Backport/' -Recurse
+          Copy-Item (Join-Path $env:RAS_BUILD_ROOT 'Mods/RegionsAndSocieties-VOECP-1.5') 'build/RaS_1.5.4063_Full_Backport/' -Recurse
           Compress-Archive -Path 'build/RaS_1.5.4063_Full_Backport' -DestinationPath 'build/RaS_1.5.4063_Full_Backport.zip' -Force
 
       - name: Upload build log on failure
@@ -69,7 +74,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: RaS-1.5-build-log
-          path: rasbuild/BUILD_LOG.txt
+          path: rasbuild/**/BUILD_LOG.txt
           if-no-files-found: ignore
 
       - name: Upload compiled mod
