@@ -30,12 +30,11 @@ namespace RimMT
                 JobGiverGlobalNearest04181.Apply(harmony);
                 JobGiverSlowSearch0419S.Apply(harmony);
 
-                // JS1.1S1 keeps the validated JS1.1R JobPackage baseline. The only changed search
-                // behavior from JS1.1S is lowering selective ClosestThingReachable admission to 256.
+                // S2 keeps the validated JS1.1R/JS1.1S1 JobPackage baseline. Search acceleration is
+                // now fanout-aware: static >=256 ThingRequest sources, IList custom sets >=32, and
+                // later >=16 sources after the package demonstrates repeated search pressure.
                 JobPackageLocalSearch0419.Apply(harmony);
 
-                // ReachProfile prediction/build behavior and the embedded rolling fuse are
-                // unchanged from JS1.1R.
                 AggressiveReachabilityProfiles.Apply(harmony);
 
                 // V0.4.15 RegionHint remains retired due near-zero long-run yield.
@@ -45,7 +44,7 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.4.19-JS1.1S1 Slow Search 256 initialized from validated JS1.1S. Ordinary JobPackages remain on JS1.1R. JobGiver-owned ClosestThingReachable calls with >=256 live ThingRequest candidates may use the selective nearest-first live-validator/live-CanReach path; 128-255 candidate sources are telemetry-only. JR1/JR1.1 remain absent and ReachProfile rolling-fuse behavior is unchanged.");
+                Log.Message("[RimMT] V0.4.19-JS1.1S2 Fanout Search initialized from validated JS1.1S1. Static >=256 ThingRequest slow-search acceleration is retained; IList-backed custom sets >=32 can use the same validator-first/live-CanReach path; after a JobPackage reaches 24 ClosestThingReachable calls or 1024 cumulative source candidates, later >=16-candidate searches may also accelerate. JobGiver Global nearest-first now starts at 32. JR1/JR1.1 remain absent and ReachProfile rolling-fuse behavior is unchanged.");
             }
             catch (Exception ex)
             {
