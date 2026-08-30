@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <AAF15_WrongBodyType>This apparel does not fit this animal.</AAF15_WrongBodyType>
+  <AAF15_ForceWearSelf>Wear {0}</AAF15_ForceWearSelf>
+  <AAF15_ForceEquipOn>Force equip {0} on...</AAF15_ForceEquipOn>
+  <AAF15_NoEligibleAnimals>No eligible colony animals can wear this.</AAF15_NoEligibleAnimals>
+  <AAF15_OrderedWear>Ordered {0} to wear {1}.</AAF15_OrderedWear>
+</LanguageData>
