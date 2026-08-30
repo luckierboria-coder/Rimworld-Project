@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LanguageData>
-  <AAF15_WrongBodyType>This apparel does not fit this animal.</AAF15_WrongBodyType>
-  <AAF15_ForceWearSelf>Wear {0}</AAF15_ForceWearSelf>
+  <ANG_WrongBodyType>Wrong body type</ANG_WrongBodyType>
+  <ANG_RequireBodyType>Requires body type</ANG_RequireBodyType>
+  <ANG_RequiresBodyTypeDesc>Requires a specific body type.</ANG_RequiresBodyTypeDesc>
+  <ANG_SuitableFor>Suitable for</ANG_SuitableFor>
+  <ANG_SuitableAnimal>Animals only</ANG_SuitableAnimal>
+  <ANG_SuitableHuman>Humans</ANG_SuitableHuman>
+  <ANG_SuitableAnimalHuman>Humans and animals</ANG_SuitableAnimalHuman>
+  <ANG_SuitableSpecific>Specific creatures</ANG_SuitableSpecific>
+  <ANG_SuitableSpecificAnimal>Specific animals</ANG_SuitableSpecificAnimal>
+  <ANG_RequireDefName>Only usable by</ANG_RequireDefName>
   <AAF15_ForceEquipOn>Force equip {0} on...</AAF15_ForceEquipOn>
   <AAF15_NoEligibleAnimals>No eligible colony animals can wear this.</AAF15_NoEligibleAnimals>
-  <AAF15_OrderedWear>Ordered {0} to wear {1}.</AAF15_OrderedWear>
+  <AAF15_OrderedWear>{0} is now wearing {1}.</AAF15_OrderedWear>
 </LanguageData>
