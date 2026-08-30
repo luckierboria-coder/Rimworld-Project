@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <AAF15_WrongBodyType>这件装备不适合该动物。</AAF15_WrongBodyType>
+  <AAF15_ForceWearSelf>穿戴 {0}</AAF15_ForceWearSelf>
+  <AAF15_ForceEquipOn>强制让动物穿戴 {0}...</AAF15_ForceEquipOn>
+  <AAF15_NoEligibleAnimals>没有可穿戴这件装备的己方动物。</AAF15_NoEligibleAnimals>
+  <AAF15_OrderedWear>已命令 {0} 穿戴 {1}。</AAF15_OrderedWear>
+</LanguageData>
