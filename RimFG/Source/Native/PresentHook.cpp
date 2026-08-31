@@ -31,6 +31,7 @@ namespace RimFGPresent
         std::atomic<bool> g_installed{false};
         std::atomic<IDXGISwapChain*> g_unitySwapChain{nullptr};
         std::atomic<int> g_presentMode{static_cast<int>(PresentMode::ImmediateValidation)};
+        std::atomic<BackbufferGenerationCallback> g_generationCallback{nullptr};
         ID3D11Device* g_unityDevice = nullptr;
         PresentFn g_originalPresent = nullptr;
 
@@ -162,9 +163,6 @@ namespace RimFGPresent
             CopyHudRects(context.Get(), g_realScratch.Get(), g_generatedComposite.Get(), source, backDesc.Width, backDesc.Height);
             context->CopyResource(backBuffer.Get(), g_generatedComposite.Get());
 
-            // Validation mode inserts immediately. VSync2x deliberately spends one
-            // VBlank on the generated frame and leaves the following VBlank to the
-            // real Unity frame. This is appropriate for high-refresh displays.
             const UINT generatedSync = mode == PresentMode::VSync2x ? 1u : 0u;
             const HRESULT generatedHr = g_originalPresent(swapChain, generatedSync, 0);
             if (FAILED(generatedHr)) return false;
@@ -185,6 +183,17 @@ namespace RimFGPresent
             if (IsTargetSwapChain(swapChain))
             {
                 g_unitySwapChain.store(swapChain, std::memory_order_release);
+
+                // Generate from the actual RimWorld backbuffer. This is intentionally
+                // GPU-resident and removes the fragile Unity Camera/RenderTexture bridge.
+                BackbufferGenerationCallback callback = g_generationCallback.load(std::memory_order_acquire);
+                if (callback && (flags & DXGI_PRESENT_TEST) == 0)
+                {
+                    ComPtr<ID3D11Texture2D> backBuffer;
+                    if (SUCCEEDED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf()))) && backBuffer)
+                        callback(backBuffer.Get());
+                }
+
                 if (!TryPresentGeneratedFrame(swapChain, syncInterval, flags))
                     g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
             }
@@ -236,6 +245,7 @@ namespace RimFGPresent
     void Shutdown()
     {
         ClearGeneratedFrameSource(); ReleasePresentResources();
+        g_generationCallback.store(nullptr, std::memory_order_release);
         if (g_installed.exchange(false, std::memory_order_acq_rel)) { MH_DisableHook(MH_ALL_HOOKS); MH_Uninitialize(); }
         g_originalPresent = nullptr; g_unitySwapChain.store(nullptr, std::memory_order_release); g_unityDevice = nullptr;
     }
@@ -245,6 +255,7 @@ namespace RimFGPresent
     IDXGISwapChain* GetUnitySwapChain() { return g_unitySwapChain.load(std::memory_order_acquire); }
     void SetPresentMode(PresentMode mode) { g_presentMode.store(static_cast<int>(mode), std::memory_order_release); }
     PresentMode GetPresentMode() { return static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire)); }
+    void SetBackbufferGenerationCallback(BackbufferGenerationCallback callback) { g_generationCallback.store(callback, std::memory_order_release); }
 
     void SetGeneratedFrameSource(ID3D11Texture2D* generatedFrame, int width, int height, const HudRectPx* hudRects, int hudRectCount, std::uint32_t frameIndex)
     {
