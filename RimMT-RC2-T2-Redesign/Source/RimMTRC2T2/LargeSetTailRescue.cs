@@ -14,7 +14,10 @@ namespace RimMTRC2T2
     {
         private const string HarmonyId = "allen.rimmt";
         private const int MinSourceCount = 128;
-        private const int WindowSize = 32;
+        private const int StageSize = 32;
+        private const int MaxWindowSize = 96;
+        private const int MinReachableForExtension = 8;
+        private const int ValidatorRejectPercentForExtension = 75;
         private static readonly Harmony Harmony = new Harmony(HarmonyId);
 
         [ThreadStatic] private static int jobScopeDepth;
@@ -27,12 +30,20 @@ namespace RimMTRC2T2
         private static long largeSetCalls;
         private static long prioritizedCalls;
         private static long rescuedCalls;
+        private static long rescuedStage32;
+        private static long rescuedStage64;
+        private static long rescuedStage96;
+        private static long extendedTo64;
+        private static long extendedTo96;
+        private static long earlyFallbackReachHeavy;
         private static long fallbackCalls;
         private static long unsafePriorityFallback;
         private static long sourceItemsSeen;
         private static long priorityCalls;
         private static long validatorCalls;
+        private static long validatorRejected;
         private static long reachChecks;
+        private static long reachRejected;
         private static long failures;
 
         static LargeSetTailRescue() { LongEventHandler.ExecuteWhenFinished(Install); }
@@ -68,12 +79,12 @@ namespace RimMTRC2T2
                     patchedGenClosestMethods++;
                 }
                 HookReport();
-                Log.Message("[RimMT] RC2-T2 large-set tail rescue installed: minSource=" + MinSourceCount + ", window=" + WindowSize + ", patched=" + patchedGenClosestMethods + ". Prioritized WorkGiver scanners use exact priority/distance bounded ranking; unknown priority delegates fail closed to Vanilla.");
+                Log.Message("[RimMT] RC2-T2 adaptive large-set tail rescue installed: minSource=" + MinSourceCount + ", stages=32/64/96, patched=" + patchedGenClosestMethods + ". Stage extension requires validator-heavy rejection; reachability-heavy misses fail closed early to Vanilla.");
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
-                Log.Warning("[RimMT] RC2-T2 large-set tail rescue install failed: " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] RC2-T2 adaptive large-set tail rescue install failed: " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -130,21 +141,64 @@ namespace RimMTRC2T2
                     InsertCandidate(t, distSq, prio, prioritized, ref count);
                 }
 
-                for (int i = 0; i < count; i++)
+                int stageEnd = Math.Min(StageSize, count);
+                int stageStart = 0;
+                while (stageStart < stageEnd)
                 {
-                    Thing t = windowThings[i];
-                    if (t == null) continue;
-                    Interlocked.Increment(ref reachChecks);
-                    if (!map.reachability.CanReach(root, t.SpawnedParentOrMe, peMode, traverseParms)) continue;
-                    if (validator != null)
+                    int stageReachable = 0;
+                    int stageValidatorRejected = 0;
+                    int stageReachRejected = 0;
+
+                    for (int i = stageStart; i < stageEnd; i++)
                     {
-                        Interlocked.Increment(ref validatorCalls);
-                        if (!validator(t)) continue;
+                        Thing t = windowThings[i];
+                        if (t == null) continue;
+                        Interlocked.Increment(ref reachChecks);
+                        if (!map.reachability.CanReach(root, t.SpawnedParentOrMe, peMode, traverseParms))
+                        {
+                            stageReachRejected++;
+                            Interlocked.Increment(ref reachRejected);
+                            continue;
+                        }
+
+                        stageReachable++;
+                        if (validator != null)
+                        {
+                            Interlocked.Increment(ref validatorCalls);
+                            if (!validator(t))
+                            {
+                                stageValidatorRejected++;
+                                Interlocked.Increment(ref validatorRejected);
+                                continue;
+                            }
+                        }
+
+                        __result = t;
+                        Interlocked.Increment(ref rescuedCalls);
+                        if (stageEnd <= 32) Interlocked.Increment(ref rescuedStage32);
+                        else if (stageEnd <= 64) Interlocked.Increment(ref rescuedStage64);
+                        else Interlocked.Increment(ref rescuedStage96);
+                        ClearWindow(count);
+                        return false;
                     }
-                    __result = t;
-                    Interlocked.Increment(ref rescuedCalls);
-                    ClearWindow(count);
-                    return false;
+
+                    if (stageEnd >= count || stageEnd >= MaxWindowSize) break;
+
+                    bool validatorHeavy = validator != null &&
+                        stageReachable >= MinReachableForExtension &&
+                        stageValidatorRejected * 100 >= stageReachable * ValidatorRejectPercentForExtension;
+
+                    if (!validatorHeavy)
+                    {
+                        if (stageReachRejected > stageValidatorRejected)
+                            Interlocked.Increment(ref earlyFallbackReachHeavy);
+                        break;
+                    }
+
+                    stageStart = stageEnd;
+                    stageEnd = Math.Min(stageEnd + StageSize, count);
+                    if (stageEnd <= 64) Interlocked.Increment(ref extendedTo64);
+                    else Interlocked.Increment(ref extendedTo96);
                 }
 
                 Interlocked.Increment(ref fallbackCalls);
@@ -154,7 +208,7 @@ namespace RimMTRC2T2
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
-                if (Interlocked.Read(ref failures) <= 4) Log.Warning("[RimMT] RC2-T2 large-set rescue failed closed to Vanilla: " + ex.GetType().Name + ": " + ex.Message);
+                if (Interlocked.Read(ref failures) <= 4) Log.Warning("[RimMT] RC2-T2 adaptive large-set rescue failed closed to Vanilla: " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
         }
@@ -173,18 +227,18 @@ namespace RimMTRC2T2
 
         private static void EnsureWindow()
         {
-            if (windowThings != null && windowThings.Length == WindowSize) return;
-            windowThings = new Thing[WindowSize];
-            windowDistSq = new int[WindowSize];
-            windowPriority = new float[WindowSize];
+            if (windowThings != null && windowThings.Length == MaxWindowSize) return;
+            windowThings = new Thing[MaxWindowSize];
+            windowDistSq = new int[MaxWindowSize];
+            windowPriority = new float[MaxWindowSize];
         }
 
         private static void InsertCandidate(Thing thing, int distSq, float prio, bool prioritized, ref int count)
         {
-            int insert = Math.Min(count, WindowSize);
+            int insert = Math.Min(count, MaxWindowSize);
             while (insert > 0 && BetterThan(prio, distSq, windowPriority[insert - 1], windowDistSq[insert - 1], prioritized))
             {
-                if (insert < WindowSize)
+                if (insert < MaxWindowSize)
                 {
                     windowThings[insert] = windowThings[insert - 1];
                     windowDistSq[insert] = windowDistSq[insert - 1];
@@ -192,12 +246,12 @@ namespace RimMTRC2T2
                 }
                 insert--;
             }
-            if (insert < WindowSize)
+            if (insert < MaxWindowSize)
             {
                 windowThings[insert] = thing;
                 windowDistSq[insert] = distSq;
                 windowPriority[insert] = prio;
-                if (count < WindowSize) count++;
+                if (count < MaxWindowSize) count++;
             }
         }
 
@@ -209,7 +263,10 @@ namespace RimMTRC2T2
             return d1 < d2;
         }
 
-        private static void ClearWindow(int count) { for (int i = 0; i < count; i++) windowThings[i] = null; }
+        private static void ClearWindow(int count)
+        {
+            for (int i = 0; i < count; i++) windowThings[i] = null;
+        }
 
         private static T GetArg<T>(ParameterInfo[] ps, object[] args, params string[] names)
         {
@@ -253,13 +310,17 @@ namespace RimMTRC2T2
 
         public static void ReportPostfix()
         {
-            Log.Message("[RimMT] RC2-T2 large-set tail report: patched=" + patchedGenClosestMethods +
-                ", minSource=" + MinSourceCount + ", window=" + WindowSize +
+            Log.Message("[RimMT] RC2-T2 adaptive tail report: patched=" + patchedGenClosestMethods +
+                ", minSource=" + MinSourceCount + ", stages=32/64/96" +
                 ", large/prioritized=" + Interlocked.Read(ref largeSetCalls) + "/" + Interlocked.Read(ref prioritizedCalls) +
-                ", rescued/fallback=" + Interlocked.Read(ref rescuedCalls) + "/" + Interlocked.Read(ref fallbackCalls) +
+                ", rescued32/64/96=" + Interlocked.Read(ref rescuedStage32) + "/" + Interlocked.Read(ref rescuedStage64) + "/" + Interlocked.Read(ref rescuedStage96) +
+                ", rescuedTotal/fallback=" + Interlocked.Read(ref rescuedCalls) + "/" + Interlocked.Read(ref fallbackCalls) +
+                ", extend64/96=" + Interlocked.Read(ref extendedTo64) + "/" + Interlocked.Read(ref extendedTo96) +
+                ", earlyFallbackReachHeavy=" + Interlocked.Read(ref earlyFallbackReachHeavy) +
                 ", unsafePriorityFallback=" + Interlocked.Read(ref unsafePriorityFallback) +
                 ", sourceSeen=" + Interlocked.Read(ref sourceItemsSeen) + ", priorityCalls=" + Interlocked.Read(ref priorityCalls) +
-                ", validatorCalls=" + Interlocked.Read(ref validatorCalls) + ", reachChecks=" + Interlocked.Read(ref reachChecks) +
+                ", validatorCalls/rejected=" + Interlocked.Read(ref validatorCalls) + "/" + Interlocked.Read(ref validatorRejected) +
+                ", reachChecks/rejected=" + Interlocked.Read(ref reachChecks) + "/" + Interlocked.Read(ref reachRejected) +
                 ", failures=" + Interlocked.Read(ref failures) + ".");
         }
     }
