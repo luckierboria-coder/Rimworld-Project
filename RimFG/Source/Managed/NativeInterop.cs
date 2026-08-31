@@ -123,6 +123,7 @@ namespace RimFG
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern void RimFG_SetTargetOutputFps(int fps);
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_GetTargetOutputFps();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern double RimFG_GetEstimatedBaseFps();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern double RimFG_GetEstimatedOutputFps();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetGeneratedPresentCount();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetSkippedPresentCount();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_GetGpuQualityTier();
