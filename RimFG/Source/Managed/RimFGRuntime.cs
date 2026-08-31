@@ -49,6 +49,12 @@ namespace RimFG
         private int captureWidth;
         private int captureHeight;
 
+        // Extremely cheap adaptive controller. It consumes Unity's existing
+        // unscaledDeltaTime only; no timers, framebuffer reads or scene scans.
+        private float emaFrameSeconds = 1f / 60f;
+        private bool adaptiveBypassed;
+        private PresentMode appliedPresentMode = (PresentMode)(-1);
+
         private void Awake()
         {
             try
@@ -60,9 +66,7 @@ namespace RimFG
                 if (nativeAvailable && NativeInterop.RimFG_StartPresentHook() == 0)
                     Log.Warning("[RimFG] DXGI Present hook did not initialize; interpolation can run but generated frames cannot be displayed.");
 
-                PresentMode mode = RimFGMod.Settings != null ? RimFGMod.Settings.presentMode : PresentMode.ImmediateValidation;
-                NativeInterop.RimFG_SetPresentMode((int)mode);
-                Log.Message("[RimFG] Present mode: " + mode + ".");
+                ApplyConfiguredPresentMode(force: true);
             }
             catch (DllNotFoundException)
             {
@@ -80,6 +84,8 @@ namespace RimFG
         {
             if (!nativeAvailable)
                 return;
+
+            UpdateAdaptivePresentState();
 
             Camera cam = Camera.main;
             EnsureSceneCapture(cam, Screen.width, Screen.height);
@@ -139,6 +145,69 @@ namespace RimFG
             }
         }
 
+        private void UpdateAdaptivePresentState()
+        {
+            float dt = Time.unscaledDeltaTime;
+            if (dt > 0f && dt < 0.5f)
+                emaFrameSeconds += (dt - emaFrameSeconds) * 0.05f;
+
+            RimFGSettings settings = RimFGMod.Settings;
+            if (settings == null || !settings.adaptiveBypass || settings.presentMode == PresentMode.Disabled)
+            {
+                if (adaptiveBypassed)
+                {
+                    adaptiveBypassed = false;
+                    ApplyConfiguredPresentMode(force: true);
+                }
+                else
+                {
+                    ApplyConfiguredPresentMode(force: false);
+                }
+                return;
+            }
+
+            float fps = emaFrameSeconds > 0.0001f ? 1f / emaFrameSeconds : 999f;
+            float lowThreshold = Mathf.Max(10f, settings.minimumBaseFps);
+            float recoverThreshold = lowThreshold + 5f; // hysteresis prevents mode chatter.
+
+            if (!adaptiveBypassed && fps < lowThreshold)
+            {
+                adaptiveBypassed = true;
+                ApplyPresentMode(PresentMode.Disabled);
+                Log.Message("[RimFG] Adaptive bypass: base FPS fell below " + lowThreshold.ToString("F0") + ". Generated Present paused; GPU history remains active.");
+            }
+            else if (adaptiveBypassed && fps >= recoverThreshold)
+            {
+                adaptiveBypassed = false;
+                ApplyConfiguredPresentMode(force: true);
+                Log.Message("[RimFG] Adaptive bypass cleared: base FPS recovered to " + fps.ToString("F1") + ".");
+            }
+            else if (!adaptiveBypassed)
+            {
+                ApplyConfiguredPresentMode(force: false);
+            }
+        }
+
+        private void ApplyConfiguredPresentMode(bool force)
+        {
+            PresentMode mode = RimFGMod.Settings != null ? RimFGMod.Settings.presentMode : PresentMode.ImmediateValidation;
+            if (adaptiveBypassed)
+                mode = PresentMode.Disabled;
+
+            if (force || mode != appliedPresentMode)
+                ApplyPresentMode(mode);
+        }
+
+        private void ApplyPresentMode(PresentMode mode)
+        {
+            if (mode == appliedPresentMode)
+                return;
+
+            NativeInterop.RimFG_SetPresentMode((int)mode);
+            appliedPresentMode = mode;
+            Log.Message("[RimFG] Effective Present mode: " + mode + ".");
+        }
+
         private void EnsureSceneCapture(Camera cam, int width, int height)
         {
             if (cam == null || width <= 0 || height <= 0)
@@ -170,6 +239,8 @@ namespace RimFG
             captureCommands.Blit(BuiltinRenderTextureType.CameraTarget, sceneCapture);
             captureCamera.AddCommandBuffer(CameraEvent.AfterEverything, captureCommands);
 
+            // One-time on allocation/resize only. This call may synchronize the render
+            // thread, therefore it never appears in RimFG's per-frame hot path.
             IntPtr nativeTexture = sceneCapture.GetNativeTexturePtr();
             NativeInterop.RimFG_SetSceneTexture(nativeTexture, width, height);
         }
