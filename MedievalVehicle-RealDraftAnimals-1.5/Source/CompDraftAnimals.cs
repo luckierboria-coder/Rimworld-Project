@@ -169,12 +169,36 @@ namespace MedievalVehicleDraftAnimals
 
         private bool IsOperationalDraftAnimal(Pawn pawn)
         {
-            return pawn != null && !pawn.Destroyed && !pawn.Dead && !pawn.Downed && IsEligibleSpecies(pawn);
+            // IMPORTANT: hitched animals are held inside the vehicle's ThingOwner and are no
+            // longer spawned on the map. Do not call map/pen-state helpers here. Those helpers
+            // are only meaningful while choosing a free animal from the map and can return false
+            // after DeSpawn, which previously made two visibly hitched horses count as 0/2.
+            return pawn != null &&
+                   !pawn.Destroyed &&
+                   !pawn.Dead &&
+                   !pawn.Downed &&
+                   IsDraftAnimalByRace(pawn);
         }
 
-        private bool IsEligibleSpecies(Pawn pawn)
+        private bool IsDraftAnimalByRace(Pawn pawn)
         {
-            return pawn != null && pawn.RaceProps != null && pawn.RaceProps.Animal && pawn.BodySize >= Props.minimumBodySize && AnimalPenUtility.NeedsToBeManagedByRope(pawn);
+            return pawn != null &&
+                   pawn.RaceProps != null &&
+                   pawn.RaceProps.Animal &&
+                   pawn.BodySize >= Props.minimumBodySize;
+        }
+
+        private bool IsEligibleMapAnimal(Pawn pawn)
+        {
+            if (!IsDraftAnimalByRace(pawn) || pawn.Dead || pawn.Downed)
+            {
+                return false;
+            }
+
+            // While the pawn is still on the map, keep the original rope-managed preference.
+            // This filters the normal horse/yak/camel/muffalo-style livestock without poisoning
+            // the operational check after the pawn has been moved into the vehicle holder.
+            return !pawn.Spawned || AnimalPenUtility.NeedsToBeManagedByRope(pawn);
         }
 
         private void OpenDraftAnimalMenu()
@@ -222,7 +246,7 @@ namespace MedievalVehicleDraftAnimals
             for (int i = 0; i < pawns.Count; i++)
             {
                 Pawn pawn = pawns[i];
-                if (pawn.Faction == Faction.OfPlayer && !pawn.Dead && !pawn.Downed && IsEligibleSpecies(pawn))
+                if (pawn.Faction == Faction.OfPlayer && IsEligibleMapAnimal(pawn))
                 {
                     yield return pawn;
                 }
@@ -231,7 +255,7 @@ namespace MedievalVehicleDraftAnimals
 
         private void Hitch(Pawn pawn)
         {
-            if (pawn == null || !pawn.Spawned || DraftAnimals.Count >= Props.requiredAnimals || !IsEligibleSpecies(pawn))
+            if (pawn == null || !pawn.Spawned || DraftAnimals.Count >= Props.requiredAnimals || !IsEligibleMapAnimal(pawn))
             {
                 if (pawn != null)
                 {
