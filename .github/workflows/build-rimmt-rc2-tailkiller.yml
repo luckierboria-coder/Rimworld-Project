@@ -16,6 +16,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Normalize probe-state visibility
+        shell: pwsh
+        run: |
+          $p='RimMT-RC2-TailKiller/Source/RimMTRC2Tail/TailKillerProbe.cs'
+          $s=Get-Content $p -Raw
+          $s=$s.Replace('private struct ProbeState','public struct ProbeState')
+          Set-Content $p $s -Encoding UTF8
       - name: Restore
         run: dotnet restore RimMT-RC2-TailKiller/Source/RimMTRC2Tail/RimMTRC2Tail.csproj
       - name: Build
