@@ -141,6 +141,17 @@ namespace RimMTRC2T2
             }
         }
 
+        internal static bool TryGetTailTimestamp(out long now)
+        {
+            now = 0L;
+            long start = jobStarted;
+            if (jobDepth <= 0 || start == 0L) return false;
+            long current = Stopwatch.GetTimestamp();
+            if ((current - start) * TimestampToMs < TailThresholdMs) return false;
+            now = current;
+            return true;
+        }
+
         public static void JobPrefix()
         {
             if (jobDepth == 0)
