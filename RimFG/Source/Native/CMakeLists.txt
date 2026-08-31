@@ -5,8 +5,20 @@ if(NOT WIN32)
   message(FATAL_ERROR "RimFG.Native V0.1 targets Windows x64 only.")
 endif()
 
-if(NOT DEFINED UNITY_PLUGIN_API_DIR)
-  message(FATAL_ERROR "Set UNITY_PLUGIN_API_DIR to Unity's PluginAPI directory containing IUnityInterface.h.")
+include(FetchContent)
+
+# Prefer an explicitly supplied Unity PluginAPI directory (best for matching the
+# exact Unity version used by the target RimWorld build). For CI/development,
+# fall back to Unity's official NativeRenderingPlugin headers.
+if(NOT DEFINED UNITY_PLUGIN_API_DIR OR UNITY_PLUGIN_API_DIR STREQUAL "")
+  FetchContent_Declare(
+    unity_native_rendering
+    GIT_REPOSITORY https://github.com/Unity-Technologies/NativeRenderingPlugin.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_MakeAvailable(unity_native_rendering)
+  set(UNITY_PLUGIN_API_DIR "${unity_native_rendering_SOURCE_DIR}/PluginSource/source/Unity")
 endif()
 
 add_library(RimFG.Native SHARED
