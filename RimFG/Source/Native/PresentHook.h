@@ -21,6 +21,8 @@ namespace RimFGPresent
         float height;
     };
 
+    using BackbufferGenerationCallback = bool(*)(ID3D11Texture2D* backBuffer);
+
     bool Initialize(ID3D11Device* unityDevice);
     void Shutdown();
 
@@ -30,6 +32,7 @@ namespace RimFGPresent
 
     void SetPresentMode(PresentMode mode);
     PresentMode GetPresentMode();
+    void SetBackbufferGenerationCallback(BackbufferGenerationCallback callback);
 
     void SetGeneratedFrameSource(
         ID3D11Texture2D* generatedFrame,
