@@ -51,8 +51,6 @@ namespace RimFG
             [In] HudRect[] rects,
             int count);
 
-        // Called only when the persistent HUD-less scene RenderTexture is created,
-        // resized or destroyed. Never call GetNativeTexturePtr per frame.
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void RimFG_SetSceneTexture(IntPtr nativeTexture, int width, int height);
 
@@ -61,6 +59,15 @@ namespace RimFG
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int RimFG_HasGeneratedFrame();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int RimFG_StartPresentHook();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int RimFG_HasUnitySwapChain();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void RimFG_StopPresentHook();
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void RimFG_SetEnabled(int enabled);
