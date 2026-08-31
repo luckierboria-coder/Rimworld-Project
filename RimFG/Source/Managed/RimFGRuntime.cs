@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Rendering;
 using Verse;
 
 namespace RimFG
@@ -34,11 +35,17 @@ namespace RimFG
         private IntPtr renderEventFunc;
         private bool nativeAvailable;
         private bool nativeReadyLogged;
+        private bool generatedLogged;
         private uint frameIndex;
 
-        // Fixed storage: no per-frame allocation. V0.1 uses conservative coarse HUD bands.
         private readonly HudRect[] hudRects = new HudRect[8];
         private int hudRectCount;
+
+        private Camera captureCamera;
+        private CommandBuffer captureCommands;
+        private RenderTexture sceneCapture;
+        private int captureWidth;
+        private int captureHeight;
 
         private void Awake()
         {
@@ -66,8 +73,9 @@ namespace RimFG
                 return;
 
             Camera cam = Camera.main;
-            Vector3 cameraPos = cam != null ? cam.transform.position : Vector3.zero;
+            EnsureSceneCapture(cam, Screen.width, Screen.height);
 
+            Vector3 cameraPos = cam != null ? cam.transform.position : Vector3.zero;
             BuildHudRects(Screen.width, Screen.height);
 
             var metadata = new FrameMetadata
@@ -90,13 +98,20 @@ namespace RimFG
             {
                 NativeInterop.RimFG_SubmitFrameState(ref metadata, hudRects, hudRectCount);
 
-                // Queues GPU/native work onto Unity's render thread. No framebuffer readback occurs here.
+                // Native render callback copies the already GPU-resident HUD-less scene texture
+                // and dispatches interpolation. No framebuffer readback or image work occurs in C#.
                 GL.IssuePluginEvent(renderEventFunc, 1);
 
                 if (!nativeReadyLogged && NativeInterop.RimFG_IsD3D11Ready() != 0)
                 {
                     nativeReadyLogged = true;
                     Log.Message("[RimFG] D3D11 native backend is ready.");
+                }
+
+                if (!generatedLogged && NativeInterop.RimFG_HasGeneratedFrame() != 0)
+                {
+                    generatedLogged = true;
+                    Log.Message("[RimFG] GPU interpolation pipeline produced its first generated frame.");
                 }
             }
             catch (Exception ex)
@@ -106,12 +121,84 @@ namespace RimFG
             }
         }
 
+        private void EnsureSceneCapture(Camera cam, int width, int height)
+        {
+            if (cam == null || width <= 0 || height <= 0)
+            {
+                ReleaseSceneCapture();
+                return;
+            }
+
+            if (sceneCapture != null && captureCamera == cam && captureWidth == width && captureHeight == height)
+                return;
+
+            ReleaseSceneCapture();
+
+            captureCamera = cam;
+            captureWidth = width;
+            captureHeight = height;
+
+            sceneCapture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default)
+            {
+                name = "RimFG.SceneCapture",
+                useMipMap = false,
+                autoGenerateMips = false,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            sceneCapture.Create();
+
+            captureCommands = new CommandBuffer { name = "RimFG HUD-less GPU scene capture" };
+            captureCommands.Blit(BuiltinRenderTextureType.CameraTarget, sceneCapture);
+            captureCamera.AddCommandBuffer(CameraEvent.AfterEverything, captureCommands);
+
+            // Deliberately one-time per allocation/resize. GetNativeTexturePtr may synchronize
+            // Unity's render thread, therefore it is forbidden in the per-frame path.
+            IntPtr nativeTexture = sceneCapture.GetNativeTexturePtr();
+            NativeInterop.RimFG_SetSceneTexture(nativeTexture, width, height);
+        }
+
+        private void ReleaseSceneCapture()
+        {
+            if (captureCamera != null && captureCommands != null)
+            {
+                try { captureCamera.RemoveCommandBuffer(CameraEvent.AfterEverything, captureCommands); }
+                catch { }
+            }
+
+            if (captureCommands != null)
+            {
+                captureCommands.Release();
+                captureCommands = null;
+            }
+
+            if (sceneCapture != null)
+            {
+                try { NativeInterop.RimFG_SetSceneTexture(IntPtr.Zero, 0, 0); }
+                catch { }
+                sceneCapture.Release();
+                UnityEngine.Object.Destroy(sceneCapture);
+                sceneCapture = null;
+            }
+
+            captureCamera = null;
+            captureWidth = 0;
+            captureHeight = 0;
+        }
+
+        private void OnDestroy()
+        {
+            ReleaseSceneCapture();
+            if (nativeAvailable)
+            {
+                try { NativeInterop.RimFG_SetEnabled(0); }
+                catch { }
+            }
+        }
+
         private void BuildHudRects(int width, int height)
         {
-            // V0.1 coarse mask. Dynamic window/gizmo rectangles are a later managed patch layer.
-            // Coordinates use Unity screen space; native shader converts as needed.
             hudRectCount = 0;
-
             if (width <= 0 || height <= 0)
                 return;
 
