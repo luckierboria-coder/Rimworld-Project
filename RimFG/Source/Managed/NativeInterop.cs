@@ -44,6 +44,13 @@ namespace RimFG
         VSync2x = 2
     }
 
+    internal enum GpuQualityTier
+    {
+        ResidualFlow = 0,
+        CameraOnly = 1,
+        Bypass = 2
+    }
+
     internal static class NativeInterop
     {
         internal const uint AbiVersion = 1;
@@ -81,6 +88,12 @@ namespace RimFG
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern ulong RimFG_GetSkippedPresentCount();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int RimFG_GetGpuQualityTier();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern double RimFG_GetGpuFrameGenerationMs();
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void RimFG_StopPresentHook();
