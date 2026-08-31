@@ -31,25 +31,17 @@ namespace RimFG
 
     internal sealed class RimFGRuntime : MonoBehaviour
     {
-        private const float AdaptiveEmaSeconds = 1.0f;
-        private const float BypassHoldSeconds = 1.5f;
-        private const float RecoveryHoldSeconds = 2.0f;
-
         private bool nativeAvailable;
         private bool nativeReadyLogged;
         private bool generatedLogged;
         private bool swapChainLogged;
         private bool injectedPresentLogged;
         private uint frameIndex;
+        private int appliedTargetFps = -1;
+        private PresentMode appliedPresentMode = (PresentMode)(-1);
 
         private readonly HudRect[] hudRects = new HudRect[8];
         private int hudRectCount;
-
-        private float emaFrameSeconds = 1f / 60f;
-        private float belowThresholdSeconds;
-        private float aboveThresholdSeconds;
-        private bool adaptiveBypassed;
-        private PresentMode appliedPresentMode = (PresentMode)(-1);
 
         private void Awake()
         {
@@ -63,18 +55,14 @@ namespace RimFG
                 }
 
                 nativeAvailable = true;
-
-                // Explicit LoadLibrary does not guarantee that UnityPluginLoad is called.
-                // Touch this export once so the native backbuffer-generation callback is
-                // always registered before the first real DXGI Present.
                 NativeInterop.RimFG_GetRenderEventFunc();
                 NativeInterop.RimFG_SetEnabled(1);
 
                 if (NativeInterop.RimFG_StartPresentHook() == 0)
                     Log.Warning("[RimFG] DXGI Present hook did not initialize; frame generation is disabled.");
 
-                ApplyConfiguredPresentMode(force: true);
-                Log.Message("[RimFG] DXGI-backbuffer generation path armed. Unity Camera/RenderTexture bridge is not used.");
+                ApplyConfiguredState(force: true);
+                Log.Message("[RimFG] Target-FPS DXGI pacing armed. Low-base-FPS bypass is disabled by design.");
             }
             catch (Exception ex)
             {
@@ -88,7 +76,7 @@ namespace RimFG
             if (!nativeAvailable)
                 return;
 
-            UpdateAdaptivePresentState();
+            ApplyConfiguredState(force: false);
 
             Camera cam = Camera.main;
             Vector3 cameraPos = cam != null ? cam.transform.position : Vector3.zero;
@@ -119,23 +107,20 @@ namespace RimFG
                     nativeReadyLogged = true;
                     Log.Message("[RimFG] D3D11 native backend is ready.");
                 }
-
                 if (!generatedLogged && NativeInterop.RimFG_HasGeneratedFrame() != 0)
                 {
                     generatedLogged = true;
-                    Log.Message("[RimFG] DXGI backbuffer interpolation produced its first generated frame.");
+                    Log.Message("[RimFG] DXGI backbuffer prediction produced its first generated frame.");
                 }
-
                 if (!swapChainLogged && NativeInterop.RimFG_HasUnitySwapChain() != 0)
                 {
                     swapChainLogged = true;
                     Log.Message("[RimFG] RimWorld DXGI swapchain captured.");
                 }
-
                 if (!injectedPresentLogged && NativeInterop.RimFG_GetGeneratedPresentCount() > 0UL)
                 {
                     injectedPresentLogged = true;
-                    Log.Message("[RimFG] First paced generated frame was presented. Async 2x Present path is active.");
+                    Log.Message("[RimFG] First target-paced generated frame was presented.");
                 }
             }
             catch (Exception ex)
@@ -146,94 +131,26 @@ namespace RimFG
             }
         }
 
-        private void UpdateAdaptivePresentState()
+        private void ApplyConfiguredState(bool force)
         {
-            float dt = Time.unscaledDeltaTime;
-            if (dt > 0f && dt < 0.5f)
-            {
-                float alpha = 1f - Mathf.Exp(-dt / AdaptiveEmaSeconds);
-                emaFrameSeconds += (dt - emaFrameSeconds) * alpha;
-            }
-
             RimFGSettings settings = RimFGMod.Settings;
-            if (settings == null || !settings.adaptiveBypass || settings.presentMode == PresentMode.Disabled)
-            {
-                belowThresholdSeconds = 0f;
-                aboveThresholdSeconds = 0f;
-                if (adaptiveBypassed)
-                {
-                    adaptiveBypassed = false;
-                    ApplyConfiguredPresentMode(force: true);
-                }
-                else
-                {
-                    ApplyConfiguredPresentMode(force: false);
-                }
-                return;
-            }
-
-            float fps = emaFrameSeconds > 0.0001f ? 1f / emaFrameSeconds : 999f;
-            float configured = Mathf.Max(15f, settings.minimumBaseFps);
-            float bypassThreshold = Mathf.Max(15f, configured - 3f);
-            float recoverThreshold = bypassThreshold + 7f;
-            float sampleSeconds = dt > 0f && dt < 0.5f ? dt : 0f;
-
-            if (!adaptiveBypassed)
-            {
-                aboveThresholdSeconds = 0f;
-                if (fps < bypassThreshold)
-                    belowThresholdSeconds += sampleSeconds;
-                else
-                    belowThresholdSeconds = 0f;
-
-                if (belowThresholdSeconds >= BypassHoldSeconds)
-                {
-                    belowThresholdSeconds = 0f;
-                    adaptiveBypassed = true;
-                    ApplyPresentMode(PresentMode.Disabled);
-                    Log.Message("[RimFG] Adaptive bypass: 1s EMA stayed below " + bypassThreshold.ToString("F0") + " FPS for " + BypassHoldSeconds.ToString("F1") + "s. Generated Present paused; GPU history remains active.");
-                }
-                else
-                {
-                    ApplyConfiguredPresentMode(force: false);
-                }
-            }
-            else
-            {
-                belowThresholdSeconds = 0f;
-                if (fps >= recoverThreshold)
-                    aboveThresholdSeconds += sampleSeconds;
-                else
-                    aboveThresholdSeconds = 0f;
-
-                if (aboveThresholdSeconds >= RecoveryHoldSeconds)
-                {
-                    aboveThresholdSeconds = 0f;
-                    adaptiveBypassed = false;
-                    ApplyConfiguredPresentMode(force: true);
-                    Log.Message("[RimFG] Adaptive bypass cleared: 1s EMA stayed above " + recoverThreshold.ToString("F0") + " FPS for " + RecoveryHoldSeconds.ToString("F1") + "s.");
-                }
-            }
-        }
-
-        private void ApplyConfiguredPresentMode(bool force)
-        {
-            PresentMode mode = RimFGMod.Settings != null ? RimFGMod.Settings.presentMode : PresentMode.ImmediateValidation;
-            if (adaptiveBypassed)
-                mode = PresentMode.Disabled;
+            PresentMode mode = settings != null ? settings.presentMode : PresentMode.ImmediateValidation;
+            int targetFps = settings != null ? Mathf.RoundToInt(settings.targetOutputFps) : 60;
+            targetFps = Mathf.Clamp(targetFps, 30, 240);
 
             if (force || mode != appliedPresentMode)
-                ApplyPresentMode(mode);
-        }
+            {
+                NativeInterop.RimFG_SetPresentMode((int)mode);
+                appliedPresentMode = mode;
+                Log.Message("[RimFG] Effective Present mode: " + mode + ".");
+            }
 
-        private void ApplyPresentMode(PresentMode mode)
-        {
-            if (mode == appliedPresentMode)
-                return;
-
-            NativeInterop.RimFG_SetPresentMode((int)mode);
-            appliedPresentMode = mode;
-            Log.Message("[RimFG] Effective Present mode: " + mode + ".");
+            if (force || targetFps != appliedTargetFps)
+            {
+                NativeInterop.RimFG_SetTargetOutputFps(targetFps);
+                appliedTargetFps = targetFps;
+                Log.Message("[RimFG] Target output FPS: " + targetFps + ".");
+            }
         }
 
         private void AddHudRect(float x, float y, float width, float height, int screenWidth, int screenHeight)
@@ -258,7 +175,6 @@ namespace RimFG
                 return;
 
             AddHudRect(0f, 0f, width, Mathf.Min(150f, height * 0.14f), width, height);
-
             float bottomHeight = Mathf.Min(260f, height * 0.25f);
             AddHudRect(0f, height - bottomHeight, width, bottomHeight, width, height);
 
@@ -276,9 +192,7 @@ namespace RimFG
                 for (int i = 0; i < windows.Count && hudRectCount < hudRects.Length; ++i)
                 {
                     Window window = windows[i];
-                    if (window == null)
-                        continue;
-
+                    if (window == null) continue;
                     Rect rect = window.windowRect;
                     AddHudRect(rect.xMin - 4f, rect.yMin - 4f, rect.width + 8f, rect.height + 8f, width, height);
                 }
