@@ -49,8 +49,31 @@ namespace RimFG
 
             listing.GapLine();
             listing.Label("Target output FPS: " + Settings.targetOutputFps.ToString("F0"));
+
             float oldTarget = Settings.targetOutputFps;
-            Settings.targetOutputFps = Mathf.Round(listing.Slider(Settings.targetOutputFps, 30f, 165f));
+            float safeTarget = Mathf.Clamp(Settings.targetOutputFps, 1f, 1000000f);
+            float logValue = Mathf.Log10(safeTarget);
+            float newLogValue = listing.Slider(logValue, 0f, 6f);
+            float newTarget = Mathf.Pow(10f, newLogValue);
+
+            // Snap near common display rates while still allowing the slider to span
+            // all the way from 1 FPS to 1,000,000 FPS on a useful logarithmic scale.
+            float[] common = { 30f, 45f, 60f, 75f, 90f, 120f, 144f, 165f, 240f, 360f, 480f, 1000f };
+            float best = newTarget;
+            float bestRelative = 1f;
+            for (int i = 0; i < common.Length; ++i)
+            {
+                float relative = Mathf.Abs(newTarget - common[i]) / common[i];
+                if (relative < bestRelative)
+                {
+                    bestRelative = relative;
+                    best = common[i];
+                }
+            }
+            if (bestRelative < 0.025f)
+                newTarget = best;
+
+            Settings.targetOutputFps = Mathf.Clamp(Mathf.Round(newTarget), 1f, 1000000f);
             if (Mathf.Abs(Settings.targetOutputFps - oldTarget) >= 0.5f)
             {
                 Settings.Write();
@@ -62,7 +85,7 @@ namespace RimFG
                 catch { }
             }
 
-            listing.Label("RimFG now aims at this display/output rate instead of disabling frame generation when base FPS is low. V0.1 can generate at most one extra frame per real frame, so practical output is capped near 2× the current base FPS.");
+            listing.Label("Variable-ratio FG has no fixed 2× or 3× multiplier cap. RimFG divides each real-frame interval into as many prediction points as the selected target requires. GPU/DXGI/display throughput still determines how many generated frames can actually reach the screen.");
 
             listing.GapLine();
             listing.Label("Live GPU telemetry");
@@ -83,13 +106,14 @@ namespace RimFG
                     int swapchain = NativeInterop.RimFG_HasUnitySwapChain();
                     double baseFps = NativeInterop.RimFG_GetEstimatedBaseFps();
                     int targetFps = NativeInterop.RimFG_GetTargetOutputFps();
-                    double maxUseful = baseFps > 0.0 ? baseFps * 2.0 : 0.0;
+                    double ratio = baseFps > 0.0 ? targetFps / baseFps : 0.0;
 
                     listing.Label("Native: loaded");
                     listing.Label("Generation stage: " + DescribeStage(stage));
                     listing.Label("Estimated real/base FPS: " + (baseFps > 0.0 ? baseFps.ToString("F1") : "warming up"));
-                    listing.Label("Target output FPS: " + targetFps + (maxUseful > 0.0 && targetFps > maxUseful + 1.0 ? "   (currently 2×-limited to ~" + maxUseful.ToString("F0") + ")" : ""));
-                    listing.Label("FG GPU EMA: " + (gpuMs > 0.0 ? gpuMs.ToString("F2") + " ms" : "warming up"));
+                    listing.Label("Target output FPS: " + targetFps);
+                    listing.Label("Requested FG ratio: " + (ratio > 0.0 ? ratio.ToString("F2") + "×" : "warming up"));
+                    listing.Label("FG GPU EMA: " + (gpuMs > 0.0 ? gpuMs.ToString("F2") + " ms / generated frame" : "warming up"));
                     listing.Label("Quality tier: " + tier);
                     listing.Label("Generated Presents: " + generated + "   Skipped: " + skipped);
                     listing.Label("DXGI swapchain: " + (swapchain != 0 ? "captured" : "not captured yet"));
@@ -101,7 +125,7 @@ namespace RimFG
             }
 
             listing.GapLine();
-            listing.Label("Target pacing never waits for VBlank on the RimWorld thread. If a generated Present cannot be submitted without blocking, RimFG drops that generated frame instead of stalling TPS.");
+            listing.Label("RimFG never waits for VBlank on the RimWorld thread. If prediction or DXGI submission cannot keep up with the requested target, generated frames are dropped instead of stalling TPS.");
             listing.End();
         }
 
@@ -110,14 +134,14 @@ namespace RimFG
             switch (stage)
             {
                 case NativeStage.Idle: return "idle — waiting for RimWorld backbuffer";
-                case NativeStage.BackbufferSeen: return "backbuffer captured — creating GPU resources";
-                case NativeStage.HistoryPrimed: return "history primed — next real frame can generate";
-                case NativeStage.Generated: return "prediction/interpolation active";
+                case NativeStage.BackbufferSeen: return "backbuffer captured — preparing temporal history";
+                case NativeStage.HistoryPrimed: return "history primed — waiting for second real frame";
+                case NativeStage.Generated: return "variable-fraction prediction active";
                 case NativeStage.DuplicateFallback: return "Present path active — compute unavailable, GPU duplicate fallback";
                 case NativeStage.ErrorNoDevice: return "ERROR: D3D11 device/context unavailable";
                 case NativeStage.ErrorBadBackbuffer: return "ERROR: unsupported backbuffer size/MSAA state";
                 case NativeStage.ErrorHistoryTexture: return "ERROR: history texture creation failed";
-                case NativeStage.ErrorShader: return "ERROR: interpolation shader creation failed";
+                case NativeStage.ErrorShader: return "ERROR: prediction shader creation failed";
                 case NativeStage.ErrorOutputTexture: return "ERROR: generated output texture creation failed";
                 case NativeStage.ErrorMotionConstants: return "ERROR: motion constant buffer upload failed";
                 default: return stage.ToString();
