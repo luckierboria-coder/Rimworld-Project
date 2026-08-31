@@ -49,8 +49,6 @@ namespace RimFG
         private int captureWidth;
         private int captureHeight;
 
-        // Extremely cheap adaptive controller. It consumes Unity's existing
-        // unscaledDeltaTime only; no timers, framebuffer reads or scene scans.
         private float emaFrameSeconds = 1f / 60f;
         private bool adaptiveBypassed;
         private PresentMode appliedPresentMode = (PresentMode)(-1);
@@ -123,7 +121,7 @@ namespace RimFG
                 if (!generatedLogged && NativeInterop.RimFG_HasGeneratedFrame() != 0)
                 {
                     generatedLogged = true;
-                    Log.Message("[RimFG] Camera-aware GPU interpolation produced its first generated frame.");
+                    Log.Message("[RimFG] Camera/zoom/residual-flow GPU interpolation produced its first generated frame.");
                 }
 
                 if (!swapChainLogged && NativeInterop.RimFG_HasUnitySwapChain() != 0)
@@ -141,6 +139,7 @@ namespace RimFG
             catch (Exception ex)
             {
                 nativeAvailable = false;
+                try { NativeInterop.RimFG_SetPresentMode((int)PresentMode.Disabled); } catch { }
                 Log.Warning("[RimFG] Native bridge disabled after runtime error: " + ex.Message);
             }
         }
@@ -168,7 +167,7 @@ namespace RimFG
 
             float fps = emaFrameSeconds > 0.0001f ? 1f / emaFrameSeconds : 999f;
             float lowThreshold = Mathf.Max(10f, settings.minimumBaseFps);
-            float recoverThreshold = lowThreshold + 5f; // hysteresis prevents mode chatter.
+            float recoverThreshold = lowThreshold + 5f;
 
             if (!adaptiveBypassed && fps < lowThreshold)
             {
@@ -239,8 +238,6 @@ namespace RimFG
             captureCommands.Blit(BuiltinRenderTextureType.CameraTarget, sceneCapture);
             captureCamera.AddCommandBuffer(CameraEvent.AfterEverything, captureCommands);
 
-            // One-time on allocation/resize only. This call may synchronize the render
-            // thread, therefore it never appears in RimFG's per-frame hot path.
             IntPtr nativeTexture = sceneCapture.GetNativeTexturePtr();
             NativeInterop.RimFG_SetSceneTexture(nativeTexture, width, height);
         }
@@ -278,11 +275,25 @@ namespace RimFG
             ReleaseSceneCapture();
             if (nativeAvailable)
             {
-                try { NativeInterop.RimFG_SetEnabled(0); }
-                catch { }
-                try { NativeInterop.RimFG_StopPresentHook(); }
-                catch { }
+                try { NativeInterop.RimFG_SetPresentMode((int)PresentMode.Disabled); } catch { }
+                try { NativeInterop.RimFG_SetEnabled(0); } catch { }
+                try { NativeInterop.RimFG_StopPresentHook(); } catch { }
             }
+        }
+
+        private void AddHudRect(float x, float y, float width, float height, int screenWidth, int screenHeight)
+        {
+            if (hudRectCount >= hudRects.Length || width <= 0f || height <= 0f)
+                return;
+
+            float left = Mathf.Clamp(x, 0f, screenWidth);
+            float top = Mathf.Clamp(y, 0f, screenHeight);
+            float right = Mathf.Clamp(x + width, 0f, screenWidth);
+            float bottom = Mathf.Clamp(y + height, 0f, screenHeight);
+            if (right <= left || bottom <= top)
+                return;
+
+            hudRects[hudRectCount++] = new HudRect(left, top, right - left, bottom - top);
         }
 
         private void BuildHudRects(int width, int height)
@@ -291,16 +302,35 @@ namespace RimFG
             if (width <= 0 || height <= 0)
                 return;
 
-            hudRects[hudRectCount++] = new HudRect(0f, 0f, width, Mathf.Min(150f, height * 0.14f));
+            AddHudRect(0f, 0f, width, Mathf.Min(150f, height * 0.14f), width, height);
 
             float bottomHeight = Mathf.Min(260f, height * 0.25f);
-            hudRects[hudRectCount++] = new HudRect(0f, height - bottomHeight, width, bottomHeight);
+            AddHudRect(0f, height - bottomHeight, width, bottomHeight, width, height);
 
             if (Find.CurrentMap != null)
             {
                 float paneWidth = Mathf.Min(520f, width * 0.24f);
                 float paneHeight = Mathf.Min(620f, height * 0.54f);
-                hudRects[hudRectCount++] = new HudRect(0f, height - bottomHeight - paneHeight, paneWidth, paneHeight);
+                AddHudRect(0f, height - bottomHeight - paneHeight, paneWidth, paneHeight, width, height);
+            }
+
+            // RimWorld FloatMenus, dialogs and most mod windows live in WindowStack.
+            // Copy their real pixels into generated Presents rather than interpolating
+            // them. The stack is tiny in normal play and this loop performs no image
+            // work and no per-frame reflection/allocations.
+            WindowStack stack = Find.WindowStack;
+            if (stack != null)
+            {
+                var windows = stack.Windows;
+                for (int i = 0; i < windows.Count && hudRectCount < hudRects.Length; ++i)
+                {
+                    Window window = windows[i];
+                    if (window == null)
+                        continue;
+
+                    Rect rect = window.windowRect;
+                    AddHudRect(rect.xMin - 4f, rect.yMin - 4f, rect.width + 8f, rect.height + 8f, width, height);
+                }
             }
         }
     }
