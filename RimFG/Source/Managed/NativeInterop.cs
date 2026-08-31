@@ -45,11 +45,13 @@ namespace RimFG
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern IntPtr RimFG_GetRenderEventFunc();
 
+        // Metadata and HUD rectangles are copied into one native double-buffer slot,
+        // then atomically published. One managed/native transition per real frame.
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void RimFG_SubmitFrameMetadata(ref FrameMetadata metadata);
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void RimFG_SubmitHudRects([In] HudRect[] rects, int count);
+        internal static extern void RimFG_SubmitFrameState(
+            ref FrameMetadata metadata,
+            [In] HudRect[] rects,
+            int count);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int RimFG_IsD3D11Ready();
