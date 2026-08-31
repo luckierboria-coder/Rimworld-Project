@@ -37,6 +37,13 @@ namespace RimFG
         }
     }
 
+    internal enum PresentMode
+    {
+        Disabled = 0,
+        ImmediateValidation = 1,
+        VSync2x = 2
+    }
+
     internal static class NativeInterop
     {
         internal const uint AbiVersion = 1;
@@ -62,6 +69,12 @@ namespace RimFG
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int RimFG_HasUnitySwapChain();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void RimFG_SetPresentMode(int mode);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int RimFG_GetPresentMode();
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern ulong RimFG_GetGeneratedPresentCount();
