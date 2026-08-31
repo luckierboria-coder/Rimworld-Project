@@ -32,6 +32,15 @@ namespace RimMTS53Composite
             return false;
         }
 
+        // Use for APIs whose return nullability/shape must remain stable across
+        // repeated calls in the same Vanilla operation (e.g. ScannerShouldSkip
+        // calls PotentialWorkThingsGlobal twice). Such paths may still count
+        // invocations, but must not perform per-call parity bypasses.
+        internal void RecordInvocation()
+        {
+            Interlocked.Increment(ref invocations);
+        }
+
         internal void Seen() { Interlocked.Increment(ref seen); }
         internal void Kept() { Interlocked.Increment(ref kept); }
         internal void Pruned() { Interlocked.Increment(ref pruned); }
