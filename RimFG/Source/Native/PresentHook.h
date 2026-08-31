@@ -6,6 +6,13 @@
 
 namespace RimFGPresent
 {
+    enum class PresentMode : int
+    {
+        Disabled = 0,
+        ImmediateValidation = 1,
+        VSync2x = 2
+    };
+
     struct HudRectPx
     {
         float x;
@@ -14,18 +21,16 @@ namespace RimFGPresent
         float height;
     };
 
-    // Installs one process-wide IDXGISwapChain::Present hook, but only treats
-    // swapchains belonging to RimWorld/Unity as RimFG targets.
     bool Initialize(ID3D11Device* unityDevice);
     void Shutdown();
 
     bool IsInstalled();
     bool HasUnitySwapChain();
-    IDXGISwapChain* GetUnitySwapChain(); // borrowed pointer; present thread only
+    IDXGISwapChain* GetUnitySwapChain();
 
-    // Borrowed GPU texture pointer. RimFG.Native owns the resource lifetime and
-    // clears this source before releasing/recreating frame-generation textures.
-    // Tiny HUD metadata is copied into a lock-free fixed-size slot.
+    void SetPresentMode(PresentMode mode);
+    PresentMode GetPresentMode();
+
     void SetGeneratedFrameSource(
         ID3D11Texture2D* generatedFrame,
         int width,
