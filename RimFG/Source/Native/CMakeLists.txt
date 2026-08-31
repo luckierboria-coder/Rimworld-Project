@@ -16,7 +16,9 @@ add_library(RimFG.Native SHARED
 target_compile_features(RimFG.Native PRIVATE cxx_std_17)
 target_compile_definitions(RimFG.Native PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(RimFG.Native PRIVATE "${UNITY_PLUGIN_API_DIR}")
-target_link_libraries(RimFG.Native PRIVATE d3d11 dxgi)
+# d3dcompiler is used only when the native backend initializes its compute shader;
+# it is not called on RimWorld's per-frame simulation path.
+target_link_libraries(RimFG.Native PRIVATE d3d11 dxgi d3dcompiler)
 
 set_target_properties(RimFG.Native PROPERTIES
   OUTPUT_NAME "RimFG.Native"
