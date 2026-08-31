@@ -174,7 +174,7 @@ namespace MedievalVehicleDraftAnimals
 
         private bool IsEligibleSpecies(Pawn pawn)
         {
-            return pawn != null && pawn.RaceProps != null && pawn.RaceProps.Animal && pawn.BodySize >= Props.minimumBodySize;
+            return pawn != null && pawn.RaceProps != null && pawn.RaceProps.Animal && pawn.BodySize >= Props.minimumBodySize && AnimalPenUtility.NeedsToBeManagedByRope(pawn);
         }
 
         private void OpenDraftAnimalMenu()
