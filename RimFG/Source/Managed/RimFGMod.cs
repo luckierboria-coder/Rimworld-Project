@@ -55,6 +55,26 @@ namespace RimFG
             listing.Label("The adaptive check uses a tiny exponential moving average of Unity's existing frame time. It does not sample the framebuffer or run image analysis on CPU.");
 
             listing.GapLine();
+            listing.Label("Live GPU telemetry");
+            try
+            {
+                double gpuMs = NativeInterop.RimFG_GetGpuFrameGenerationMs();
+                GpuQualityTier tier = (GpuQualityTier)NativeInterop.RimFG_GetGpuQualityTier();
+                ulong generated = NativeInterop.RimFG_GetGeneratedPresentCount();
+                ulong skipped = NativeInterop.RimFG_GetSkippedPresentCount();
+                int swapchain = NativeInterop.RimFG_HasUnitySwapChain();
+
+                listing.Label("FG GPU EMA: " + (gpuMs > 0.0 ? gpuMs.ToString("F2") + " ms" : "warming up"));
+                listing.Label("Quality tier: " + tier);
+                listing.Label("Generated Presents: " + generated + "   Skipped: " + skipped);
+                listing.Label("DXGI swapchain: " + (swapchain != 0 ? "captured" : "not captured yet"));
+            }
+            catch
+            {
+                listing.Label("Telemetry unavailable — native backend not loaded.");
+            }
+
+            listing.GapLine();
             listing.Label("VSync 2× is intended for 120/144/165 Hz class displays. On a 60 Hz display it can reduce the real-frame rate, so use Immediate Validation until display pacing is verified.");
             listing.End();
         }
