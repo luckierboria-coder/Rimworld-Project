@@ -66,8 +66,12 @@ namespace MedievalVehicleDraftAnimals
         public override void CompTick()
         {
             base.CompTick();
-            DraftAnimals.ThingOwnerTick();
 
+            // Do NOT call DraftAnimals.ThingOwnerTick() here. A Pawn that was just removed
+            // from the map can still be present in the current vanilla TickList iteration.
+            // Full-ticking it again through this custom holder in the same game tick corrupts
+            // Performance Fish's ThingWithComps/FishTable caches. Hitched animals therefore
+            // use only the explicit lightweight need handling below while contained.
             if (Vehicle?.Faction == Faction.OfPlayer && Vehicle.Drafted && ValidAnimalCount < Props.requiredAnimals)
             {
                 Vehicle.ignition.Drafted = false;
@@ -169,10 +173,6 @@ namespace MedievalVehicleDraftAnimals
 
         private bool IsOperationalDraftAnimal(Pawn pawn)
         {
-            // IMPORTANT: hitched animals are held inside the vehicle's ThingOwner and are no
-            // longer spawned on the map. Do not call map/pen-state helpers here. Those helpers
-            // are only meaningful while choosing a free animal from the map and can return false
-            // after DeSpawn, which previously made two visibly hitched horses count as 0/2.
             return pawn != null &&
                    !pawn.Destroyed &&
                    !pawn.Dead &&
@@ -195,9 +195,6 @@ namespace MedievalVehicleDraftAnimals
                 return false;
             }
 
-            // While the pawn is still on the map, keep the original rope-managed preference.
-            // This filters the normal horse/yak/camel/muffalo-style livestock without poisoning
-            // the operational check after the pawn has been moved into the vehicle holder.
             return !pawn.Spawned || AnimalPenUtility.NeedsToBeManagedByRope(pawn);
         }
 
@@ -269,10 +266,23 @@ namespace MedievalVehicleDraftAnimals
                 Vehicle.ignition.Drafted = false;
             }
 
-            pawn.DeSpawn(DestroyMode.WillReplace);
+            Map map = pawn.Map;
+            IntVec3 originalCell = pawn.Position;
+            IntVec3 fallbackCell = CellFinder.RandomClosewalkCellNear(Vehicle.Position, map, 5);
+
+            // This is a real containment transfer, not a visual replacement. Using WillReplace
+            // left an awkward lifecycle around map tick/caching mods. Normal Vanish DeSpawn lets
+            // RimWorld and Performance Fish deregister the Pawn through their standard path.
+            pawn.DeSpawn(DestroyMode.Vanish);
+
             if (!DraftAnimals.TryAdd(pawn, false))
             {
-                GenSpawn.Spawn(pawn, CellFinder.RandomClosewalkCellNear(Vehicle.Position, Vehicle.Map, 5), Vehicle.Map);
+                IntVec3 respawnCell = fallbackCell.IsValid ? fallbackCell : originalCell;
+                if (!respawnCell.InBounds(map))
+                {
+                    respawnCell = CellFinder.RandomClosewalkCellNear(Vehicle.Position, map, 5);
+                }
+                GenSpawn.Spawn(pawn, respawnCell, map);
             }
         }
 
@@ -288,9 +298,10 @@ namespace MedievalVehicleDraftAnimals
                 Vehicle.ignition.Drafted = false;
             }
 
+            Map map = Vehicle.Map;
+            IntVec3 cell = CellFinder.RandomClosewalkCellNear(Vehicle.Position, map, 5);
             DraftAnimals.Remove(pawn);
-            IntVec3 cell = CellFinder.RandomClosewalkCellNear(Vehicle.Position, Vehicle.Map, 5);
-            GenSpawn.Spawn(pawn, cell, Vehicle.Map);
+            GenSpawn.Spawn(pawn, cell, map);
         }
 
         private void SatisfyDraftAnimalNeeds()
