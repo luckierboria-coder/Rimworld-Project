@@ -52,18 +52,20 @@ jobs:
         run: |
           $stage = 'build/RimFG'
           Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path "$stage/About","$stage/Assemblies" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage/About","$stage/Assemblies","$stage/Plugins/x86_64" | Out-Null
           Copy-Item 'RimFG/About/*' "$stage/About/" -Recurse -Force
           Copy-Item 'RimFG/Assemblies/RimFG.dll' "$stage/Assemblies/RimFG.dll" -Force
-          # Keep a single native DLL beside the managed assembly. Mono DllImport resolves
-          # this layout reliably and RimFG can bootstrap D3D11 from the captured swapchain,
-          # so a second Unity Plugins copy would risk loading two independent DLL instances.
-          Copy-Item 'RimFG/Plugins/x86_64/Release/RimFG.Native.dll' "$stage/Assemblies/RimFG.Native.dll" -Force
+          # Native PE DLLs must not live in Assemblies: Verse/Prepatcher enumerates that
+          # folder as managed assemblies and throws BadImageFormatException on native code.
+          # RimFG explicitly LoadLibrary()s this absolute Plugins path before DllImport use.
+          Copy-Item 'RimFG/Plugins/x86_64/Release/RimFG.Native.dll' "$stage/Plugins/x86_64/RimFG.Native.dll" -Force
           if (Test-Path 'RimFG/README.md') { Copy-Item 'RimFG/README.md' "$stage/README.md" -Force }
           @'
           RimFG V0.1 TEST BUILD
           Target: RimWorld 1.5.4063, Windows x64, Direct3D 11.
+          Native DLL belongs in Plugins/x86_64; do not move it into Assemblies.
           Start with Immediate Validation mode. Use VSync 2x only on high-refresh displays.
+          Includes a fail-closed camera CommandBuffer render-event bridge for Unity 2019.4 paths where GL.IssuePluginEvent does not reach the native callback.
           Dynamic RimWorld WindowStack windows are masked from generated frames.
           If presentation is unstable, switch Present mode to Disabled; simulation/save data are untouched.
           '@ | Set-Content "$stage/TEST_BUILD.txt"
