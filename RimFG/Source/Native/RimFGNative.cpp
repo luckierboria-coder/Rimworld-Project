@@ -129,6 +129,12 @@ int2 ClampCoord(float2 p)
     return clamp(q, int2(0, 0), FrameSize - int2(1, 1));
 }
 
+float LumaDiff(float3 a, float3 b)
+{
+    float3 d = abs(a - b);
+    return dot(d, float3(0.299, 0.587, 0.114));
+}
+
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
@@ -153,7 +159,15 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
     float4 a = PreviousFrame.Load(int3(ClampCoord(prevCoord), 0));
     float4 b = CurrentFrame.Load(int3(ClampCoord(currCoord), 0));
-    OutputFrame[id.xy] = lerp(a, b, 0.5);
+
+    // Disocclusion/occlusion guard: if the two warped samples disagree strongly,
+    // a 50/50 blend tends to create translucent pawn silhouettes or reveal-edge
+    // ghosts. Bias moderately toward the newest real sample while retaining a
+    // temporal midpoint appearance. This is a single-pass GPU-only heuristic.
+    float disagreement = LumaDiff(a.rgb, b.rgb);
+    float currentBias = smoothstep(0.16, 0.48, disagreement) * 0.18;
+    float blendT = 0.5 + currentBias;
+    OutputFrame[id.xy] = lerp(a, b, blendT);
 }
 )HLSL";
 
