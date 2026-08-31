@@ -159,15 +159,9 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
     float4 a = PreviousFrame.Load(int3(ClampCoord(prevCoord), 0));
     float4 b = CurrentFrame.Load(int3(ClampCoord(currCoord), 0));
-
-    // Disocclusion/occlusion guard: if the two warped samples disagree strongly,
-    // a 50/50 blend tends to create translucent pawn silhouettes or reveal-edge
-    // ghosts. Bias moderately toward the newest real sample while retaining a
-    // temporal midpoint appearance. This is a single-pass GPU-only heuristic.
     float disagreement = LumaDiff(a.rgb, b.rgb);
     float currentBias = smoothstep(0.16, 0.48, disagreement) * 0.18;
-    float blendT = 0.5 + currentBias;
-    OutputFrame[id.xy] = lerp(a, b, blendT);
+    OutputFrame[id.xy] = lerp(a, b, 0.5 + currentBias);
 }
 )HLSL";
 
@@ -195,18 +189,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
         ComPtr<ID3DBlob> bytecode;
         ComPtr<ID3DBlob> errors;
-        const HRESULT hr = D3DCompile(
-            kInterpolateShader,
-            std::strlen(kInterpolateShader),
-            "RimFG.CameraZoomFlowInterpolateCS",
-            nullptr,
-            nullptr,
-            "CSMain",
-            "cs_5_0",
-            D3DCOMPILE_OPTIMIZATION_LEVEL3,
-            0,
-            &bytecode,
-            &errors);
+        const HRESULT hr = D3DCompile(kInterpolateShader, std::strlen(kInterpolateShader), "RimFG.CameraZoomFlowInterpolateCS", nullptr, nullptr, "CSMain", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &bytecode, &errors);
         if (FAILED(hr) || !bytecode) return false;
         if (FAILED(g_device->CreateComputeShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &g_interpolateCs))) return false;
 
@@ -221,13 +204,11 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     bool CreateFrameResources(ID3D11Texture2D* source)
     {
         if (!source || !g_device) return false;
-
         D3D11_TEXTURE2D_DESC desc{};
         source->GetDesc(&desc);
         if (!desc.Width || !desc.Height || desc.SampleDesc.Count != 1) return false;
 
         ReleaseFrameResources();
-
         desc.MipLevels = 1;
         desc.ArraySize = 1;
         desc.Usage = D3D11_USAGE_DEFAULT;
@@ -237,11 +218,9 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
         if (FAILED(g_device->CreateTexture2D(&desc, nullptr, &g_previousFrame))) return false;
         if (FAILED(g_device->CreateTexture2D(&desc, nullptr, &g_currentFrame))) return false;
-
         D3D11_TEXTURE2D_DESC generated = desc;
         generated.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
         if (FAILED(g_device->CreateTexture2D(&generated, nullptr, &g_generatedFrame))) return false;
-
         if (FAILED(g_device->CreateShaderResourceView(g_previousFrame.Get(), nullptr, &g_previousSrv))) return false;
         if (FAILED(g_device->CreateShaderResourceView(g_currentFrame.Get(), nullptr, &g_currentSrv))) return false;
         if (FAILED(g_device->CreateUnorderedAccessView(g_generatedFrame.Get(), nullptr, &g_generatedUav))) return false;
@@ -263,18 +242,45 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         if (g_sceneTexture) CreateFrameResources(g_sceneTexture.Get());
     }
 
-    void RefreshD3D11Device()
+    bool RefreshD3D11Device()
     {
-        g_context.Reset();
-        g_device = nullptr;
-        g_d3d11Ready.store(false, std::memory_order_release);
-        if (!g_unityInterfaces) return;
+        if (g_device && g_context)
+        {
+            g_d3d11Ready.store(true, std::memory_order_release);
+            return true;
+        }
 
-        auto* d3d11 = g_unityInterfaces->Get<IUnityGraphicsD3D11>();
-        if (!d3d11) return;
-        g_device = d3d11->GetDevice();
-        if (g_device) g_device->GetImmediateContext(&g_context);
-        g_d3d11Ready.store(g_device && g_context, std::memory_order_release);
+        if (g_unityInterfaces)
+        {
+            auto* d3d11 = g_unityInterfaces->Get<IUnityGraphicsD3D11>();
+            if (d3d11)
+            {
+                g_device = d3d11->GetDevice();
+                if (g_device) g_device->GetImmediateContext(&g_context);
+            }
+        }
+
+        // RimWorld mods may load this DLL through Mono DllImport rather than Unity's
+        // native-plugin importer. In that case UnityPluginLoad is not guaranteed to
+        // run. The Present hook still sees the real RimWorld swapchain, so bootstrap
+        // directly from that swapchain without any CPU framebuffer readback.
+        if ((!g_device || !g_context) && RimFGPresent::HasUnitySwapChain())
+        {
+            IDXGISwapChain* chain = RimFGPresent::GetUnitySwapChain();
+            if (chain)
+            {
+                ComPtr<ID3D11Device> capturedDevice;
+                if (SUCCEEDED(chain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(capturedDevice.GetAddressOf()))) && capturedDevice)
+                {
+                    g_device = capturedDevice.Get();
+                    g_device->GetImmediateContext(&g_context);
+                }
+            }
+        }
+
+        const bool ready = g_device != nullptr && g_context != nullptr;
+        g_d3d11Ready.store(ready, std::memory_order_release);
+        return ready;
     }
 
     void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType)
@@ -311,9 +317,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         result.width = g_sceneWidth;
         result.height = g_sceneHeight;
         result.zoomScale = 1.0f;
-
-        if (current.orthographicSize <= 0.001f || previous.orthographicSize <= 0.001f || g_sceneHeight <= 0)
-            return result;
+        if (current.orthographicSize <= 0.001f || previous.orthographicSize <= 0.001f || g_sceneHeight <= 0) return result;
 
         const float ortho = (current.orthographicSize + previous.orthographicSize) * 0.5f;
         const float pixelsPerWorldUnit = static_cast<float>(g_sceneHeight) / (2.0f * ortho);
@@ -322,8 +326,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         result.zoomScale = previous.orthographicSize / current.orthographicSize;
 
         const float maxShift = static_cast<float>(std::max(g_sceneWidth, g_sceneHeight)) * 0.25f;
-        if (std::fabs(result.imageShiftX) > maxShift || std::fabs(result.imageShiftY) > maxShift ||
-            result.zoomScale < 0.67f || result.zoomScale > 1.5f)
+        if (std::fabs(result.imageShiftX) > maxShift || std::fabs(result.imageShiftY) > maxShift || result.zoomScale < 0.67f || result.zoomScale > 1.5f)
         {
             result.imageShiftX = 0.0f;
             result.imageShiftY = 0.0f;
@@ -335,7 +338,6 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     bool UploadMotionConstants(const RimFGFlow::MotionInput& motion, bool useFlow)
     {
         if (!g_context || !g_motionConstants) return false;
-
         MotionConstants c{};
         c.imageShiftX = motion.imageShiftX;
         c.imageShiftY = motion.imageShiftY;
@@ -355,12 +357,9 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
     bool GenerateMidpointFrame(const FrameMetadata& metadata)
     {
-        if (!g_sceneTexture || !g_context || !g_previousFrame || !g_currentFrame || !g_generatedFrame ||
-            !g_previousSrv || !g_currentSrv || !g_generatedUav || !g_interpolateCs || !g_motionConstants)
-            return false;
+        if (!g_sceneTexture || !g_context || !g_previousFrame || !g_currentFrame || !g_generatedFrame || !g_previousSrv || !g_currentSrv || !g_generatedUav || !g_interpolateCs || !g_motionConstants) return false;
 
         g_context->CopyResource(g_currentFrame.Get(), g_sceneTexture.Get());
-
         if (!g_haveHistory || !g_havePreviousMetadata)
         {
             g_context->CopyResource(g_previousFrame.Get(), g_currentFrame.Get());
@@ -383,7 +382,6 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
         const RimFGFlow::MotionInput motion = BuildMotionInput(g_previousMetadata, metadata);
         g_gpuBudget.Begin(g_context.Get());
-
         bool useFlow = false;
         if (tier == RimFGFlow::QualityTier::ResidualFlow)
             useFlow = g_flowBackend.Dispatch(g_context.Get(), g_previousSrv.Get(), g_currentSrv.Get(), motion);
@@ -394,14 +392,9 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             return false;
         }
 
-        ID3D11ShaderResourceView* srvs[3] = {
-            g_previousSrv.Get(),
-            g_currentSrv.Get(),
-            useFlow ? g_flowBackend.FlowSrv() : nullptr
-        };
+        ID3D11ShaderResourceView* srvs[3] = { g_previousSrv.Get(), g_currentSrv.Get(), useFlow ? g_flowBackend.FlowSrv() : nullptr };
         ID3D11UnorderedAccessView* uavs[1] = { g_generatedUav.Get() };
         ID3D11Buffer* cbs[1] = { g_motionConstants.Get() };
-
         g_context->CSSetShader(g_interpolateCs.Get(), nullptr, 0);
         g_context->CSSetShaderResources(0, 3, srvs);
         g_context->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
@@ -415,7 +408,6 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         g_context->CSSetUnorderedAccessViews(0, 1, nullUavs, nullptr);
         g_context->CSSetConstantBuffers(0, 1, nullCbs);
         g_context->CSSetShader(nullptr, nullptr, 0);
-
         g_gpuBudget.End(g_context.Get());
 
         g_context->CopyResource(g_previousFrame.Get(), g_currentFrame.Get());
@@ -427,32 +419,17 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     void PublishGeneratedFrame(const MetadataSlot& slot)
     {
         if (!g_generatedFrame || !g_hasGeneratedFrame.load(std::memory_order_acquire)) return;
-
         std::array<RimFGPresent::HudRectPx, kMaxHudRects> rects{};
         const int count = std::max(0, std::min(slot.hudCount, kMaxHudRects));
         for (int i = 0; i < count; ++i)
-        {
-            rects[static_cast<std::size_t>(i)] = {
-                slot.hud[static_cast<std::size_t>(i)].x,
-                slot.hud[static_cast<std::size_t>(i)].y,
-                slot.hud[static_cast<std::size_t>(i)].width,
-                slot.hud[static_cast<std::size_t>(i)].height
-            };
-        }
-
-        RimFGPresent::SetGeneratedFrameSource(
-            g_generatedFrame.Get(),
-            g_sceneWidth,
-            g_sceneHeight,
-            rects.data(),
-            count,
-            slot.frame.frameIndex);
+            rects[static_cast<std::size_t>(i)] = { slot.hud[static_cast<std::size_t>(i)].x, slot.hud[static_cast<std::size_t>(i)].y, slot.hud[static_cast<std::size_t>(i)].width, slot.hud[static_cast<std::size_t>(i)].height };
+        RimFGPresent::SetGeneratedFrameSource(g_generatedFrame.Get(), g_sceneWidth, g_sceneHeight, rects.data(), count, slot.frame.frameIndex);
     }
 
     void UNITY_INTERFACE_API OnRenderEvent(int eventId)
     {
         if (eventId != 1 || !g_enabled.load(std::memory_order_relaxed)) return;
-        if (!g_d3d11Ready.load(std::memory_order_acquire) || !g_device || !g_context) return;
+        if ((!g_d3d11Ready.load(std::memory_order_acquire) || !g_device || !g_context) && !RefreshD3D11Device()) return;
 
         AdoptPendingSceneTexture();
         const MetadataSlot slot = ReadLatestSlot();
@@ -481,10 +458,8 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
     g_sceneTexture.Reset();
     g_interpolateCs.Reset();
     g_context.Reset();
-
     ID3D11Texture2D* pending = g_pendingSceneTexture.exchange(nullptr, std::memory_order_acq_rel);
     if (pending) pending->Release();
-
     g_d3d11Ready.store(false, std::memory_order_release);
     g_device = nullptr;
     g_unityGraphics = nullptr;
@@ -492,13 +467,11 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
 }
 
 extern "C" UnityRenderingEvent UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RimFG_GetRenderEventFunc() { return OnRenderEvent; }
-
 extern "C" UNITY_INTERFACE_EXPORT void RimFG_SetEnabled(int enabled)
 {
     g_enabled.store(enabled != 0, std::memory_order_release);
     if (!enabled) RimFGPresent::ClearGeneratedFrameSource();
 }
-
 extern "C" UNITY_INTERFACE_EXPORT int RimFG_IsD3D11Ready() { return g_d3d11Ready.load(std::memory_order_acquire) ? 1 : 0; }
 extern "C" UNITY_INTERFACE_EXPORT int RimFG_HasGeneratedFrame() { return g_hasGeneratedFrame.load(std::memory_order_acquire) ? 1 : 0; }
 extern "C" UNITY_INTERFACE_EXPORT int RimFG_GetGpuQualityTier() { return static_cast<int>(g_gpuBudget.Tier()); }
@@ -507,16 +480,12 @@ extern "C" UNITY_INTERFACE_EXPORT double RimFG_GetGpuFrameGenerationMs() { retur
 extern "C" UNITY_INTERFACE_EXPORT void RimFG_SubmitFrameState(const FrameMetadata* metadata, const HudRect* rects, int count)
 {
     if (!metadata || metadata->abiVersion != kAbiVersion) return;
-
     const std::uint32_t next = g_writeSequence.load(std::memory_order_relaxed) + 1u;
     MetadataSlot& slot = g_slots[next & 1u];
     slot.frame = *metadata;
-
     const int clamped = std::max(0, std::min(count, kMaxHudRects));
     slot.hudCount = clamped;
-    if (rects && clamped > 0)
-        std::memcpy(slot.hud.data(), rects, sizeof(HudRect) * static_cast<std::size_t>(clamped));
-
+    if (rects && clamped > 0) std::memcpy(slot.hud.data(), rects, sizeof(HudRect) * static_cast<std::size_t>(clamped));
     g_writeSequence.store(next, std::memory_order_release);
 }
 
@@ -524,10 +493,8 @@ extern "C" UNITY_INTERFACE_EXPORT void RimFG_SetSceneTexture(void* nativeTexture
 {
     ID3D11Texture2D* next = static_cast<ID3D11Texture2D*>(nativeTexture);
     if (next) next->AddRef();
-
     ID3D11Texture2D* oldPending = g_pendingSceneTexture.exchange(next, std::memory_order_acq_rel);
     if (oldPending) oldPending->Release();
-
     g_pendingWidth.store(width, std::memory_order_release);
     g_pendingHeight.store(height, std::memory_order_release);
     g_sceneTextureUpdatePending.store(true, std::memory_order_release);
