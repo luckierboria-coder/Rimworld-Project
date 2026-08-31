@@ -59,6 +59,10 @@ namespace RimFG
 
                 if (nativeAvailable && NativeInterop.RimFG_StartPresentHook() == 0)
                     Log.Warning("[RimFG] DXGI Present hook did not initialize; interpolation can run but generated frames cannot be displayed.");
+
+                PresentMode mode = RimFGMod.Settings != null ? RimFGMod.Settings.presentMode : PresentMode.ImmediateValidation;
+                NativeInterop.RimFG_SetPresentMode((int)mode);
+                Log.Message("[RimFG] Present mode: " + mode + ".");
             }
             catch (DllNotFoundException)
             {
@@ -113,7 +117,7 @@ namespace RimFG
                 if (!generatedLogged && NativeInterop.RimFG_HasGeneratedFrame() != 0)
                 {
                     generatedLogged = true;
-                    Log.Message("[RimFG] GPU interpolation pipeline produced its first generated frame.");
+                    Log.Message("[RimFG] Camera-aware GPU interpolation produced its first generated frame.");
                 }
 
                 if (!swapChainLogged && NativeInterop.RimFG_HasUnitySwapChain() != 0)
