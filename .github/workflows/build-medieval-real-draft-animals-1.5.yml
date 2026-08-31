@@ -1,0 +1,49 @@
+name: Build Medieval Real Draft Animals 1.5
+
+on:
+  push:
+    branches: [ medieval-real-draft-animals-v01 ]
+    paths:
+      - 'MedievalVehicle-RealDraftAnimals-1.5/**'
+      - '.github/workflows/build-medieval-real-draft-animals-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download Vehicle Framework 1.5 references
+        shell: pwsh
+        run: |
+          $lib = 'MedievalVehicle-RealDraftAnimals-1.5/Source/lib'
+          New-Item -ItemType Directory -Force -Path $lib | Out-Null
+          Invoke-WebRequest 'https://raw.githubusercontent.com/SmashPhil/Vehicle-Framework/release/1.5/1.5/Assemblies/Vehicles.dll' -OutFile "$lib/Vehicles.dll"
+          Invoke-WebRequest 'https://raw.githubusercontent.com/SmashPhil/Vehicle-Framework/release/1.5/1.5/Assemblies/SmashTools.dll' -OutFile "$lib/SmashTools.dll"
+
+      - name: Restore
+        run: dotnet restore MedievalVehicle-RealDraftAnimals-1.5/Source/MedievalVehicleDraftAnimals.csproj
+
+      - name: Build Release
+        run: dotnet build MedievalVehicle-RealDraftAnimals-1.5/Source/MedievalVehicleDraftAnimals.csproj --configuration Release --no-restore
+
+      - name: Verify DLL
+        shell: pwsh
+        run: |
+          $dll = 'MedievalVehicle-RealDraftAnimals-1.5/1.5/Assemblies/MedievalVehicleDraftAnimals.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled draft-animal DLL missing.' }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Upload DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MedievalVehicle-RealDraftAnimals-1.5-DLL
+          path: MedievalVehicle-RealDraftAnimals-1.5/1.5/Assemblies/MedievalVehicleDraftAnimals.dll
+          if-no-files-found: error
