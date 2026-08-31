@@ -66,7 +66,7 @@ namespace RimMTRC2T2
         private static int patchedMethods;
         private static long failures;
 
-        private struct TimingState
+        public struct TimingState
         {
             public long Started;
             public int Family;
