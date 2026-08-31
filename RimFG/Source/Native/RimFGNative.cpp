@@ -4,13 +4,10 @@
 #include <cstring>
 
 #include <d3d11.h>
-#include <wrl/client.h>
 
 #include "IUnityInterface.h"
 #include "IUnityGraphics.h"
 #include "IUnityGraphicsD3D11.h"
-
-using Microsoft::WRL::ComPtr;
 
 namespace
 {
@@ -60,7 +57,6 @@ namespace
     std::atomic<bool> g_enabled{false};
     std::atomic<bool> g_d3d11Ready{false};
     std::atomic<std::uint32_t> g_writeSequence{0};
-    std::atomic<std::uint32_t> g_hudSequence{0};
 
     alignas(64) std::array<MetadataSlot, 2> g_slots{};
 
@@ -100,7 +96,6 @@ namespace
 
     MetadataSlot ReadLatestSlot()
     {
-        // Tiny fixed-size copy. No heap allocation and no lock/mutex.
         const std::uint32_t seq = g_writeSequence.load(std::memory_order_acquire);
         return g_slots[seq & 1u];
     }
@@ -123,8 +118,6 @@ namespace
         //  2) camera-aware warp / optical flow
         //  3) interpolation + composite
         //  4) independent Present scheduler/hook
-        // Keeping this callback render-thread-only establishes the correct
-        // synchronization boundary without touching RimWorld simulation.
         (void)slot;
     }
 }
@@ -174,7 +167,7 @@ RimFG_IsD3D11Ready()
 }
 
 extern "C" UNITY_INTERFACE_EXPORT void
-RimFG_SubmitFrameMetadata(const FrameMetadata* metadata)
+RimFG_SubmitFrameState(const FrameMetadata* metadata, const HudRect* rects, int count)
 {
     if (!metadata || metadata->abiVersion != kAbiVersion)
         return;
@@ -183,25 +176,18 @@ RimFG_SubmitFrameMetadata(const FrameMetadata* metadata)
     MetadataSlot& slot = g_slots[next & 1u];
 
     slot.frame = *metadata;
-    const int clampedHudCount = metadata->hudRectCount < 0 ? 0 :
-        (metadata->hudRectCount > kMaxHudRects ? kMaxHudRects : metadata->hudRectCount);
-    slot.hudCount = clampedHudCount;
 
-    // Publish only after the fixed-size copy is complete.
-    g_writeSequence.store(next, std::memory_order_release);
-}
+    int clamped = count;
+    if (clamped < 0) clamped = 0;
+    if (clamped > kMaxHudRects) clamped = kMaxHudRects;
+    if (!rects) clamped = 0;
 
-extern "C" UNITY_INTERFACE_EXPORT void
-RimFG_SubmitHudRects(const HudRect* rects, int count)
-{
-    if (!rects || count <= 0)
-        return;
+    if (clamped > 0)
+        std::memcpy(slot.hud.data(), rects, sizeof(HudRect) * static_cast<std::size_t>(clamped));
 
-    const std::uint32_t seq = g_writeSequence.load(std::memory_order_acquire);
-    MetadataSlot& slot = g_slots[seq & 1u];
-    const int clamped = count > kMaxHudRects ? kMaxHudRects : count;
-
-    std::memcpy(slot.hud.data(), rects, sizeof(HudRect) * static_cast<std::size_t>(clamped));
     slot.hudCount = clamped;
-    g_hudSequence.fetch_add(1u, std::memory_order_release);
+    slot.frame.hudRectCount = clamped;
+
+    // Publish only after metadata + mask rectangles have been copied.
+    g_writeSequence.store(next, std::memory_order_release);
 }
