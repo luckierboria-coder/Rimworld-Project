@@ -45,16 +45,22 @@ namespace RimFG
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern IntPtr RimFG_GetRenderEventFunc();
 
-        // Metadata and HUD rectangles are copied into one native double-buffer slot,
-        // then atomically published. One managed/native transition per real frame.
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void RimFG_SubmitFrameState(
             ref FrameMetadata metadata,
             [In] HudRect[] rects,
             int count);
 
+        // Called only when the persistent HUD-less scene RenderTexture is created,
+        // resized or destroyed. Never call GetNativeTexturePtr per frame.
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void RimFG_SetSceneTexture(IntPtr nativeTexture, int width, int height);
+
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int RimFG_IsD3D11Ready();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int RimFG_HasGeneratedFrame();
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void RimFG_SetEnabled(int enabled);
