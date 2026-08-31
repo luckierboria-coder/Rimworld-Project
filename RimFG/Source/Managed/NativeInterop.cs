@@ -48,9 +48,24 @@ namespace RimFG
 
     internal enum GpuQualityTier
     {
-        ResidualFlow = 0,
-        CameraOnly = 1,
-        Bypass = 2
+        Bypass = 0,
+        CameraZoomOnly = 1,
+        ResidualFlow = 2
+    }
+
+    internal enum NativeStage
+    {
+        ErrorMotionConstants = -6,
+        ErrorOutputTexture = -5,
+        ErrorShader = -4,
+        ErrorHistoryTexture = -3,
+        ErrorBadBackbuffer = -2,
+        ErrorNoDevice = -1,
+        Idle = 0,
+        BackbufferSeen = 1,
+        HistoryPrimed = 2,
+        Generated = 3,
+        DuplicateFallback = 4
     }
 
     internal static class NativeInterop
@@ -119,8 +134,6 @@ namespace RimFG
                 int loadError = Marshal.GetLastWin32Error();
                 if (module == IntPtr.Zero)
                 {
-                    // Older Windows configurations can reject the search flags even
-                    // though a normal absolute-path load is valid. Retry without them.
                     module = LoadLibraryW(path);
                     loadError = Marshal.GetLastWin32Error();
                 }
@@ -131,7 +144,6 @@ namespace RimFG
                     continue;
                 }
 
-                // Verify the ABI entrypoint before allowing ordinary DllImport calls.
                 IntPtr entry = GetProcAddress(module, "RimFG_GetRenderEventFunc");
                 if (entry == IntPtr.Zero)
                 {
@@ -166,6 +178,9 @@ namespace RimFG
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int RimFG_HasGeneratedFrame();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int RimFG_GetNativeStage();
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int RimFG_StartPresentHook();
