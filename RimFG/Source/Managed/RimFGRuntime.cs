@@ -62,7 +62,7 @@ namespace RimFG
                     Log.Warning("[RimFG] DXGI Present hook did not initialize; frame generation is disabled.");
 
                 ApplyConfiguredState(force: true);
-                Log.Message("[RimFG] Target-FPS DXGI pacing armed. Low-base-FPS bypass is disabled by design.");
+                Log.Message("[RimFG] Variable-ratio Target-FPS pacing armed. Generated-frame multiplier has no fixed 2x/3x cap.");
             }
             catch (Exception ex)
             {
@@ -110,7 +110,7 @@ namespace RimFG
                 if (!generatedLogged && NativeInterop.RimFG_HasGeneratedFrame() != 0)
                 {
                     generatedLogged = true;
-                    Log.Message("[RimFG] DXGI backbuffer prediction produced its first generated frame.");
+                    Log.Message("[RimFG] DXGI backbuffer prediction history is ready.");
                 }
                 if (!swapChainLogged && NativeInterop.RimFG_HasUnitySwapChain() != 0)
                 {
@@ -120,7 +120,7 @@ namespace RimFG
                 if (!injectedPresentLogged && NativeInterop.RimFG_GetGeneratedPresentCount() > 0UL)
                 {
                     injectedPresentLogged = true;
-                    Log.Message("[RimFG] First target-paced generated frame was presented.");
+                    Log.Message("[RimFG] First variable-ratio target-paced generated frame was presented.");
                 }
             }
             catch (Exception ex)
@@ -136,7 +136,7 @@ namespace RimFG
             RimFGSettings settings = RimFGMod.Settings;
             PresentMode mode = settings != null ? settings.presentMode : PresentMode.ImmediateValidation;
             int targetFps = settings != null ? Mathf.RoundToInt(settings.targetOutputFps) : 60;
-            targetFps = Mathf.Clamp(targetFps, 30, 240);
+            targetFps = Mathf.Clamp(targetFps, 1, 1000000000);
 
             if (force || mode != appliedPresentMode)
             {
