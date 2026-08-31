@@ -10,6 +10,7 @@
 #include "IUnityInterface.h"
 #include "IUnityGraphics.h"
 #include "IUnityGraphicsD3D11.h"
+#include "PresentHook.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -46,6 +47,7 @@ namespace
 
     static_assert(sizeof(FrameMetadata) == 48, "Managed/native ABI mismatch for FrameMetadata");
     static_assert(sizeof(HudRect) == 16, "Managed/native ABI mismatch for HudRect");
+    static_assert(sizeof(RimFGPresent::HudRectPx) == sizeof(HudRect), "Present HUD ABI mismatch");
 
     struct MetadataSlot
     {
@@ -65,8 +67,6 @@ namespace
     std::atomic<std::uint32_t> g_writeSequence{0};
     alignas(64) std::array<MetadataSlot, 2> g_slots{};
 
-    // Managed owns the RenderTexture. SetSceneTexture AddRefs a pending pointer;
-    // the render callback adopts/releases it, so the per-frame path needs no lock.
     std::atomic<ID3D11Texture2D*> g_pendingSceneTexture{nullptr};
     std::atomic<bool> g_sceneTextureUpdatePending{false};
     std::atomic<int> g_pendingWidth{0};
@@ -96,9 +96,6 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     OutputFrame.GetDimensions(width, height);
     if (id.x >= width || id.y >= height) return;
 
-    // V0.1 milestone: a real GPU-generated midpoint frame. The next backend
-    // replaces this blend with camera warp + optical flow while retaining the
-    // same GPU-resident history/present pipeline.
     float4 a = PreviousFrame.Load(int3(id.xy, 0));
     float4 b = CurrentFrame.Load(int3(id.xy, 0));
     OutputFrame[id.xy] = lerp(a, b, 0.5f);
@@ -107,6 +104,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
     void ReleaseFrameResources()
     {
+        RimFGPresent::ClearGeneratedFrameSource();
         g_previousSrv.Reset();
         g_currentSrv.Reset();
         g_generatedUav.Reset();
@@ -192,7 +190,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         ID3D11Texture2D* pending = g_pendingSceneTexture.exchange(nullptr, std::memory_order_acq_rel);
         g_sceneTexture.Reset();
         if (pending)
-            g_sceneTexture.Attach(pending); // adopts AddRef from SetSceneTexture
+            g_sceneTexture.Attach(pending);
 
         g_sceneWidth = g_pendingWidth.load(std::memory_order_acquire);
         g_sceneHeight = g_pendingHeight.load(std::memory_order_acquire);
@@ -249,11 +247,11 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return g_slots[seq & 1u];
     }
 
-    void GenerateMidpointFrame()
+    bool GenerateMidpointFrame()
     {
         if (!g_sceneTexture || !g_context || !g_previousFrame || !g_currentFrame ||
             !g_generatedFrame || !g_previousSrv || !g_currentSrv || !g_generatedUav || !g_interpolateCs)
-            return;
+            return false;
 
         g_context->CopyResource(g_currentFrame.Get(), g_sceneTexture.Get());
 
@@ -261,7 +259,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         {
             g_context->CopyResource(g_previousFrame.Get(), g_currentFrame.Get());
             g_haveHistory = true;
-            return;
+            return false;
         }
 
         ID3D11ShaderResourceView* srvs[2] = { g_previousSrv.Get(), g_currentSrv.Get() };
@@ -282,6 +280,33 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
         g_context->CopyResource(g_previousFrame.Get(), g_currentFrame.Get());
         g_hasGeneratedFrame.store(true, std::memory_order_release);
+        return true;
+    }
+
+    void PublishGeneratedFrame(const MetadataSlot& slot)
+    {
+        if (!g_generatedFrame || !g_hasGeneratedFrame.load(std::memory_order_acquire))
+            return;
+
+        std::array<RimFGPresent::HudRectPx, kMaxHudRects> presentRects{};
+        const int count = slot.hudCount < 0 ? 0 : (slot.hudCount > kMaxHudRects ? kMaxHudRects : slot.hudCount);
+        for (int i = 0; i < count; ++i)
+        {
+            presentRects[static_cast<std::size_t>(i)] = {
+                slot.hud[static_cast<std::size_t>(i)].x,
+                slot.hud[static_cast<std::size_t>(i)].y,
+                slot.hud[static_cast<std::size_t>(i)].width,
+                slot.hud[static_cast<std::size_t>(i)].height
+            };
+        }
+
+        RimFGPresent::SetGeneratedFrameSource(
+            g_generatedFrame.Get(),
+            g_sceneWidth,
+            g_sceneHeight,
+            presentRects.data(),
+            count,
+            slot.frame.frameIndex);
     }
 
     void UNITY_INTERFACE_API OnRenderEvent(int eventId)
@@ -296,7 +321,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         if (slot.frame.abiVersion != kAbiVersion)
             return;
 
-        GenerateMidpointFrame();
+        if (GenerateMidpointFrame())
+            PublishGeneratedFrame(slot);
     }
 }
 
@@ -319,6 +345,7 @@ UnityPluginUnload()
         g_unityGraphics->UnregisterDeviceEventCallback(OnGraphicsDeviceEvent);
 
     g_enabled.store(false, std::memory_order_release);
+    RimFGPresent::Shutdown();
     ReleaseFrameResources();
     g_sceneTexture.Reset();
     g_interpolateCs.Reset();
@@ -344,6 +371,8 @@ extern "C" UNITY_INTERFACE_EXPORT void
 RimFG_SetEnabled(int enabled)
 {
     g_enabled.store(enabled != 0, std::memory_order_release);
+    if (enabled == 0)
+        RimFGPresent::ClearGeneratedFrameSource();
 }
 
 extern "C" UNITY_INTERFACE_EXPORT int
