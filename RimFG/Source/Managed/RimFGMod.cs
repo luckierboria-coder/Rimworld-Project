@@ -73,11 +73,13 @@ namespace RimFG
                 {
                     double gpuMs = NativeInterop.RimFG_GetGpuFrameGenerationMs();
                     GpuQualityTier tier = (GpuQualityTier)NativeInterop.RimFG_GetGpuQualityTier();
+                    NativeStage stage = (NativeStage)NativeInterop.RimFG_GetNativeStage();
                     ulong generated = NativeInterop.RimFG_GetGeneratedPresentCount();
                     ulong skipped = NativeInterop.RimFG_GetSkippedPresentCount();
                     int swapchain = NativeInterop.RimFG_HasUnitySwapChain();
 
                     listing.Label("Native: loaded");
+                    listing.Label("Generation stage: " + DescribeStage(stage));
                     listing.Label("FG GPU EMA: " + (gpuMs > 0.0 ? gpuMs.ToString("F2") + " ms" : "warming up"));
                     listing.Label("Quality tier: " + tier);
                     listing.Label("Generated Presents: " + generated + "   Skipped: " + skipped);
@@ -92,6 +94,25 @@ namespace RimFG
             listing.GapLine();
             listing.Label("VSync 2× is intended for 120/144/165 Hz class displays. On a 60 Hz display it can reduce the real-frame rate, so use Immediate Validation until display pacing is verified.");
             listing.End();
+        }
+
+        private static string DescribeStage(NativeStage stage)
+        {
+            switch (stage)
+            {
+                case NativeStage.Idle: return "idle — waiting for RimWorld backbuffer";
+                case NativeStage.BackbufferSeen: return "backbuffer captured — creating GPU resources";
+                case NativeStage.HistoryPrimed: return "history primed — next real frame can generate";
+                case NativeStage.Generated: return "interpolation active";
+                case NativeStage.DuplicateFallback: return "Present path active — compute unavailable, GPU duplicate fallback";
+                case NativeStage.ErrorNoDevice: return "ERROR: D3D11 device/context unavailable";
+                case NativeStage.ErrorBadBackbuffer: return "ERROR: unsupported backbuffer size/MSAA state";
+                case NativeStage.ErrorHistoryTexture: return "ERROR: history texture creation failed";
+                case NativeStage.ErrorShader: return "ERROR: interpolation shader creation failed";
+                case NativeStage.ErrorOutputTexture: return "ERROR: generated output texture creation failed";
+                case NativeStage.ErrorMotionConstants: return "ERROR: motion constant buffer upload failed";
+                default: return stage.ToString();
+            }
         }
 
         public override void WriteSettings()
