@@ -37,6 +37,7 @@ namespace RimFG
         private bool nativeReadyLogged;
         private bool generatedLogged;
         private bool swapChainLogged;
+        private bool injectedPresentLogged;
         private uint frameIndex;
 
         private readonly HudRect[] hudRects = new HudRect[8];
@@ -57,7 +58,7 @@ namespace RimFG
                 NativeInterop.RimFG_SetEnabled(nativeAvailable ? 1 : 0);
 
                 if (nativeAvailable && NativeInterop.RimFG_StartPresentHook() == 0)
-                    Log.Warning("[RimFG] DXGI Present hook did not initialize; interpolation can run but independent frame presentation is unavailable.");
+                    Log.Warning("[RimFG] DXGI Present hook did not initialize; interpolation can run but generated frames cannot be displayed.");
             }
             catch (DllNotFoundException)
             {
@@ -101,9 +102,6 @@ namespace RimFG
             try
             {
                 NativeInterop.RimFG_SubmitFrameState(ref metadata, hudRects, hudRectCount);
-
-                // Native render callback copies the already GPU-resident HUD-less scene texture
-                // and dispatches interpolation. No framebuffer readback or image work occurs in C#.
                 GL.IssuePluginEvent(renderEventFunc, 1);
 
                 if (!nativeReadyLogged && NativeInterop.RimFG_IsD3D11Ready() != 0)
@@ -121,7 +119,13 @@ namespace RimFG
                 if (!swapChainLogged && NativeInterop.RimFG_HasUnitySwapChain() != 0)
                 {
                     swapChainLogged = true;
-                    Log.Message("[RimFG] RimWorld DXGI swapchain captured. Independent Present stage can be enabled next.");
+                    Log.Message("[RimFG] RimWorld DXGI swapchain captured.");
+                }
+
+                if (!injectedPresentLogged && NativeInterop.RimFG_GetGeneratedPresentCount() > 0UL)
+                {
+                    injectedPresentLogged = true;
+                    Log.Message("[RimFG] First generated frame was presented before the real Unity frame. 2x Present path is active.");
                 }
             }
             catch (Exception ex)
@@ -162,8 +166,6 @@ namespace RimFG
             captureCommands.Blit(BuiltinRenderTextureType.CameraTarget, sceneCapture);
             captureCamera.AddCommandBuffer(CameraEvent.AfterEverything, captureCommands);
 
-            // Deliberately one-time per allocation/resize. GetNativeTexturePtr may synchronize
-            // Unity's render thread, therefore it is forbidden in the per-frame path.
             IntPtr nativeTexture = sceneCapture.GetNativeTexturePtr();
             NativeInterop.RimFG_SetSceneTexture(nativeTexture, width, height);
         }
