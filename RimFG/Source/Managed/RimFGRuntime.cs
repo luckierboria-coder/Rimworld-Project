@@ -36,6 +36,7 @@ namespace RimFG
         private bool nativeAvailable;
         private bool nativeReadyLogged;
         private bool generatedLogged;
+        private bool swapChainLogged;
         private uint frameIndex;
 
         private readonly HudRect[] hudRects = new HudRect[8];
@@ -54,6 +55,9 @@ namespace RimFG
                 renderEventFunc = NativeInterop.RimFG_GetRenderEventFunc();
                 nativeAvailable = renderEventFunc != IntPtr.Zero;
                 NativeInterop.RimFG_SetEnabled(nativeAvailable ? 1 : 0);
+
+                if (nativeAvailable && NativeInterop.RimFG_StartPresentHook() == 0)
+                    Log.Warning("[RimFG] DXGI Present hook did not initialize; interpolation can run but independent frame presentation is unavailable.");
             }
             catch (DllNotFoundException)
             {
@@ -112,6 +116,12 @@ namespace RimFG
                 {
                     generatedLogged = true;
                     Log.Message("[RimFG] GPU interpolation pipeline produced its first generated frame.");
+                }
+
+                if (!swapChainLogged && NativeInterop.RimFG_HasUnitySwapChain() != 0)
+                {
+                    swapChainLogged = true;
+                    Log.Message("[RimFG] RimWorld DXGI swapchain captured. Independent Present stage can be enabled next.");
                 }
             }
             catch (Exception ex)
@@ -192,6 +202,8 @@ namespace RimFG
             if (nativeAvailable)
             {
                 try { NativeInterop.RimFG_SetEnabled(0); }
+                catch { }
+                try { NativeInterop.RimFG_StopPresentHook(); }
                 catch { }
             }
         }
