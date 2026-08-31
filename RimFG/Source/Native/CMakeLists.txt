@@ -21,16 +21,26 @@ if(NOT DEFINED UNITY_PLUGIN_API_DIR OR UNITY_PLUGIN_API_DIR STREQUAL "")
   set(UNITY_PLUGIN_API_DIR "${unity_native_rendering_SOURCE_DIR}/PluginSource/source/Unity")
 endif()
 
+# Present interception is process-local and only targets swapchains created on
+# Unity's D3D11 device. MinHook is statically linked into RimFG.Native.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  minhook
+  GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git
+  GIT_TAG v1.3.4
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(minhook)
+
 add_library(RimFG.Native SHARED
   RimFGNative.cpp
+  PresentHook.cpp
 )
 
 target_compile_features(RimFG.Native PRIVATE cxx_std_17)
 target_compile_definitions(RimFG.Native PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(RimFG.Native PRIVATE "${UNITY_PLUGIN_API_DIR}")
-# d3dcompiler is used only when the native backend initializes its compute shader;
-# it is not called on RimWorld's per-frame simulation path.
-target_link_libraries(RimFG.Native PRIVATE d3d11 dxgi d3dcompiler)
+target_link_libraries(RimFG.Native PRIVATE d3d11 dxgi d3dcompiler minhook)
 
 set_target_properties(RimFG.Native PROPERTIES
   OUTPUT_NAME "RimFG.Native"
