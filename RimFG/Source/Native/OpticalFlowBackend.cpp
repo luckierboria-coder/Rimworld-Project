@@ -69,26 +69,35 @@ float PatchError(int2 currentCenter, float2 previousCenter)
     return e;
 }
 
+float LocalContrast(int2 center)
+{
+    float c = Luma(CurrentFrame.Load(int3(ClampFrame(center), 0)).rgb);
+    float l = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(-1, 0)), 0)).rgb);
+    float r = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(1, 0)), 0)).rgb);
+    float u = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(0, -1)), 0)).rgb);
+    float d = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(0, 1)), 0)).rgb);
+    return abs(c - l) + abs(c - r) + abs(c - u) + abs(c - d);
+}
+
 [numthreads(8, 8, 1)]
 void CSMain(uint3 tid : SV_DispatchThreadID)
 {
     if (tid.x >= (uint)FlowSize.x || tid.y >= (uint)FlowSize.y)
         return;
 
-    // Half-resolution flow grid. Each cell represents a 2x2 full-resolution region.
     int2 currentCenter = min(int2(tid.xy) * 2 + int2(1, 1), FrameSize - int2(1, 1));
     float2 center = (float2(FrameSize) - 1.0) * 0.5;
 
-    // Remove deterministic orthographic camera translation/zoom first. The search
-    // therefore only needs to find local residual motion (pawns, projectiles, motes).
+    // Remove deterministic orthographic camera translation/zoom first. Residual
+    // search is then reserved for local object motion such as pawns/projectiles.
     float2 currentFromCenter = float2(currentCenter) - center;
     float safeZoom = max(ZoomScale, 0.001);
     float2 predictedPrevious = center + currentFromCenter / safeZoom - GlobalShiftPixels;
 
     float bestError = 1e20;
+    float secondError = 1e20;
     int2 best = int2(0, 0);
 
-    // Small search radius keeps this predictable and GPU-friendly.
     [loop]
     for (int dy = -3; dy <= 3; ++dy)
     {
@@ -98,14 +107,34 @@ void CSMain(uint3 tid : SV_DispatchThreadID)
             float e = PatchError(currentCenter, predictedPrevious + float2(dx, dy));
             if (e < bestError)
             {
+                secondError = bestError;
                 bestError = e;
                 best = int2(dx, dy);
+            }
+            else if (e < secondError)
+            {
+                secondError = e;
             }
         }
     }
 
-    // Low-texture/ambiguous regions are safer with no residual motion.
-    float2 residual = bestError < 0.32 ? float2(best) : float2(0.0, 0.0);
+    // Confidence is based on uniqueness of the best match. Occlusion edges and
+    // repeated/flat textures typically produce several similarly good matches;
+    // those vectors are attenuated toward zero instead of creating pawn double images.
+    float uniqueness = saturate((secondError - bestError) / max(secondError, 0.0001));
+    float contrast = saturate(LocalContrast(currentCenter) * 5.0);
+    float errorGate = 1.0 - smoothstep(0.22, 0.42, bestError);
+    float confidence = uniqueness * contrast * errorGate;
+
+    // Require a meaningful confidence floor, then smoothly scale the vector.
+    float weight = smoothstep(0.10, 0.42, confidence);
+    float2 residual = float2(best) * weight;
+
+    // Tiny sub-pixel-like residuals are not useful on the half-res grid and tend
+    // to shimmer around sprite edges, so snap weak vectors to zero.
+    if (dot(residual, residual) < 0.20)
+        residual = float2(0.0, 0.0);
+
     ResidualFlow[tid.xy] = residual;
 }
 )HLSL";
