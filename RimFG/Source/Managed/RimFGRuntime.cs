@@ -38,6 +38,9 @@ namespace RimFG
         private bool generatedLogged;
         private bool swapChainLogged;
         private bool injectedPresentLogged;
+        private bool renderBridgeLogged;
+        private string lastRenderBridgeError;
+        private int retryCaptureAfterFrame;
         private uint frameIndex;
 
         private readonly HudRect[] hudRects = new HudRect[8];
@@ -83,34 +86,37 @@ namespace RimFG
             if (!nativeAvailable)
                 return;
 
-            UpdateAdaptivePresentState();
-
-            Camera cam = Camera.main;
-            EnsureSceneCapture(cam, Screen.width, Screen.height);
-
-            Vector3 cameraPos = cam != null ? cam.transform.position : Vector3.zero;
-            BuildHudRects(Screen.width, Screen.height);
-
-            var metadata = new FrameMetadata
-            {
-                abiVersion = NativeInterop.AbiVersion,
-                frameIndex = ++frameIndex,
-                screenWidth = Screen.width,
-                screenHeight = Screen.height,
-                cameraX = cameraPos.x,
-                cameraY = cameraPos.y,
-                cameraZ = cameraPos.z,
-                orthographicSize = cam != null && cam.orthographic ? cam.orthographicSize : 0f,
-                unscaledDeltaTime = Time.unscaledDeltaTime,
-                paused = Find.TickManager != null && Find.TickManager.Paused ? 1 : 0,
-                gameSpeed = Find.TickManager != null ? (int)Find.TickManager.CurTimeSpeed : 0,
-                hudRectCount = hudRectCount
-            };
-
             try
             {
+                UpdateAdaptivePresentState();
+
+                Camera cam = ResolveCaptureCamera();
+                if (Time.frameCount >= retryCaptureAfterFrame)
+                    EnsureSceneCapture(cam, Screen.width, Screen.height);
+
+                Vector3 cameraPos = cam != null ? cam.transform.position : Vector3.zero;
+                BuildHudRects(Screen.width, Screen.height);
+
+                var metadata = new FrameMetadata
+                {
+                    abiVersion = NativeInterop.AbiVersion,
+                    frameIndex = ++frameIndex,
+                    screenWidth = Screen.width,
+                    screenHeight = Screen.height,
+                    cameraX = cameraPos.x,
+                    cameraY = cameraPos.y,
+                    cameraZ = cameraPos.z,
+                    orthographicSize = cam != null && cam.orthographic ? cam.orthographicSize : 0f,
+                    unscaledDeltaTime = Time.unscaledDeltaTime,
+                    paused = Find.TickManager != null && Find.TickManager.Paused ? 1 : 0,
+                    gameSpeed = Find.TickManager != null ? (int)Find.TickManager.CurTimeSpeed : 0,
+                    hudRectCount = hudRectCount
+                };
+
+                // Metadata is tiny CPU-side state. The actual capture and native callback
+                // are both queued in one Camera CommandBuffer and execute on Unity's
+                // render thread in strict GPU order: CameraTarget -> sceneCapture -> event.
                 NativeInterop.RimFG_SubmitFrameState(ref metadata, hudRects, hudRectCount);
-                GL.IssuePluginEvent(renderEventFunc, 1);
 
                 if (!nativeReadyLogged && NativeInterop.RimFG_IsD3D11Ready() != 0)
                 {
@@ -133,14 +139,59 @@ namespace RimFG
                 if (!injectedPresentLogged && NativeInterop.RimFG_GetGeneratedPresentCount() > 0UL)
                 {
                     injectedPresentLogged = true;
-                    Log.Message("[RimFG] First generated frame was presented before the real Unity frame. 2x Present path is active.");
+                    Log.Message("[RimFG] First generated frame reached the Present path.");
                 }
             }
             catch (Exception ex)
             {
-                nativeAvailable = false;
-                try { NativeInterop.RimFG_SetPresentMode((int)PresentMode.Disabled); } catch { }
-                Log.Warning("[RimFG] Native bridge disabled after runtime error: " + ex.Message);
+                // Never let a presentation experiment poison RimWorld's update loop.
+                // Tear down only the camera-side bridge and retry later; the real game
+                // Present and simulation remain authoritative and unblocked.
+                HandleRenderBridgeFailure(ex);
+            }
+        }
+
+        private Camera ResolveCaptureCamera()
+        {
+            if (captureCamera != null && captureCamera.isActiveAndEnabled)
+                return captureCamera;
+
+            Camera main = Camera.main;
+            if (main != null && main.isActiveAndEnabled)
+                return main;
+
+            Camera[] cameras = Camera.allCameras;
+            Camera best = null;
+            float bestArea = 0f;
+            for (int i = 0; i < cameras.Length; ++i)
+            {
+                Camera c = cameras[i];
+                if (c == null || !c.isActiveAndEnabled)
+                    continue;
+
+                Rect p = c.pixelRect;
+                float area = p.width * p.height;
+                if (c.orthographic)
+                    area *= 2f;
+                if (area > bestArea)
+                {
+                    bestArea = area;
+                    best = c;
+                }
+            }
+            return best;
+        }
+
+        private void HandleRenderBridgeFailure(Exception ex)
+        {
+            string message = ex.GetType().Name + ": " + ex.Message;
+            ReleaseSceneCapture();
+            retryCaptureAfterFrame = Time.frameCount + 120;
+
+            if (lastRenderBridgeError != message)
+            {
+                lastRenderBridgeError = message;
+                Log.Warning("[RimFG] Render bridge failed closed; native Present remains pass-through. Retrying in 120 frames. " + message);
             }
         }
 
@@ -233,13 +284,28 @@ namespace RimFG
                 wrapMode = TextureWrapMode.Clamp
             };
             sceneCapture.Create();
+            if (!sceneCapture.IsCreated())
+                throw new InvalidOperationException("RenderTexture.Create returned no GPU resource.");
 
-            captureCommands = new CommandBuffer { name = "RimFG HUD-less GPU scene capture" };
+            captureCommands = new CommandBuffer { name = "RimFG GPU capture + native render event" };
             captureCommands.Blit(BuiltinRenderTextureType.CameraTarget, sceneCapture);
+            captureCommands.IssuePluginEvent(renderEventFunc, 1);
             captureCamera.AddCommandBuffer(CameraEvent.AfterEverything, captureCommands);
 
+            // Called only on create/recreate. Native takes its own COM reference before
+            // the pointer crosses to the render thread; no framebuffer readback occurs.
             IntPtr nativeTexture = sceneCapture.GetNativeTexturePtr();
+            if (nativeTexture == IntPtr.Zero)
+                throw new InvalidOperationException("RenderTexture returned a null D3D11 texture pointer.");
             NativeInterop.RimFG_SetSceneTexture(nativeTexture, width, height);
+
+            retryCaptureAfterFrame = 0;
+            lastRenderBridgeError = null;
+            if (!renderBridgeLogged)
+            {
+                renderBridgeLogged = true;
+                Log.Message("[RimFG] Unified render-thread bridge armed on camera '" + captureCamera.name + "'.");
+            }
         }
 
         private void ReleaseSceneCapture()
@@ -314,23 +380,22 @@ namespace RimFG
                 AddHudRect(0f, height - bottomHeight - paneHeight, paneWidth, paneHeight, width, height);
             }
 
-            // RimWorld FloatMenus, dialogs and most mod windows live in WindowStack.
-            // Copy their real pixels into generated Presents rather than interpolating
-            // them. The stack is tiny in normal play and this loop performs no image
-            // work and no per-frame reflection/allocations.
             WindowStack stack = Find.WindowStack;
-            if (stack != null)
-            {
-                var windows = stack.Windows;
-                for (int i = 0; i < windows.Count && hudRectCount < hudRects.Length; ++i)
-                {
-                    Window window = windows[i];
-                    if (window == null)
-                        continue;
+            if (stack == null)
+                return;
 
-                    Rect rect = window.windowRect;
-                    AddHudRect(rect.xMin - 4f, rect.yMin - 4f, rect.width + 8f, rect.height + 8f, width, height);
-                }
+            var windows = stack.Windows;
+            if (windows == null)
+                return;
+
+            for (int i = 0; i < windows.Count && hudRectCount < hudRects.Length; ++i)
+            {
+                Window window = windows[i];
+                if (window == null)
+                    continue;
+
+                Rect rect = window.windowRect;
+                AddHudRect(rect.xMin - 4f, rect.yMin - 4f, rect.width + 8f, rect.height + 8f, width, height);
             }
         }
     }
