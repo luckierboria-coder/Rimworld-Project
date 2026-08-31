@@ -1,0 +1,34 @@
+name: Build RimMT V0.9.1 RC2-T2 Baseline-first
+
+on:
+  push:
+    branches: [ rimmt-v0.9.1-rc2-t2-production-redesign ]
+    paths:
+      - 'RimMT-RC2-T2-Redesign/**'
+      - '.github/workflows/build-rimmt-rc2-t2-redesign.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore RimMT-RC2-T2-Redesign/Source/RimMTRC2T2/RimMTRC2T2.csproj
+      - name: Build
+        run: dotnet build RimMT-RC2-T2-Redesign/Source/RimMTRC2T2/RimMTRC2T2.csproj -c Release --no-restore
+      - name: Verify
+        shell: pwsh
+        run: |
+          $dll='RimMT-RC2-T2-Redesign/1.5/Assemblies/RimMT.RC2T2.dll'
+          if (!(Test-Path $dll)) { throw "missing $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.1-RC2-T2-BaselineFirst
+          path: RimMT-RC2-T2-Redesign/1.5/Assemblies/RimMT.RC2T2.dll
+          if-no-files-found: error
