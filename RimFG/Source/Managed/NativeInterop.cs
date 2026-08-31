@@ -46,10 +46,7 @@ namespace RimFG
         internal static extern IntPtr RimFG_GetRenderEventFunc();
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void RimFG_SubmitFrameState(
-            ref FrameMetadata metadata,
-            [In] HudRect[] rects,
-            int count);
+        internal static extern void RimFG_SubmitFrameState(ref FrameMetadata metadata, [In] HudRect[] rects, int count);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void RimFG_SetSceneTexture(IntPtr nativeTexture, int width, int height);
@@ -65,6 +62,12 @@ namespace RimFG
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int RimFG_HasUnitySwapChain();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern ulong RimFG_GetGeneratedPresentCount();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern ulong RimFG_GetSkippedPresentCount();
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void RimFG_StopPresentHook();
