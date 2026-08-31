@@ -24,22 +24,10 @@ namespace RimMTRC2T2
 
         private static bool installed;
         private static int patchedGenClosestMethods;
-        private static long largeSetCalls;
-        private static long prioritizedCalls;
-        private static long safeValidatorFirstCalls;
-        private static long conservativeCalls;
-        private static long rescuedValidatorFirst;
-        private static long rescuedConservative;
-        private static long fallbackCalls;
-        private static long unsafePriorityFallback;
-        private static long sourceItemsSeen;
-        private static long priorityCalls;
-        private static long validatorCalls;
-        private static long validatorRejected;
-        private static long reachChecks;
-        private static long reachRejected;
-        private static long reachAvoidedByValidator;
-        private static long failures;
+        private static long largeSetCalls, prioritizedCalls, safeValidatorFirstCalls, conservativeCalls;
+        private static long rescuedValidatorFirst, rescuedConservative, fallbackCalls, unsafePriorityFallback;
+        private static long sourceItemsSeen, priorityCalls, validatorCalls, validatorRejected;
+        private static long reachChecks, reachRejected, reachAvoidedByValidator, failures;
 
         static LargeSetTailRescue() { LongEventHandler.ExecuteWhenFinished(Install); }
 
@@ -51,11 +39,9 @@ namespace RimMTRC2T2
             {
                 MethodInfo job = AccessTools.Method(typeof(JobGiver_Work), "TryIssueJobPackage");
                 if (job != null)
-                {
                     Harmony.Patch(job,
                         prefix: new HarmonyMethod(typeof(LargeSetTailRescue), nameof(JobScopePrefix)) { priority = Priority.First },
                         finalizer: new HarmonyMethod(typeof(LargeSetTailRescue), nameof(JobScopeFinalizer)) { priority = Priority.Last });
-                }
 
                 foreach (MethodInfo m in typeof(GenClosest).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
                 {
@@ -85,7 +71,7 @@ namespace RimMTRC2T2
         }
 
         public static void JobScopePrefix() { jobScopeDepth++; }
-        public static Exception JobScopeFinalizer(Exception __exception) { if (jobScopeDepth > 0) jobScopeDepth--; return __exception; }
+        public static Exception JobScopeFinalizer(Exception ex) { if (jobScopeDepth > 0) jobScopeDepth--; return ex; }
 
         public static bool GenClosestPrefix(MethodBase __originalMethod, object[] __args, ref Thing __result)
         {
@@ -113,11 +99,9 @@ namespace RimMTRC2T2
 
                 Predicate<Thing> validator = GetDelegateArg<Predicate<Thing>>(ps, __args, "validator");
                 bool validatorFirst = validator != null && IsSafeVanillaWorkValidator(validator);
-
                 Interlocked.Increment(ref largeSetCalls);
                 if (prioritized) Interlocked.Increment(ref prioritizedCalls);
-                if (validatorFirst) Interlocked.Increment(ref safeValidatorFirstCalls);
-                else Interlocked.Increment(ref conservativeCalls);
+                if (validatorFirst) Interlocked.Increment(ref safeValidatorFirstCalls); else Interlocked.Increment(ref conservativeCalls);
 
                 PathEndMode peMode = GetArg<PathEndMode>(ps, __args, "peMode");
                 TraverseParms traverseParms = GetArg<TraverseParms>(ps, __args, "traverseParams", "traverseParms");
@@ -145,7 +129,6 @@ namespace RimMTRC2T2
                 {
                     Thing t = windowThings[i];
                     if (t == null) continue;
-
                     if (validatorFirst)
                     {
                         Interlocked.Increment(ref validatorCalls);
@@ -155,43 +138,37 @@ namespace RimMTRC2T2
                             Interlocked.Increment(ref reachAvoidedByValidator);
                             continue;
                         }
-
                         Interlocked.Increment(ref reachChecks);
                         if (!map.reachability.CanReach(root, t.SpawnedParentOrMe, peMode, traverseParms))
                         {
                             Interlocked.Increment(ref reachRejected);
                             continue;
                         }
-
                         __result = t;
                         Interlocked.Increment(ref rescuedValidatorFirst);
                         ClearWindow(count);
                         return false;
                     }
-                    else
+
+                    Interlocked.Increment(ref reachChecks);
+                    if (!map.reachability.CanReach(root, t.SpawnedParentOrMe, peMode, traverseParms))
                     {
-                        Interlocked.Increment(ref reachChecks);
-                        if (!map.reachability.CanReach(root, t.SpawnedParentOrMe, peMode, traverseParms))
+                        Interlocked.Increment(ref reachRejected);
+                        continue;
+                    }
+                    if (validator != null)
+                    {
+                        Interlocked.Increment(ref validatorCalls);
+                        if (!validator(t))
                         {
-                            Interlocked.Increment(ref reachRejected);
+                            Interlocked.Increment(ref validatorRejected);
                             continue;
                         }
-
-                        if (validator != null)
-                        {
-                            Interlocked.Increment(ref validatorCalls);
-                            if (!validator(t))
-                            {
-                                Interlocked.Increment(ref validatorRejected);
-                                continue;
-                            }
-                        }
-
-                        __result = t;
-                        Interlocked.Increment(ref rescuedConservative);
-                        ClearWindow(count);
-                        return false;
                     }
+                    __result = t;
+                    Interlocked.Increment(ref rescuedConservative);
+                    ClearWindow(count);
+                    return false;
                 }
 
                 Interlocked.Increment(ref fallbackCalls);
@@ -201,7 +178,8 @@ namespace RimMTRC2T2
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
-                if (Interlocked.Read(ref failures) <= 4) Log.Warning("[RimMT] RC2-T2 validator-first rescue failed closed to Vanilla: " + ex.GetType().Name + ": " + ex.Message);
+                if (Interlocked.Read(ref failures) <= 4)
+                    Log.Warning("[RimMT] RC2-T2 validator-first rescue failed closed to Vanilla: " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
         }
@@ -211,13 +189,11 @@ namespace RimMTRC2T2
             if (d == null || d.Method == null || d.Method.DeclaringType == null) return false;
             try
             {
-                Assembly vanillaAssembly = typeof(WorkGiver).Assembly;
-                if (d.Method.DeclaringType.Assembly != vanillaAssembly) return false;
+                if (d.Method.DeclaringType.Assembly != typeof(WorkGiver).Assembly) return false;
                 string typeName = d.Method.DeclaringType.FullName ?? string.Empty;
-                if (typeName.IndexOf("WorkGiver", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    typeName.IndexOf("JobGiver", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    !ClosureContainsWorkContext(d.Target)) return false;
-                return true;
+                return typeName.IndexOf("WorkGiver", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       typeName.IndexOf("JobGiver", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       ClosureContainsWorkContext(d.Target);
             }
             catch { return false; }
         }
@@ -225,12 +201,12 @@ namespace RimMTRC2T2
         private static bool ClosureContainsWorkContext(object target)
         {
             if (target == null) return false;
-            Type t = target.GetType();
-            foreach (FieldInfo f in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            foreach (FieldInfo f in target.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
             {
                 Type ft = f.FieldType;
-                if (typeof(WorkGiver).IsAssignableFrom(ft) || typeof(JobGiver).IsAssignableFrom(ft) || ft == typeof(Pawn))
-                    return true;
+                if (typeof(WorkGiver).IsAssignableFrom(ft) || ft == typeof(Pawn)) return true;
+                string n = ft.FullName ?? string.Empty;
+                if (n.IndexOf("JobGiver", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             }
             return false;
         }
@@ -238,8 +214,7 @@ namespace RimMTRC2T2
         private static bool IsSafeWorkScannerPriority(Delegate d)
         {
             if (d == null || d.Target == null) return false;
-            Type t = d.Target.GetType();
-            foreach (FieldInfo f in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            foreach (FieldInfo f in d.Target.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
             {
                 if (!typeof(WorkGiver_Scanner).IsAssignableFrom(f.FieldType)) continue;
                 try { if (f.GetValue(d.Target) is WorkGiver_Scanner) return true; } catch { }
@@ -280,46 +255,48 @@ namespace RimMTRC2T2
         private static bool BetterThan(float p1, int d1, float p2, int d2, bool prioritized)
         {
             if (!prioritized) return d1 < d2;
-            if (p1 > p2) return true;
-            if (p1 < p2) return false;
+            if (p1 != p2) return p1 > p2;
             return d1 < d2;
         }
 
-        private static void ClearWindow(int count)
-        {
-            for (int i = 0; i < count; i++) windowThings[i] = null;
-        }
+        private static void ClearWindow(int count) { for (int i = 0; i < count; i++) windowThings[i] = null; }
 
         private static T GetArg<T>(ParameterInfo[] ps, object[] args, params string[] names)
         {
-            foreach (string name in names) for (int i = 0; i < ps.Length && i < args.Length; i++) if (string.Equals(ps[i].Name, name, StringComparison.OrdinalIgnoreCase) && args[i] is T) return (T)args[i];
+            foreach (string name in names)
+                for (int i = 0; i < ps.Length && i < args.Length; i++)
+                    if (string.Equals(ps[i].Name, name, StringComparison.OrdinalIgnoreCase) && args[i] is T) return (T)args[i];
             for (int i = 0; i < ps.Length && i < args.Length; i++) if (args[i] is T) return (T)args[i];
             return default(T);
         }
 
         private static IEnumerable<Thing> GetEnumerable(ParameterInfo[] ps, object[] args, string preferredName)
         {
-            for (int i = 0; i < ps.Length && i < args.Length; i++) if (string.Equals(ps[i].Name, preferredName, StringComparison.OrdinalIgnoreCase)) { IEnumerable<Thing> e = args[i] as IEnumerable<Thing>; if (e != null) return e; }
-            for (int i = 0; i < ps.Length && i < args.Length; i++) { IEnumerable<Thing> e = args[i] as IEnumerable<Thing>; if (e != null) return e; }
+            for (int i = 0; i < ps.Length && i < args.Length; i++)
+                if (string.Equals(ps[i].Name, preferredName, StringComparison.OrdinalIgnoreCase) && args[i] is IEnumerable<Thing>) return (IEnumerable<Thing>)args[i];
+            for (int i = 0; i < ps.Length && i < args.Length; i++) if (args[i] is IEnumerable<Thing>) return (IEnumerable<Thing>)args[i];
             return null;
         }
 
         private static T GetDelegateArg<T>(ParameterInfo[] ps, object[] args, string preferredName) where T : class
         {
-            for (int i = 0; i < ps.Length && i < args.Length; i++) if (string.Equals(ps[i].Name, preferredName, StringComparison.OrdinalIgnoreCase)) return args[i] as T;
-            for (int i = 0; i < args.Length; i++) { T d = args[i] as T; if (d != null) return d; }
+            for (int i = 0; i < ps.Length && i < args.Length; i++)
+                if (string.Equals(ps[i].Name, preferredName, StringComparison.OrdinalIgnoreCase)) return args[i] as T;
+            for (int i = 0; i < args.Length; i++) if (args[i] is T) return args[i] as T;
             return null;
         }
 
         private static bool GetBoolArg(ParameterInfo[] ps, object[] args, string name, bool fallback)
         {
-            for (int i = 0; i < ps.Length && i < args.Length; i++) if (string.Equals(ps[i].Name, name, StringComparison.OrdinalIgnoreCase) && args[i] is bool) return (bool)args[i];
+            for (int i = 0; i < ps.Length && i < args.Length; i++)
+                if (string.Equals(ps[i].Name, name, StringComparison.OrdinalIgnoreCase) && args[i] is bool) return (bool)args[i];
             return fallback;
         }
 
         private static float GetFloatArg(ParameterInfo[] ps, object[] args, string name, float fallback)
         {
-            for (int i = 0; i < ps.Length && i < args.Length; i++) if (string.Equals(ps[i].Name, name, StringComparison.OrdinalIgnoreCase) && args[i] is float) return (float)args[i];
+            for (int i = 0; i < ps.Length && i < args.Length; i++)
+                if (string.Equals(ps[i].Name, name, StringComparison.OrdinalIgnoreCase) && args[i] is float) return (float)args[i];
             return fallback;
         }
 
