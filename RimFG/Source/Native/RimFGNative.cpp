@@ -77,7 +77,7 @@ namespace
 #pragma pack(pop)
 
     static_assert(sizeof(FrameMetadata) == 48, "Managed/native ABI mismatch for FrameMetadata");
-    static_assert(sizeof(HudRect) == 16, "Managed/native ABI mismatch for HudRect");
+    static_assert(sizeof(HudRect) == 16, "Managed/native HUD ABI mismatch");
     static_assert(sizeof(MotionConstants) == 32, "D3D11 constant buffer alignment mismatch");
     static_assert(sizeof(RimFGPresent::HudRectPx) == sizeof(HudRect), "Present HUD ABI mismatch");
 
@@ -121,6 +121,11 @@ namespace
     int g_frameHeight = 0;
     DXGI_FORMAT g_frameFormat = DXGI_FORMAT_UNKNOWN;
 
+    // Async presentation happens after the current real frame. Therefore the generated
+    // image must be a half-step prediction, not the old previous/current midpoint.
+    // The prediction is intentionally conservative: camera motion + zoom are projected
+    // forward by 0.5 frame and residual flow is applied at half strength. The current
+    // frame remains the sole color source, which avoids temporal backtracking.
     constexpr const char* kInterpolateShader = R"HLSL(
 Texture2D<float4> PreviousFrame : register(t0);
 Texture2D<float4> CurrentFrame  : register(t1);
@@ -139,34 +144,27 @@ int2 ClampCoord(float2 p)
     int2 q = int2(round(p));
     return clamp(q, int2(0, 0), FrameSize - int2(1, 1));
 }
-float LumaDiff(float3 a, float3 b)
-{
-    float3 d = abs(a - b);
-    return dot(d, float3(0.299, 0.587, 0.114));
-}
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint)FrameSize.x || id.y >= (uint)FrameSize.y) return;
+
     float2 p = float2(id.xy);
     float2 center = (float2(FrameSize) - 1.0) * 0.5;
     float safeZoom = max(ZoomScale, 0.001);
-    float midpointZoom = sqrt(safeZoom);
-    float2 centered = p - center - ImageShiftPixels * 0.5;
-    float2 prevCoord = center + centered / midpointZoom;
-    float2 currCoord = center + centered * (safeZoom / midpointZoom) + ImageShiftPixels;
+    float halfStepZoom = sqrt(safeZoom);
+
+    // Predict where the current image would be sampled for a +0.5 frame motion step.
+    float2 predictedCoord = center + (p - center - ImageShiftPixels * 0.5) / halfStepZoom;
+
     if (UseResidualFlow > 0.5 && FlowSize.x > 0 && FlowSize.y > 0)
     {
         int2 fp = clamp(int2(id.xy / 2), int2(0, 0), FlowSize - int2(1, 1));
         float2 residual = ResidualFlow.Load(int3(fp, 0));
-        prevCoord += residual * 0.5;
-        currCoord -= residual * 0.5;
+        predictedCoord -= residual * 0.5;
     }
-    float4 a = PreviousFrame.Load(int3(ClampCoord(prevCoord), 0));
-    float4 b = CurrentFrame.Load(int3(ClampCoord(currCoord), 0));
-    float disagreement = LumaDiff(a.rgb, b.rgb);
-    float currentBias = smoothstep(0.16, 0.48, disagreement) * 0.18;
-    OutputFrame[id.xy] = lerp(a, b, 0.5 + currentBias);
+
+    OutputFrame[id.xy] = CurrentFrame.Load(int3(ClampCoord(predictedCoord), 0));
 }
 )HLSL";
 
@@ -198,15 +196,28 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         if (!g_device) return false;
         ComPtr<ID3DBlob> bytecode;
         ComPtr<ID3DBlob> errors;
-        const HRESULT hr = D3DCompile(kInterpolateShader, std::strlen(kInterpolateShader), "RimFG.CameraZoomFlowInterpolateCS", nullptr, nullptr, "CSMain", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &bytecode, &errors);
-        if (FAILED(hr) || !bytecode) return false;
-        if (FAILED(g_device->CreateComputeShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &g_interpolateCs))) return false;
+        const HRESULT hr = D3DCompile(kInterpolateShader, std::strlen(kInterpolateShader), "RimFG.ForwardHalfStepCS", nullptr, nullptr, "CSMain", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &bytecode, &errors);
+        if (FAILED(hr) || !bytecode)
+        {
+            g_nativeStage.store(static_cast<int>(NativeStage::ErrorShader));
+            return false;
+        }
+        if (FAILED(g_device->CreateComputeShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &g_interpolateCs)))
+        {
+            g_nativeStage.store(static_cast<int>(NativeStage::ErrorShader));
+            return false;
+        }
         D3D11_BUFFER_DESC cb{};
         cb.ByteWidth = sizeof(MotionConstants);
         cb.Usage = D3D11_USAGE_DYNAMIC;
         cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        return SUCCEEDED(g_device->CreateBuffer(&cb, nullptr, &g_motionConstants));
+        if (FAILED(g_device->CreateBuffer(&cb, nullptr, &g_motionConstants)))
+        {
+            g_nativeStage.store(static_cast<int>(NativeStage::ErrorMotionConstants));
+            return false;
+        }
+        return true;
     }
 
     bool EnsureFrameResources(ID3D11Texture2D* source)
@@ -248,8 +259,6 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             return false;
         }
 
-        // Always create a same-format plain GPU texture. This guarantees a safe
-        // duplicate-frame fallback even when this swapchain format cannot be UAV-bound.
         D3D11_TEXTURE2D_DESC generated = history;
         generated.BindFlags = 0;
         if (FAILED(g_device->CreateTexture2D(&generated, nullptr, &g_generatedFrame)))
@@ -282,7 +291,6 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             }
         }
 
-        // Optical flow is optional. Its failure must never prevent baseline FG.
         g_flowReady = false;
         if (g_computeReady)
             g_flowReady = g_flowBackend.Initialize(g_device, static_cast<int>(desc.Width), static_cast<int>(desc.Height));
@@ -389,7 +397,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return true;
     }
 
-    bool GenerateMidpointFrame(ID3D11Texture2D* source, const MetadataSlot& slot)
+    bool GeneratePredictedFrame(ID3D11Texture2D* source, const MetadataSlot& slot)
     {
         g_nativeStage.store(static_cast<int>(NativeStage::BackbufferSeen), std::memory_order_release);
         if (!source || slot.frame.abiVersion != kAbiVersion || !EnsureFrameResources(source)) return false;
@@ -445,9 +453,6 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
         if (!generatedByCompute)
         {
-            // Fail-soft validation path: keep the entire present pipeline alive even
-            // when the swapchain format lacks typed UAV support or shader setup fails.
-            // This is GPU->GPU only and proves the Present path independently.
             g_context->CopyResource(g_generatedFrame.Get(), g_currentFrame.Get());
             g_nativeStage.store(static_cast<int>(NativeStage::DuplicateFallback), std::memory_order_release);
         }
@@ -477,7 +482,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         if (!g_enabled.load(std::memory_order_relaxed) || !backBuffer) return false;
         const MetadataSlot slot = ReadLatestSlot();
         if (slot.frame.abiVersion != kAbiVersion) return false;
-        if (!GenerateMidpointFrame(backBuffer, slot)) return false;
+        if (!GeneratePredictedFrame(backBuffer, slot)) return false;
         PublishGeneratedFrame(slot);
         return true;
     }
