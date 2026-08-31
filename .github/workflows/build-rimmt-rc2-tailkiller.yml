@@ -1,0 +1,34 @@
+name: Build RimMT V0.9.1 RC2 Tail Killer
+
+on:
+  push:
+    branches: [ rimmt-v0.9.1-rc2 ]
+    paths:
+      - 'RimMT-RC2-TailKiller/**'
+      - '.github/workflows/build-rimmt-rc2-tailkiller.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore RimMT-RC2-TailKiller/Source/RimMTRC2Tail/RimMTRC2Tail.csproj
+      - name: Build
+        run: dotnet build RimMT-RC2-TailKiller/Source/RimMTRC2Tail/RimMTRC2Tail.csproj -c Release --no-restore
+      - name: Verify
+        shell: pwsh
+        run: |
+          $dll='RimMT-RC2-TailKiller/1.5/Assemblies/RimMT.RC2Tail.dll'
+          if (!(Test-Path $dll)) { throw "missing $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.1-RC2-TailKiller
+          path: RimMT-RC2-TailKiller/1.5/Assemblies/RimMT.RC2Tail.dll
+          if-no-files-found: error
