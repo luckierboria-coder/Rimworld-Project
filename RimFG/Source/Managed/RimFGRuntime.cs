@@ -88,8 +88,7 @@ namespace RimFG
 
             try
             {
-                NativeInterop.RimFG_SubmitFrameMetadata(ref metadata);
-                NativeInterop.RimFG_SubmitHudRects(hudRects, hudRectCount);
+                NativeInterop.RimFG_SubmitFrameState(ref metadata, hudRects, hudRectCount);
 
                 // Queues GPU/native work onto Unity's render thread. No framebuffer readback occurs here.
                 GL.IssuePluginEvent(renderEventFunc, 1);
@@ -116,14 +115,11 @@ namespace RimFG
             if (width <= 0 || height <= 0)
                 return;
 
-            // Top colonist/resource/alerts region.
             hudRects[hudRectCount++] = new HudRect(0f, 0f, width, Mathf.Min(150f, height * 0.14f));
 
-            // Bottom tabs/gizmos/inspect controls region.
             float bottomHeight = Mathf.Min(260f, height * 0.25f);
             hudRects[hudRectCount++] = new HudRect(0f, height - bottomHeight, width, bottomHeight);
 
-            // Left-side inspection pane reserve. Conservative only while a map is active.
             if (Find.CurrentMap != null)
             {
                 float paneWidth = Mathf.Min(520f, width * 0.24f);
