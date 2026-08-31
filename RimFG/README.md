@@ -27,9 +27,15 @@ Implemented on branch `rimfg-v0.1`:
 - Runtime-compiled D3D11 compute shader producing a real midpoint GPU frame.
 - DXGI `IDXGISwapChain::Present` interception using MinHook.
 - Swapchain filtering to the current RimWorld process/window.
+- GPU-only real-frame scratch/composite surfaces.
+- Conservative HUD regions copied from the real backbuffer onto generated frames.
+- Generated midpoint Present inserted immediately before the original Unity Present.
+- Flip-model-safe backbuffer reacquisition between generated and real Presents.
+- Fail-safe bypass on TEST presents, exclusive fullscreen, format/size/MSAA mismatch, or missing GPU resources.
+- Native telemetry counters for generated/skipped Presents.
 - Windows x64 native CI build.
 
-The midpoint algorithm is currently a simple GPU blend. It exists to validate the complete zero-readback frame-history path before replacing the interpolation kernel with camera-aware warping and optical flow.
+The midpoint algorithm is currently a simple GPU blend. It exists to validate the complete zero-readback history/composite/Present path before replacing the interpolation kernel with camera-aware warping and optical flow.
 
 ## Pipeline
 
@@ -49,17 +55,38 @@ RimFG.Native / D3D11
    v
 DXGI Present hook
    |
-   +-- current milestone: identify RimWorld swapchain
-   +-- next milestone: composite HUD + schedule generated/real presents
+   | preserve full real backbuffer -> GPU scratch
+   | generated scene -> composite
+   | real HUD rectangles -> composite
+   |
+   +--> Present generated midpoint
+   |
+   | reacquire active backbuffer
+   | restore preserved real frame
+   v
+Original Unity Present
 ```
+
+## Current limitation: frame pacing
+
+The V0.1 double-Present path is now wired, but the inserted generated Present currently uses immediate presentation before Unity's original Present. This validates correctness and resource lifetime without intentionally blocking RimWorld's simulation/main thread.
+
+The next pacing milestone is to distribute generated and real Presents across display intervals without adding meaningful CPU work. Candidate modes are:
+
+1. conservative VSync 2x pacing for high-refresh displays;
+2. DXGI/frame-latency-assisted pacing where supported;
+3. adaptive bypass when base FPS or GPU headroom is insufficient.
+
+RimFG must not gain smoothness by simply sleeping or performing image work on the RimWorld main thread.
 
 ## Next milestone
 
-1. Build a present-sized generated composite texture.
-2. Preserve real HUD/UI from the current backbuffer while replacing only the scene area with the generated frame.
-3. Insert one generated Present between consecutive real Presents.
-4. Add frame pacing and fail-safe bypass for resize/device reset/low base FPS.
-5. Replace simple midpoint blend with camera-aware warp and then optical flow.
+1. Validate the native double-Present build in CI and in RimWorld 1.5.
+2. Add an explicit safe enable/disable setting for generated Present injection.
+3. Add proper 2x display pacing and resize/device-reset recovery telemetry.
+4. Replace simple midpoint blend with camera-aware warp.
+5. Add vendor-neutral optical flow, then optional NVIDIA Optical Flow D3D11 backend.
+6. Replace coarse HUD bands with dynamic RimWorld UI/window masking.
 
 ## Optical-flow backends
 
@@ -86,4 +113,4 @@ You may pass `UNITY_PLUGIN_API_DIR` to headers matching the exact Unity build. I
 
 ## Status
 
-Development prototype. It now creates GPU-resident intermediate frames and captures RimWorld's DXGI Present path, but does not yet display generated frames to the monitor. The independent double-Present/composite stage is the remaining V0.1 blocker.
+Development prototype. The GPU-only midpoint generation, HUD composite, DXGI hook, and Generated Present -> Real Present chain are now implemented. The remaining V0.1 blockers are build/runtime validation, safe user controls, and proper display pacing.
