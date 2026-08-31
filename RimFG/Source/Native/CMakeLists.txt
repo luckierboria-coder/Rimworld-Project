@@ -7,9 +7,6 @@ endif()
 
 include(FetchContent)
 
-# Prefer an explicitly supplied Unity PluginAPI directory (best for matching the
-# exact Unity version used by the target RimWorld build). For CI/development,
-# fall back to Unity's official NativeRenderingPlugin headers.
 if(NOT DEFINED UNITY_PLUGIN_API_DIR OR UNITY_PLUGIN_API_DIR STREQUAL "")
   FetchContent_Declare(
     unity_native_rendering
@@ -21,8 +18,6 @@ if(NOT DEFINED UNITY_PLUGIN_API_DIR OR UNITY_PLUGIN_API_DIR STREQUAL "")
   set(UNITY_PLUGIN_API_DIR "${unity_native_rendering_SOURCE_DIR}/PluginSource/source/Unity")
 endif()
 
-# Present interception is process-local and only targets swapchains created on
-# Unity's D3D11 device. MinHook is statically linked into RimFG.Native.
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   minhook
@@ -35,6 +30,8 @@ FetchContent_MakeAvailable(minhook)
 add_library(RimFG.Native SHARED
   RimFGNative.cpp
   PresentHook.cpp
+  OpticalFlowBackend.cpp
+  GpuBudget.cpp
 )
 
 target_compile_features(RimFG.Native PRIVATE cxx_std_17)
