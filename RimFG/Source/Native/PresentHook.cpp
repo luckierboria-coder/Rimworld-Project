@@ -77,10 +77,7 @@ namespace RimFGPresent
         double g_realIntervalSeconds = 1.0 / 30.0;
         double g_generationQuota = 0.0;
 
-        LRESULT CALLBACK DummyWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
-        {
-            return DefWindowProc(hwnd, msg, wp, lp);
-        }
+        LRESULT CALLBACK DummyWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) { return DefWindowProc(hwnd, msg, wp, lp); }
 
         bool IsCurrentProcessWindow(HWND hwnd)
         {
@@ -131,60 +128,37 @@ namespace RimFGPresent
         {
             for (auto& slot : g_asyncSlots)
             {
-                slot.composite.Reset();
-                slot.swapChain.Reset();
-                slot.width = 0;
-                slot.height = 0;
-                slot.format = DXGI_FORMAT_UNKNOWN;
-                slot.sequence = 0;
+                slot.composite.Reset(); slot.swapChain.Reset(); slot.width = 0; slot.height = 0;
+                slot.format = DXGI_FORMAT_UNKNOWN; slot.sequence = 0;
             }
-            g_multithread.Reset();
-            g_asyncContext.Reset();
-            g_asyncDevice.Reset();
-            g_asyncWidth = 0;
-            g_asyncHeight = 0;
-            g_asyncFormat = DXGI_FORMAT_UNKNOWN;
+            g_multithread.Reset(); g_asyncContext.Reset(); g_asyncDevice.Reset();
+            g_asyncWidth = 0; g_asyncHeight = 0; g_asyncFormat = DXGI_FORMAT_UNKNOWN;
         }
 
         bool EnsureAsyncResources(ID3D11Device* device, ID3D11Texture2D* backBuffer)
         {
             if (!device || !backBuffer) return false;
-            D3D11_TEXTURE2D_DESC desc{};
-            backBuffer->GetDesc(&desc);
+            D3D11_TEXTURE2D_DESC desc{}; backBuffer->GetDesc(&desc);
             if (!desc.Width || !desc.Height || desc.SampleDesc.Count != 1) return false;
-
-            if (g_asyncDevice.Get() == device && g_asyncContext &&
-                g_asyncWidth == desc.Width && g_asyncHeight == desc.Height && g_asyncFormat == desc.Format &&
-                g_asyncSlots[0].composite && g_asyncSlots[1].composite)
-                return true;
+            if (g_asyncDevice.Get() == device && g_asyncContext && g_asyncWidth == desc.Width && g_asyncHeight == desc.Height &&
+                g_asyncFormat == desc.Format && g_asyncSlots[0].composite && g_asyncSlots[1].composite) return true;
 
             ReleaseAsyncResources();
             g_asyncDevice = device;
             device->GetImmediateContext(&g_asyncContext);
             if (!g_asyncContext) return false;
-
             g_asyncContext.As(&g_multithread);
-            if (g_multithread)
-                g_multithread->SetMultithreadProtected(TRUE);
+            if (g_multithread) g_multithread->SetMultithreadProtected(TRUE);
 
             D3D11_TEXTURE2D_DESC copy = desc;
-            copy.MipLevels = 1;
-            copy.ArraySize = 1;
-            copy.Usage = D3D11_USAGE_DEFAULT;
-            copy.BindFlags = 0;
-            copy.CPUAccessFlags = 0;
-            copy.MiscFlags = 0;
-
+            copy.MipLevels = 1; copy.ArraySize = 1; copy.Usage = D3D11_USAGE_DEFAULT;
+            copy.BindFlags = 0; copy.CPUAccessFlags = 0; copy.MiscFlags = 0;
             if (FAILED(device->CreateTexture2D(&copy, nullptr, &g_asyncSlots[0].composite)) ||
                 FAILED(device->CreateTexture2D(&copy, nullptr, &g_asyncSlots[1].composite)))
             {
-                ReleaseAsyncResources();
-                return false;
+                ReleaseAsyncResources(); return false;
             }
-
-            g_asyncWidth = desc.Width;
-            g_asyncHeight = desc.Height;
-            g_asyncFormat = desc.Format;
+            g_asyncWidth = desc.Width; g_asyncHeight = desc.Height; g_asyncFormat = desc.Format;
             return true;
         }
 
@@ -200,23 +174,17 @@ namespace RimFGPresent
             if (FAILED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf()))) || !backBuffer) return 0;
 
             D3D11_TEXTURE2D_DESC backDesc{}, sourceDesc{};
-            backBuffer->GetDesc(&backDesc);
-            source.texture->GetDesc(&sourceDesc);
+            backBuffer->GetDesc(&backDesc); source.texture->GetDesc(&sourceDesc);
             if (backDesc.Width != sourceDesc.Width || backDesc.Height != sourceDesc.Height || backDesc.Format != sourceDesc.Format ||
-                backDesc.SampleDesc.Count != 1 || sourceDesc.SampleDesc.Count != 1)
-                return 0;
+                backDesc.SampleDesc.Count != 1 || sourceDesc.SampleDesc.Count != 1) return 0;
             if (!EnsureAsyncResources(device.Get(), backBuffer.Get())) return 0;
 
             const std::uint64_t next = g_preparedSequence + 1u;
             AsyncFrameSlot& slot = g_asyncSlots[next & 1u];
             g_asyncContext->CopyResource(slot.composite.Get(), source.texture);
             CopyHudRects(g_asyncContext.Get(), backBuffer.Get(), slot.composite.Get(), source, backDesc.Width, backDesc.Height);
-            slot.swapChain = swapChain;
-            slot.width = backDesc.Width;
-            slot.height = backDesc.Height;
-            slot.format = backDesc.Format;
-            slot.sequence = next;
-            g_preparedSequence = next;
+            slot.swapChain = swapChain; slot.width = backDesc.Width; slot.height = backDesc.Height;
+            slot.format = backDesc.Format; slot.sequence = next; g_preparedSequence = next;
             return next;
         }
 
@@ -232,20 +200,11 @@ namespace RimFGPresent
 
             const double baseFps = 1.0 / std::max(1.0 / 240.0, g_realIntervalSeconds);
             const double targetFps = static_cast<double>(std::max(1, g_targetOutputFps.load(std::memory_order_acquire)));
-            if (targetFps <= baseFps + 0.5)
-            {
-                g_generationQuota = 0.0;
-                return false;
-            }
+            if (targetFps <= baseFps + 0.5) { g_generationQuota = 0.0; return false; }
 
-            // V0.1 supports one generated frame per real frame. Therefore the useful
-            // generated/real ratio is [0,1]. A later 3x mode can extend this without
-            // changing the target-FPS UI semantics.
             const double generatedPerReal = std::max(0.0, std::min(1.0, targetFps / baseFps - 1.0));
             g_generationQuota = std::min(2.0, g_generationQuota + generatedPerReal);
-            if (g_generationQuota < 1.0)
-                return false;
-
+            if (g_generationQuota < 1.0) return false;
             g_generationQuota -= 1.0;
             return true;
         }
@@ -272,11 +231,9 @@ namespace RimFGPresent
             {
                 g_presenterCv.wait(lock, [] { return g_presenterStop || g_scheduledSequence != 0; });
                 if (g_presenterStop) break;
-
                 const std::uint64_t sequence = g_scheduledSequence;
                 const Clock::time_point deadline = g_scheduledDeadline;
-                if (g_presenterCv.wait_until(lock, deadline, [sequence] { return g_presenterStop || g_scheduledSequence != sequence; }))
-                    continue;
+                if (g_presenterCv.wait_until(lock, deadline, [sequence] { return g_presenterStop || g_scheduledSequence != sequence; })) continue;
                 if (g_presenterStop) break;
 
                 AsyncFrameSlot slot = g_asyncSlots[sequence & 1u];
@@ -295,23 +252,17 @@ namespace RimFGPresent
                     ComPtr<ID3D11Texture2D> backBuffer;
                     if (SUCCEEDED(slot.swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf()))) && backBuffer && g_asyncContext)
                     {
-                        D3D11_TEXTURE2D_DESC desc{};
-                        backBuffer->GetDesc(&desc);
+                        D3D11_TEXTURE2D_DESC desc{}; backBuffer->GetDesc(&desc);
                         if (desc.Width == slot.width && desc.Height == slot.height && desc.Format == slot.format && desc.SampleDesc.Count == 1)
                         {
                             g_asyncContext->CopyResource(backBuffer.Get(), slot.composite.Get());
-                            HRESULT hr = g_originalPresent(slot.swapChain.Get(), 0, DXGI_PRESENT_DO_NOT_WAIT);
-                            // Never fall back to a potentially blocking Present here.
+                            const HRESULT hr = g_originalPresent(slot.swapChain.Get(), 0, DXGI_PRESENT_DO_NOT_WAIT);
                             presented = SUCCEEDED(hr);
                         }
                     }
                 }
-
-                if (presented)
-                    g_generatedPresentCount.fetch_add(1, std::memory_order_relaxed);
-                else
-                    g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
-
+                if (presented) g_generatedPresentCount.fetch_add(1, std::memory_order_relaxed);
+                else g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
                 lock.lock();
             }
         }
@@ -320,7 +271,6 @@ namespace RimFGPresent
         {
             const bool targetSwapChain = IsTargetSwapChain(swapChain);
             const bool isRealPresent = targetSwapChain && (flags & DXGI_PRESENT_TEST) == 0;
-            const Clock::time_point now = Clock::now();
             bool wantsGenerated = false;
             std::uint64_t prepared = 0;
             PresentMode mode = PresentMode::Disabled;
@@ -329,8 +279,7 @@ namespace RimFGPresent
             {
                 g_unitySwapChain.store(swapChain, std::memory_order_release);
                 mode = static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire));
-                if (isRealPresent)
-                    wantsGenerated = mode != PresentMode::Disabled && UpdateRealTimingAndDecideGeneration(now);
+                if (isRealPresent) wantsGenerated = mode != PresentMode::Disabled && UpdateRealTimingAndDecideGeneration(Clock::now());
 
                 BackbufferGenerationCallback callback = g_generationCallback.load(std::memory_order_acquire);
                 if (callback && isRealPresent)
@@ -339,19 +288,14 @@ namespace RimFGPresent
                     if (SUCCEEDED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf()))) && backBuffer)
                         callback(backBuffer.Get());
                 }
-
-                if (wantsGenerated)
-                    prepared = PrepareAsyncGeneratedFrame(swapChain);
+                if (wantsGenerated) prepared = PrepareAsyncGeneratedFrame(swapChain);
             }
 
             const HRESULT hr = g_originalPresent ? g_originalPresent(swapChain, syncInterval, flags) : E_FAIL;
-
             if (isRealPresent && wantsGenerated)
             {
-                if (SUCCEEDED(hr) && prepared)
-                    ScheduleGeneratedFrame(prepared, Clock::now());
-                else
-                    g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
+                if (SUCCEEDED(hr) && prepared) ScheduleGeneratedFrame(prepared, Clock::now());
+                else g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
             }
             return hr;
         }
@@ -367,18 +311,13 @@ namespace RimFGPresent
             if (!atom && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
             HWND hwnd = CreateWindowExW(0, className, L"", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr, wc.hInstance, nullptr);
             if (!hwnd) return false;
-
             DXGI_SWAP_CHAIN_DESC desc{};
             desc.BufferCount = 1; desc.BufferDesc.Width = 64; desc.BufferDesc.Height = 64; desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
             desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; desc.OutputWindow = hwnd; desc.SampleDesc.Count = 1; desc.Windowed = TRUE; desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
             D3D_FEATURE_LEVEL requested[] = { D3D_FEATURE_LEVEL_11_0 }, created{};
             ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context; ComPtr<IDXGISwapChain> chain;
             const HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, requested, 1, D3D11_SDK_VERSION, &desc, &chain, &device, &created, &context);
-            if (SUCCEEDED(hr) && chain)
-            {
-                void** vtable = *reinterpret_cast<void***>(chain.Get());
-                *outAddress = vtable[8];
-            }
+            if (SUCCEEDED(hr) && chain) { void** vtable = *reinterpret_cast<void***>(chain.Get()); *outAddress = vtable[8]; }
             DestroyWindow(hwnd); UnregisterClassW(className, wc.hInstance);
             return *outAddress != nullptr;
         }
@@ -394,12 +333,7 @@ namespace RimFGPresent
         if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) return false;
         if (MH_CreateHook(presentAddress, &HookPresent, reinterpret_cast<void**>(&g_originalPresent)) != MH_OK) { MH_Uninitialize(); return false; }
         if (MH_EnableHook(presentAddress) != MH_OK) { MH_RemoveHook(presentAddress); MH_Uninitialize(); g_originalPresent = nullptr; return false; }
-
-        {
-            std::lock_guard<std::mutex> lock(g_presenterMutex);
-            g_presenterStop = false;
-            g_scheduledSequence = 0;
-        }
+        { std::lock_guard<std::mutex> lock(g_presenterMutex); g_presenterStop = false; g_scheduledSequence = 0; }
         g_presenterThread = std::thread(PresenterMain);
         g_installed.store(true, std::memory_order_release);
         return true;
@@ -407,16 +341,10 @@ namespace RimFGPresent
 
     void Shutdown()
     {
-        {
-            std::lock_guard<std::mutex> lock(g_presenterMutex);
-            g_presenterStop = true;
-            g_scheduledSequence = 0;
-        }
+        { std::lock_guard<std::mutex> lock(g_presenterMutex); g_presenterStop = true; g_scheduledSequence = 0; }
         g_presenterCv.notify_all();
         if (g_presenterThread.joinable()) g_presenterThread.join();
-
-        ClearGeneratedFrameSource();
-        ReleaseAsyncResources();
+        ClearGeneratedFrameSource(); ReleaseAsyncResources();
         g_generationCallback.store(nullptr, std::memory_order_release);
         if (g_installed.exchange(false, std::memory_order_acq_rel)) { MH_DisableHook(MH_ALL_HOOKS); MH_Uninitialize(); }
         g_originalPresent = nullptr; g_unitySwapChain.store(nullptr, std::memory_order_release); g_unityDevice = nullptr;
@@ -431,12 +359,13 @@ namespace RimFGPresent
         if (mode == PresentMode::Disabled)
         {
             std::lock_guard<std::mutex> lock(g_presenterMutex);
-            g_scheduledSequence = 0;
-            g_generationQuota = 0.0;
-            g_presenterCv.notify_one();
+            g_scheduledSequence = 0; g_generationQuota = 0.0; g_presenterCv.notify_one();
         }
     }
     PresentMode GetPresentMode() { return static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire)); }
+    void SetTargetOutputFps(int fps) { g_targetOutputFps.store(std::max(15, std::min(240, fps)), std::memory_order_release); }
+    int GetTargetOutputFps() { return g_targetOutputFps.load(std::memory_order_acquire); }
+    double GetEstimatedBaseFps() { return 1.0 / std::max(1.0 / 240.0, g_realIntervalSeconds); }
     void SetBackbufferGenerationCallback(BackbufferGenerationCallback callback) { g_generationCallback.store(callback, std::memory_order_release); }
 
     void SetGeneratedFrameSource(ID3D11Texture2D* generatedFrame, int width, int height, const HudRectPx* hudRects, int hudRectCount, std::uint32_t frameIndex)
@@ -471,14 +400,8 @@ extern "C" __declspec(dllexport) void __cdecl RimFG_SetPresentMode(int mode)
     RimFGPresent::SetPresentMode(static_cast<RimFGPresent::PresentMode>(mode));
 }
 extern "C" __declspec(dllexport) int __cdecl RimFG_GetPresentMode() { return static_cast<int>(RimFGPresent::GetPresentMode()); }
-extern "C" __declspec(dllexport) void __cdecl RimFG_SetTargetOutputFps(int fps)
-{
-    g_targetOutputFps.store(std::max(15, std::min(240, fps)), std::memory_order_release);
-}
-extern "C" __declspec(dllexport) int __cdecl RimFG_GetTargetOutputFps() { return g_targetOutputFps.load(std::memory_order_acquire); }
-extern "C" __declspec(dllexport) double __cdecl RimFG_GetEstimatedBaseFps()
-{
-    return 1.0 / std::max(1.0 / 240.0, g_realIntervalSeconds);
-}
+extern "C" __declspec(dllexport) void __cdecl RimFG_SetTargetOutputFps(int fps) { RimFGPresent::SetTargetOutputFps(fps); }
+extern "C" __declspec(dllexport) int __cdecl RimFG_GetTargetOutputFps() { return RimFGPresent::GetTargetOutputFps(); }
+extern "C" __declspec(dllexport) double __cdecl RimFG_GetEstimatedBaseFps() { return RimFGPresent::GetEstimatedBaseFps(); }
 extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetGeneratedPresentCount() { return RimFGPresent::GeneratedPresentCount(); }
 extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetSkippedPresentCount() { return RimFGPresent::SkippedPresentCount(); }
