@@ -1,0 +1,35 @@
+name: Build RimFG Native
+
+on:
+  push:
+    branches: [rimfg-v0.1]
+    paths:
+      - 'RimFG/Source/Native/**'
+      - '.github/workflows/build-rimfg-native.yml'
+  workflow_dispatch:
+
+jobs:
+  build-native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        shell: pwsh
+        run: cmake -S RimFG/Source/Native -B RimFG/Source/Native/build -A x64
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build RimFG/Source/Native/build --config Release
+
+      - name: Stage artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          Copy-Item RimFG/Plugins/x86_64/RimFG.Native.dll artifact/RimFG.Native.dll
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RimFG-Native-x64
+          path: artifact/RimFG.Native.dll
+          if-no-files-found: error
