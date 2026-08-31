@@ -39,33 +39,13 @@ namespace RimFG
         }
     }
 
-    internal enum PresentMode
-    {
-        Disabled = 0,
-        ImmediateValidation = 1,
-        VSync2x = 2
-    }
-
-    internal enum GpuQualityTier
-    {
-        Bypass = 0,
-        CameraZoomOnly = 1,
-        ResidualFlow = 2
-    }
-
+    internal enum PresentMode { Disabled = 0, ImmediateValidation = 1, VSync2x = 2 }
+    internal enum GpuQualityTier { Bypass = 0, CameraZoomOnly = 1, ResidualFlow = 2 }
     internal enum NativeStage
     {
-        ErrorMotionConstants = -6,
-        ErrorOutputTexture = -5,
-        ErrorShader = -4,
-        ErrorHistoryTexture = -3,
-        ErrorBadBackbuffer = -2,
-        ErrorNoDevice = -1,
-        Idle = 0,
-        BackbufferSeen = 1,
-        HistoryPrimed = 2,
-        Generated = 3,
-        DuplicateFallback = 4
+        ErrorMotionConstants = -6, ErrorOutputTexture = -5, ErrorShader = -4,
+        ErrorHistoryTexture = -3, ErrorBadBackbuffer = -2, ErrorNoDevice = -1,
+        Idle = 0, BackbufferSeen = 1, HistoryPrimed = 2, Generated = 3, DuplicateFallback = 4
     }
 
     internal static class NativeInterop
@@ -83,67 +63,35 @@ namespace RimFG
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr LoadLibraryExW(string lpFileName, IntPtr hFile, uint dwFlags);
-
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr LoadLibraryW(string lpFileName);
-
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
         private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
         internal static void ConfigureModRoot(string root)
         {
-            if (!string.IsNullOrEmpty(root))
-                modRoot = root;
+            if (!string.IsNullOrEmpty(root)) modRoot = root;
         }
 
         internal static bool EnsureNativeLoaded(out string error)
         {
-            if (nativeModule != IntPtr.Zero)
-            {
-                error = null;
-                return true;
-            }
-
-            string[] candidates;
-            if (!string.IsNullOrEmpty(modRoot))
-            {
-                candidates = new[]
-                {
-                    Path.Combine(modRoot, "Assemblies", "RimFG.Native.dll"),
-                    Path.Combine(modRoot, "Plugins", "x86_64", "RimFG.Native.dll")
-                };
-            }
-            else
-            {
-                candidates = new[]
-                {
-                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "RimFG.Native.dll")
-                };
-            }
+            if (nativeModule != IntPtr.Zero) { error = null; return true; }
+            string[] candidates = !string.IsNullOrEmpty(modRoot)
+                ? new[] { Path.Combine(modRoot, "Assemblies", "RimFG.Native.dll"), Path.Combine(modRoot, "Plugins", "x86_64", "RimFG.Native.dll") }
+                : new[] { Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "RimFG.Native.dll") };
 
             string last = null;
             foreach (string path in candidates)
             {
-                if (!File.Exists(path))
-                {
-                    last = "Native DLL not found at: " + path;
-                    continue;
-                }
-
+                if (!File.Exists(path)) { last = "Native DLL not found at: " + path; continue; }
                 IntPtr module = LoadLibraryExW(path, IntPtr.Zero, LoadLibrarySearchDllLoadDir | LoadLibrarySearchDefaultDirs);
                 int loadError = Marshal.GetLastWin32Error();
-                if (module == IntPtr.Zero)
-                {
-                    module = LoadLibraryW(path);
-                    loadError = Marshal.GetLastWin32Error();
-                }
-
+                if (module == IntPtr.Zero) { module = LoadLibraryW(path); loadError = Marshal.GetLastWin32Error(); }
                 if (module == IntPtr.Zero)
                 {
                     last = "LoadLibrary failed for '" + path + "' (Win32 " + loadError + ": " + new Win32Exception(loadError).Message + ").";
                     continue;
                 }
-
                 IntPtr entry = GetProcAddress(module, "RimFG_GetRenderEventFunc");
                 if (entry == IntPtr.Zero)
                 {
@@ -151,65 +99,35 @@ namespace RimFG
                     last = "RimFG.Native.dll loaded from '" + path + "' but required entrypoint RimFG_GetRenderEventFunc is missing (Win32 " + entryError + ").";
                     continue;
                 }
-
                 nativeModule = module;
                 LoadedNativePath = path;
                 LastLoadError = null;
                 error = null;
                 return true;
             }
-
             LastLoadError = last ?? "No RimFG.Native.dll candidate path was available.";
             error = LastLoadError;
             return false;
         }
 
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern IntPtr RimFG_GetRenderEventFunc();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void RimFG_SubmitFrameState(ref FrameMetadata metadata, [In] HudRect[] rects, int count);
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void RimFG_SetSceneTexture(IntPtr nativeTexture, int width, int height);
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int RimFG_IsD3D11Ready();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int RimFG_HasGeneratedFrame();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int RimFG_GetNativeStage();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int RimFG_StartPresentHook();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int RimFG_HasUnitySwapChain();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void RimFG_SetPresentMode(int mode);
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int RimFG_GetPresentMode();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern ulong RimFG_GetGeneratedPresentCount();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern ulong RimFG_GetSkippedPresentCount();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int RimFG_GetGpuQualityTier();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern double RimFG_GetGpuFrameGenerationMs();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void RimFG_StopPresentHook();
-
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern void RimFG_SetEnabled(int enabled);
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr RimFG_GetRenderEventFunc();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern void RimFG_SubmitFrameState(ref FrameMetadata metadata, [In] HudRect[] rects, int count);
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern void RimFG_SetSceneTexture(IntPtr nativeTexture, int width, int height);
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_IsD3D11Ready();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_HasGeneratedFrame();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_GetNativeStage();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_StartPresentHook();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_HasUnitySwapChain();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern void RimFG_SetPresentMode(int mode);
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_GetPresentMode();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern void RimFG_SetTargetOutputFps(int fps);
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_GetTargetOutputFps();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern double RimFG_GetEstimatedBaseFps();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetGeneratedPresentCount();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetSkippedPresentCount();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_GetGpuQualityTier();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern double RimFG_GetGpuFrameGenerationMs();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern void RimFG_StopPresentHook();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern void RimFG_SetEnabled(int enabled);
     }
 }
