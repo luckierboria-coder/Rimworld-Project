@@ -71,7 +71,7 @@ namespace RimMTRC2T2
         }
 
         public static void JobScopePrefix() { jobScopeDepth++; }
-        public static Exception JobScopeFinalizer(Exception ex) { if (jobScopeDepth > 0) jobScopeDepth--; return ex; }
+        public static Exception JobScopeFinalizer(Exception __exception) { if (jobScopeDepth > 0) jobScopeDepth--; return __exception; }
 
         public static bool GenClosestPrefix(MethodBase __originalMethod, object[] __args, ref Thing __result)
         {
