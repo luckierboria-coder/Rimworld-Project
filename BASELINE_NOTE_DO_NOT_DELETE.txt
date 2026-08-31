@@ -1,0 +1,1 @@
+RC2-T2 is an experimental performance branch. Do not treat it as the stable playable baseline. Stable baseline is maintained separately on rimmt-v0.9.1-baseline-b1.
