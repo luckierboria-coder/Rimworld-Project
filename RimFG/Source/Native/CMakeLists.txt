@@ -30,6 +30,7 @@ FetchContent_MakeAvailable(minhook)
 add_library(RimFG.Native SHARED
   RimFGNative.cpp
   PresentHook.cpp
+  Present1Bridge.cpp
   OpticalFlowBackend.cpp
   GpuBudget.cpp
 )
