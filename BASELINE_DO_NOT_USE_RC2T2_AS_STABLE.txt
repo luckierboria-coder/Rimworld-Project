@@ -1,0 +1,1 @@
+RC2-T2 remains an experimental optimization branch. Stable playable baseline is maintained separately as rimmt-v0.9.1-baseline-b1.
