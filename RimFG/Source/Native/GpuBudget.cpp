@@ -71,18 +71,27 @@ namespace RimFGFlow
 
     void GpuBudget::UpdateTier()
     {
+        // Never enter a terminal GPU-quality bypass here. GenerateMidpointFrame()
+        // cannot collect new timestamp samples while QualityTier::Bypass is active,
+        // so the old state machine could permanently lock itself in Bypass after a
+        // single expensive period. Presentation-level adaptive bypass is handled by
+        // the managed runtime and can be disabled explicitly by the user.
+        //
+        // The GPU quality controller therefore only switches between residual-flow
+        // and the cheaper camera/zoom path. This keeps timing queries alive and lets
+        // the EMA recover naturally without adding any framebuffer readback or CPU
+        // image work.
         if (tier_ == QualityTier::ResidualFlow)
         {
-            if (emaMs_ > 3.5) tier_ = QualityTier::CameraZoomOnly;
+            if (emaMs_ > 3.5)
+                tier_ = QualityTier::CameraZoomOnly;
         }
-        else if (tier_ == QualityTier::CameraZoomOnly)
+        else
         {
-            if (emaMs_ > 6.0) tier_ = QualityTier::Bypass;
-            else if (emaMs_ < 2.6) tier_ = QualityTier::ResidualFlow;
-        }
-        else if (emaMs_ < 4.5)
-        {
-            tier_ = QualityTier::CameraZoomOnly;
+            if (emaMs_ < 2.6)
+                tier_ = QualityTier::ResidualFlow;
+            else
+                tier_ = QualityTier::CameraZoomOnly;
         }
     }
 }
