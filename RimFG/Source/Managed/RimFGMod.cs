@@ -25,6 +25,12 @@ namespace RimFG
 
         public RimFGMod(ModContentPack content) : base(content)
         {
+            NativeInterop.ConfigureModRoot(content.RootDir);
+            if (NativeInterop.EnsureNativeLoaded(out string loadError))
+                Log.Message("[RimFG] Explicit native load succeeded: " + NativeInterop.LoadedNativePath);
+            else
+                Log.Warning("[RimFG] Explicit native load failed: " + loadError);
+
             Settings = GetSettings<RimFGSettings>();
         }
 
@@ -58,20 +64,29 @@ namespace RimFG
             listing.Label("Live GPU telemetry");
             try
             {
-                double gpuMs = NativeInterop.RimFG_GetGpuFrameGenerationMs();
-                GpuQualityTier tier = (GpuQualityTier)NativeInterop.RimFG_GetGpuQualityTier();
-                ulong generated = NativeInterop.RimFG_GetGeneratedPresentCount();
-                ulong skipped = NativeInterop.RimFG_GetSkippedPresentCount();
-                int swapchain = NativeInterop.RimFG_HasUnitySwapChain();
+                if (!NativeInterop.EnsureNativeLoaded(out string loadError))
+                {
+                    listing.Label("Native backend load failed:");
+                    listing.Label(loadError ?? "unknown error");
+                }
+                else
+                {
+                    double gpuMs = NativeInterop.RimFG_GetGpuFrameGenerationMs();
+                    GpuQualityTier tier = (GpuQualityTier)NativeInterop.RimFG_GetGpuQualityTier();
+                    ulong generated = NativeInterop.RimFG_GetGeneratedPresentCount();
+                    ulong skipped = NativeInterop.RimFG_GetSkippedPresentCount();
+                    int swapchain = NativeInterop.RimFG_HasUnitySwapChain();
 
-                listing.Label("FG GPU EMA: " + (gpuMs > 0.0 ? gpuMs.ToString("F2") + " ms" : "warming up"));
-                listing.Label("Quality tier: " + tier);
-                listing.Label("Generated Presents: " + generated + "   Skipped: " + skipped);
-                listing.Label("DXGI swapchain: " + (swapchain != 0 ? "captured" : "not captured yet"));
+                    listing.Label("Native: loaded");
+                    listing.Label("FG GPU EMA: " + (gpuMs > 0.0 ? gpuMs.ToString("F2") + " ms" : "warming up"));
+                    listing.Label("Quality tier: " + tier);
+                    listing.Label("Generated Presents: " + generated + "   Skipped: " + skipped);
+                    listing.Label("DXGI swapchain: " + (swapchain != 0 ? "captured" : "not captured yet"));
+                }
             }
-            catch
+            catch (System.Exception ex)
             {
-                listing.Label("Telemetry unavailable — native backend not loaded.");
+                listing.Label("Native backend call failed: " + ex.GetType().Name + " — " + ex.Message);
             }
 
             listing.GapLine();
@@ -88,7 +103,11 @@ namespace RimFG
         {
             Settings.presentMode = mode;
             Settings.Write();
-            try { NativeInterop.RimFG_SetPresentMode((int)mode); }
+            try
+            {
+                if (NativeInterop.EnsureNativeLoaded(out _))
+                    NativeInterop.RimFG_SetPresentMode((int)mode);
+            }
             catch { }
         }
     }
