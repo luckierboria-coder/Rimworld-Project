@@ -47,6 +47,7 @@ namespace RimFGPresent
         std::atomic<bool> g_installed{false};
         std::atomic<IDXGISwapChain*> g_unitySwapChain{nullptr};
         std::atomic<int> g_presentMode{static_cast<int>(PresentMode::ImmediateValidation)};
+        std::atomic<int> g_targetOutputFps{60};
         std::atomic<BackbufferGenerationCallback> g_generationCallback{nullptr};
         ID3D11Device* g_unityDevice = nullptr;
         PresentFn g_originalPresent = nullptr;
@@ -74,6 +75,7 @@ namespace RimFGPresent
         Clock::time_point g_scheduledDeadline{};
         Clock::time_point g_lastRealPresent{};
         double g_realIntervalSeconds = 1.0 / 30.0;
+        double g_generationQuota = 0.0;
 
         LRESULT CALLBACK DummyWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         {
@@ -218,25 +220,47 @@ namespace RimFGPresent
             return next;
         }
 
-        void ScheduleGeneratedFrame(std::uint64_t sequence, Clock::time_point now)
+        bool UpdateRealTimingAndDecideGeneration(Clock::time_point now)
         {
-            if (!sequence) return;
-
             if (g_lastRealPresent.time_since_epoch().count() != 0)
             {
-                double seconds = std::chrono::duration<double>(now - g_lastRealPresent).count();
-                if (seconds >= 1.0 / 240.0 && seconds <= 1.0 / 12.0)
-                    g_realIntervalSeconds += (seconds - g_realIntervalSeconds) * 0.15;
+                const double seconds = std::chrono::duration<double>(now - g_lastRealPresent).count();
+                if (seconds >= 1.0 / 240.0 && seconds <= 1.0 / 8.0)
+                    g_realIntervalSeconds += (seconds - g_realIntervalSeconds) * 0.12;
             }
             g_lastRealPresent = now;
 
-            const double half = std::max(0.002, std::min(0.030, g_realIntervalSeconds * 0.5));
+            const double baseFps = 1.0 / std::max(1.0 / 240.0, g_realIntervalSeconds);
+            const double targetFps = static_cast<double>(std::max(1, g_targetOutputFps.load(std::memory_order_acquire)));
+            if (targetFps <= baseFps + 0.5)
+            {
+                g_generationQuota = 0.0;
+                return false;
+            }
+
+            // V0.1 supports one generated frame per real frame. Therefore the useful
+            // generated/real ratio is [0,1]. A later 3x mode can extend this without
+            // changing the target-FPS UI semantics.
+            const double generatedPerReal = std::max(0.0, std::min(1.0, targetFps / baseFps - 1.0));
+            g_generationQuota = std::min(2.0, g_generationQuota + generatedPerReal);
+            if (g_generationQuota < 1.0)
+                return false;
+
+            g_generationQuota -= 1.0;
+            return true;
+        }
+
+        void ScheduleGeneratedFrame(std::uint64_t sequence, Clock::time_point now)
+        {
+            if (!sequence) return;
+            const double targetPeriod = 1.0 / static_cast<double>(std::max(1, g_targetOutputFps.load(std::memory_order_acquire)));
+            const double delay = std::max(0.002, std::min(0.030, std::min(g_realIntervalSeconds * 0.5, targetPeriod)));
             {
                 std::lock_guard<std::mutex> lock(g_presenterMutex);
                 if (g_scheduledSequence != 0 && g_scheduledSequence != sequence)
                     g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
                 g_scheduledSequence = sequence;
-                g_scheduledDeadline = now + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(half));
+                g_scheduledDeadline = now + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(delay));
             }
             g_presenterCv.notify_one();
         }
@@ -277,8 +301,7 @@ namespace RimFGPresent
                         {
                             g_asyncContext->CopyResource(backBuffer.Get(), slot.composite.Get());
                             HRESULT hr = g_originalPresent(slot.swapChain.Get(), 0, DXGI_PRESENT_DO_NOT_WAIT);
-                            if (hr == DXGI_ERROR_INVALID_CALL)
-                                hr = g_originalPresent(slot.swapChain.Get(), 0, 0);
+                            // Never fall back to a potentially blocking Present here.
                             presented = SUCCEEDED(hr);
                         }
                     }
@@ -295,30 +318,35 @@ namespace RimFGPresent
 
         HRESULT __stdcall HookPresent(IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
         {
-            const bool target = IsTargetSwapChain(swapChain);
+            const bool targetSwapChain = IsTargetSwapChain(swapChain);
+            const bool isRealPresent = targetSwapChain && (flags & DXGI_PRESENT_TEST) == 0;
+            const Clock::time_point now = Clock::now();
+            bool wantsGenerated = false;
             std::uint64_t prepared = 0;
             PresentMode mode = PresentMode::Disabled;
 
-            if (target)
+            if (targetSwapChain)
             {
                 g_unitySwapChain.store(swapChain, std::memory_order_release);
                 mode = static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire));
+                if (isRealPresent)
+                    wantsGenerated = mode != PresentMode::Disabled && UpdateRealTimingAndDecideGeneration(now);
 
                 BackbufferGenerationCallback callback = g_generationCallback.load(std::memory_order_acquire);
-                if (callback && (flags & DXGI_PRESENT_TEST) == 0)
+                if (callback && isRealPresent)
                 {
                     ComPtr<ID3D11Texture2D> backBuffer;
                     if (SUCCEEDED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf()))) && backBuffer)
                         callback(backBuffer.Get());
                 }
 
-                if (mode != PresentMode::Disabled && (flags & DXGI_PRESENT_TEST) == 0)
+                if (wantsGenerated)
                     prepared = PrepareAsyncGeneratedFrame(swapChain);
             }
 
             const HRESULT hr = g_originalPresent ? g_originalPresent(swapChain, syncInterval, flags) : E_FAIL;
 
-            if (target && mode != PresentMode::Disabled && (flags & DXGI_PRESENT_TEST) == 0)
+            if (isRealPresent && wantsGenerated)
             {
                 if (SUCCEEDED(hr) && prepared)
                     ScheduleGeneratedFrame(prepared, Clock::now());
@@ -404,6 +432,7 @@ namespace RimFGPresent
         {
             std::lock_guard<std::mutex> lock(g_presenterMutex);
             g_scheduledSequence = 0;
+            g_generationQuota = 0.0;
             g_presenterCv.notify_one();
         }
     }
@@ -442,5 +471,14 @@ extern "C" __declspec(dllexport) void __cdecl RimFG_SetPresentMode(int mode)
     RimFGPresent::SetPresentMode(static_cast<RimFGPresent::PresentMode>(mode));
 }
 extern "C" __declspec(dllexport) int __cdecl RimFG_GetPresentMode() { return static_cast<int>(RimFGPresent::GetPresentMode()); }
+extern "C" __declspec(dllexport) void __cdecl RimFG_SetTargetOutputFps(int fps)
+{
+    g_targetOutputFps.store(std::max(15, std::min(240, fps)), std::memory_order_release);
+}
+extern "C" __declspec(dllexport) int __cdecl RimFG_GetTargetOutputFps() { return g_targetOutputFps.load(std::memory_order_acquire); }
+extern "C" __declspec(dllexport) double __cdecl RimFG_GetEstimatedBaseFps()
+{
+    return 1.0 / std::max(1.0 / 240.0, g_realIntervalSeconds);
+}
 extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetGeneratedPresentCount() { return RimFGPresent::GeneratedPresentCount(); }
 extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetSkippedPresentCount() { return RimFGPresent::SkippedPresentCount(); }
