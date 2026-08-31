@@ -137,9 +137,6 @@ namespace RimFGPresent
             if (mode == PresentMode::Disabled || !swapChain || !g_originalPresent || !g_sourceAvailable.load(std::memory_order_acquire)) return false;
             if ((originalFlags & DXGI_PRESENT_TEST) != 0) return false;
 
-            DXGI_SWAP_CHAIN_DESC chainDesc{};
-            if (FAILED(swapChain->GetDesc(&chainDesc)) || !chainDesc.Windowed) return false;
-
             const GeneratedSourceSlot source = ReadLatestSource();
             if (!source.texture || source.width <= 0 || source.height <= 0) return false;
 
@@ -164,7 +161,8 @@ namespace RimFGPresent
             context->CopyResource(backBuffer.Get(), g_generatedComposite.Get());
 
             const UINT generatedSync = mode == PresentMode::VSync2x ? 1u : 0u;
-            const HRESULT generatedHr = g_originalPresent(swapChain, generatedSync, 0);
+            const UINT generatedFlags = 0u;
+            const HRESULT generatedHr = g_originalPresent(swapChain, generatedSync, generatedFlags);
             if (FAILED(generatedHr)) return false;
 
             backBuffer.Reset();
@@ -183,9 +181,6 @@ namespace RimFGPresent
             if (IsTargetSwapChain(swapChain))
             {
                 g_unitySwapChain.store(swapChain, std::memory_order_release);
-
-                // Generate from the actual RimWorld backbuffer. This is intentionally
-                // GPU-resident and removes the fragile Unity Camera/RenderTexture bridge.
                 BackbufferGenerationCallback callback = g_generationCallback.load(std::memory_order_acquire);
                 if (callback && (flags & DXGI_PRESENT_TEST) == 0)
                 {
