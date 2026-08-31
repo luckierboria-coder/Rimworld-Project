@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using System.Threading;
 using HarmonyLib;
@@ -13,21 +14,30 @@ namespace RimMTRC2T2
     internal static class LargeSetTailRescue
     {
         private const string HarmonyId = "allen.rimmt";
-        private const int MinSourceCount = 128;
+        private const int LargeSourceCount = 128;
+        private const int EarlySourceCount = 64;
+        private const int TimedSourceCount = 32;
+        private const double TimedAdmissionMs = 16.0;
         private const int WindowSize = 32;
         private static readonly Harmony Harmony = new Harmony(HarmonyId);
+        private static readonly double TimestampToMs = 1000.0 / Stopwatch.Frequency;
 
         [ThreadStatic] private static int jobScopeDepth;
+        [ThreadStatic] private static long jobScopeStartTimestamp;
         [ThreadStatic] private static Thing[] windowThings;
         [ThreadStatic] private static int[] windowDistSq;
         [ThreadStatic] private static float[] windowPriority;
 
         private static bool installed;
         private static int patchedGenClosestMethods;
-        private static long largeSetCalls, prioritizedCalls, safeValidatorFirstCalls, conservativeCalls;
+        private static long admittedLarge, admittedEarly64, admittedTimed32, timed32Pre16Bypass, unsafeMediumValidatorFallback;
+        private static long prioritizedCalls, safeValidatorFirstCalls, conservativeCalls;
         private static long rescuedValidatorFirst, rescuedConservative, fallbackCalls, unsafePriorityFallback;
         private static long sourceItemsSeen, priorityCalls, validatorCalls, validatorRejected;
         private static long reachChecks, reachRejected, reachAvoidedByValidator, failures;
+        private static long elapsedSamples;
+        private static double elapsedMsTotal;
+        private static double elapsedMsMax;
 
         static LargeSetTailRescue() { LongEventHandler.ExecuteWhenFinished(Install); }
 
@@ -61,17 +71,27 @@ namespace RimMTRC2T2
                 }
 
                 HookReport();
-                Log.Message("[RimMT] RC2-T2 validator-first tail rescue installed: minSource=" + MinSourceCount + ", window=" + WindowSize + ", patched=" + patchedGenClosestMethods + ". Safe Vanilla WorkGiver validators run before CanReach; unknown/mod validators preserve CanReach->validator order and fail closed.");
+                Log.Message("[RimMT] RC2-T2 Stage 3 Early Tail Prevention installed: >=128 keeps validated large-set rescue; >=64 admits only safe Vanilla WorkGiver validators; 32-63 admits only safe validators after the current JobPackage has already spent >=16ms. S5.1 24ms baseline remains unchanged.");
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref failures);
-                Log.Warning("[RimMT] RC2-T2 validator-first tail rescue install failed: " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] RC2-T2 Stage 3 install failed: " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
-        public static void JobScopePrefix() { jobScopeDepth++; }
-        public static Exception JobScopeFinalizer(Exception __exception) { if (jobScopeDepth > 0) jobScopeDepth--; return __exception; }
+        public static void JobScopePrefix()
+        {
+            if (jobScopeDepth == 0) jobScopeStartTimestamp = Stopwatch.GetTimestamp();
+            jobScopeDepth++;
+        }
+
+        public static Exception JobScopeFinalizer(Exception __exception)
+        {
+            if (jobScopeDepth > 0) jobScopeDepth--;
+            if (jobScopeDepth == 0) jobScopeStartTimestamp = 0L;
+            return __exception;
+        }
 
         public static bool GenClosestPrefix(MethodBase __originalMethod, object[] __args, ref Thing __result)
         {
@@ -87,7 +107,42 @@ namespace RimMTRC2T2
                 if (GetBoolArg(ps, __args, "canLookInHaulableSources", false) || GetBoolArg(ps, __args, "lookInHaulSources", false)) return true;
 
                 ICollection<Thing> collection = searchSet as ICollection<Thing>;
-                if (collection == null || collection.Count < MinSourceCount) return true;
+                if (collection == null || collection.Count < TimedSourceCount) return true;
+
+                Predicate<Thing> validator = GetDelegateArg<Predicate<Thing>>(ps, __args, "validator");
+                bool validatorFirst = validator != null && IsSafeVanillaWorkValidator(validator);
+                int sourceCount = collection.Count;
+                double elapsedMs = CurrentJobElapsedMs();
+
+                if (sourceCount >= LargeSourceCount)
+                {
+                    Interlocked.Increment(ref admittedLarge);
+                }
+                else if (sourceCount >= EarlySourceCount)
+                {
+                    if (!validatorFirst)
+                    {
+                        Interlocked.Increment(ref unsafeMediumValidatorFallback);
+                        return true;
+                    }
+                    Interlocked.Increment(ref admittedEarly64);
+                }
+                else
+                {
+                    if (!validatorFirst)
+                    {
+                        Interlocked.Increment(ref unsafeMediumValidatorFallback);
+                        return true;
+                    }
+                    if (elapsedMs < TimedAdmissionMs)
+                    {
+                        Interlocked.Increment(ref timed32Pre16Bypass);
+                        return true;
+                    }
+                    Interlocked.Increment(ref admittedTimed32);
+                }
+
+                RecordElapsed(elapsedMs);
 
                 Func<Thing, float> priorityGetter = GetDelegateArg<Func<Thing, float>>(ps, __args, "priorityGetter");
                 bool prioritized = priorityGetter != null;
@@ -97,9 +152,6 @@ namespace RimMTRC2T2
                     return true;
                 }
 
-                Predicate<Thing> validator = GetDelegateArg<Predicate<Thing>>(ps, __args, "validator");
-                bool validatorFirst = validator != null && IsSafeVanillaWorkValidator(validator);
-                Interlocked.Increment(ref largeSetCalls);
                 if (prioritized) Interlocked.Increment(ref prioritizedCalls);
                 if (validatorFirst) Interlocked.Increment(ref safeValidatorFirstCalls); else Interlocked.Increment(ref conservativeCalls);
 
@@ -179,8 +231,25 @@ namespace RimMTRC2T2
             {
                 Interlocked.Increment(ref failures);
                 if (Interlocked.Read(ref failures) <= 4)
-                    Log.Warning("[RimMT] RC2-T2 validator-first rescue failed closed to Vanilla: " + ex.GetType().Name + ": " + ex.Message);
+                    Log.Warning("[RimMT] RC2-T2 Stage 3 rescue failed closed to Vanilla: " + ex.GetType().Name + ": " + ex.Message);
                 return true;
+            }
+        }
+
+        private static double CurrentJobElapsedMs()
+        {
+            long start = jobScopeStartTimestamp;
+            if (start == 0L) return 0.0;
+            return (Stopwatch.GetTimestamp() - start) * TimestampToMs;
+        }
+
+        private static void RecordElapsed(double ms)
+        {
+            Interlocked.Increment(ref elapsedSamples);
+            lock (Harmony)
+            {
+                elapsedMsTotal += ms;
+                if (ms > elapsedMsMax) elapsedMsMax = ms;
             }
         }
 
@@ -309,9 +378,20 @@ namespace RimMTRC2T2
 
         public static void ReportPostfix()
         {
-            Log.Message("[RimMT] RC2-T2 validator-first tail report: patched=" + patchedGenClosestMethods +
-                ", minSource=" + MinSourceCount + ", window=" + WindowSize +
-                ", large/prioritized=" + Interlocked.Read(ref largeSetCalls) + "/" + Interlocked.Read(ref prioritizedCalls) +
+            long samples = Interlocked.Read(ref elapsedSamples);
+            double avgElapsed, maxElapsed;
+            lock (Harmony)
+            {
+                avgElapsed = samples == 0 ? 0.0 : elapsedMsTotal / samples;
+                maxElapsed = elapsedMsMax;
+            }
+
+            Log.Message("[RimMT] RC2-T2 Stage 3 Early Tail Prevention report: patched=" + patchedGenClosestMethods +
+                ", admission(large>=128/early64-127/timed32-63)=" + Interlocked.Read(ref admittedLarge) + "/" + Interlocked.Read(ref admittedEarly64) + "/" + Interlocked.Read(ref admittedTimed32) +
+                ", timed32Pre16Bypass=" + Interlocked.Read(ref timed32Pre16Bypass) +
+                ", unsafeMediumValidatorFallback=" + Interlocked.Read(ref unsafeMediumValidatorFallback) +
+                ", avg/maxAdmissionElapsedMs=" + avgElapsed.ToString("F2") + "/" + maxElapsed.ToString("F2") +
+                ", prioritized=" + Interlocked.Read(ref prioritizedCalls) +
                 ", safeValidatorFirst/conservative=" + Interlocked.Read(ref safeValidatorFirstCalls) + "/" + Interlocked.Read(ref conservativeCalls) +
                 ", rescuedVF/conservative=" + Interlocked.Read(ref rescuedValidatorFirst) + "/" + Interlocked.Read(ref rescuedConservative) +
                 ", fallback=" + Interlocked.Read(ref fallbackCalls) +
