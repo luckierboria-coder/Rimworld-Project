@@ -11,8 +11,8 @@ Hard constraints:
 - No per-frame GPU -> CPU framebuffer readback.
 - No image processing in C#/Harmony.
 - No per-frame `Texture.GetNativeTexturePtr()` calls.
-- Frame generation work stays in native D3D11/GPU code.
-- Managed code only sends tiny metadata packets (camera state, screen size, pause/speed, HUD rectangles).
+- Frame-generation work stays in native D3D11/GPU code.
+- Managed code sends only tiny camera/game/UI metadata.
 - Target CPU overhead: <1% and no measurable TPS regression.
 
 ## Current V0.1 pipeline
@@ -21,21 +21,22 @@ Implemented on branch `rimfg-v0.1`:
 
 - RimWorld 1.5 managed bridge.
 - Persistent HUD-less scene capture through a Camera command buffer.
-- Scene capture remains GPU-resident; `GetNativeTexturePtr()` is used only on allocation/resize.
+- GPU-resident capture; `GetNativeTexturePtr()` only on allocation/resize.
 - Lock-free managed/native metadata handoff.
 - D3D11 previous/current/generated frame textures.
-- Runtime-compiled D3D11 compute shader producing a real midpoint GPU frame.
+- Camera-aware midpoint reprojection using RimWorld's orthographic camera X/Z motion.
+- Large camera cuts automatically fall back to an unwarped midpoint for that frame.
 - DXGI `IDXGISwapChain::Present` interception using MinHook.
 - Swapchain filtering to the current RimWorld process/window.
 - GPU-only real-frame scratch/composite surfaces.
-- Conservative HUD regions copied from the real backbuffer onto generated frames.
-- Generated midpoint Present inserted immediately before the original Unity Present.
-- Flip-model-safe backbuffer reacquisition between generated and real Presents.
-- Fail-safe bypass on TEST presents, exclusive fullscreen, format/size/MSAA mismatch, or missing GPU resources.
-- Native telemetry counters for generated/skipped Presents.
-- Windows x64 native CI build.
-
-The midpoint algorithm is currently a simple GPU blend. It exists to validate the complete zero-readback history/composite/Present path before replacing the interpolation kernel with camera-aware warping and optical flow.
+- Conservative real HUD regions copied back onto generated frames.
+- Generated Present -> restored real frame -> original Unity Present.
+- Flip-model-safe backbuffer reacquisition.
+- Fail-safe bypass on TEST presents, exclusive fullscreen, size/format/MSAA mismatch, or missing GPU resources.
+- Selectable Present modes: Disabled, Immediate Validation, VSync 2x.
+- In-game RimFG Mod Settings for Present mode selection.
+- Native generated/skipped Present telemetry.
+- Windows x64 native CI builds passing.
 
 ## Pipeline
 
@@ -48,55 +49,50 @@ HUD-less RenderTexture
    |
    v
 RimFG.Native / D3D11
-   |-- previous frame
-   |-- current frame
-   |-- generated midpoint frame
-   |-- camera/HUD metadata
+   |-- Previous frame
+   |-- Current frame
+   |-- Camera motion metadata
+   |-- Camera-aware midpoint compute pass
    v
-DXGI Present hook
+Generated scene
    |
-   | preserve full real backbuffer -> GPU scratch
-   | generated scene -> composite
-   | real HUD rectangles -> composite
+   | real HUD rectangles copied on GPU
+   v
+Generated composite
    |
-   +--> Present generated midpoint
+   +--> Present generated frame
    |
-   | reacquire active backbuffer
-   | restore preserved real frame
+   | restore preserved real backbuffer
    v
 Original Unity Present
 ```
 
-## Current limitation: frame pacing
+## Present modes
 
-The V0.1 double-Present path is now wired, but the inserted generated Present currently uses immediate presentation before Unity's original Present. This validates correctness and resource lifetime without intentionally blocking RimWorld's simulation/main thread.
+- `Disabled`: native Unity/RimWorld presentation only.
+- `Immediate Validation`: inject the generated frame immediately before the real frame. Safest mode for validating compatibility.
+- `VSync 2x`: generated and real frames each consume a VBlank. Intended for high-refresh displays such as 120/144/165 Hz.
 
-The next pacing milestone is to distribute generated and real Presents across display intervals without adding meaningful CPU work. Candidate modes are:
-
-1. conservative VSync 2x pacing for high-refresh displays;
-2. DXGI/frame-latency-assisted pacing where supported;
-3. adaptive bypass when base FPS or GPU headroom is insufficient.
-
-RimFG must not gain smoothness by simply sleeping or performing image work on the RimWorld main thread.
+VSync 2x is not recommended on 60 Hz displays because it can reduce the real-frame rate. Adaptive refresh/base-FPS gating is planned before release.
 
 ## Next milestone
 
-1. Validate the native double-Present build in CI and in RimWorld 1.5.
-2. Add an explicit safe enable/disable setting for generated Present injection.
-3. Add proper 2x display pacing and resize/device-reset recovery telemetry.
-4. Replace simple midpoint blend with camera-aware warp.
-5. Add vendor-neutral optical flow, then optional NVIDIA Optical Flow D3D11 backend.
-6. Replace coarse HUD bands with dynamic RimWorld UI/window masking.
+1. Zoom-aware camera reprojection.
+2. Automatic high-refresh/base-FPS/GPU-headroom gating for VSync 2x.
+3. Vendor-neutral object-motion optical flow for Pawns/projectiles/motes after camera motion is removed.
+4. Optional NVIDIA Optical Flow D3D11 backend.
+5. Dynamic RimWorld UI/window masking instead of coarse HUD bands.
+6. Package a first installable V0.1 test build after managed/native runtime validation.
 
-## Optical-flow backends
+## Optical-flow strategy
 
-Planned backend order:
+Camera motion is handled deterministically first, so optical flow does not waste GPU work rediscovering whole-map movement. Optical-flow backends are planned in this order:
 
 1. Vendor-neutral compute-shader fallback.
 2. NVIDIA Optical Flow API on supported GPUs (D3D11).
 3. Optional vendor-specific backends later.
 
-NVIDIA Optical Flow is attractive because the D3D11 API can use dedicated optical-flow hardware instead of consuming RimWorld CPU time. RimFG must still retain a vendor-neutral fallback and must not require CUDA or DX12.
+RimFG must always retain a vendor-neutral fallback and must not require CUDA or DX12.
 
 ## Build
 
@@ -113,4 +109,4 @@ You may pass `UNITY_PLUGIN_API_DIR` to headers matching the exact Unity build. I
 
 ## Status
 
-Development prototype. The GPU-only midpoint generation, HUD composite, DXGI hook, and Generated Present -> Real Present chain are now implemented. The remaining V0.1 blockers are build/runtime validation, safe user controls, and proper display pacing.
+Development prototype. GPU-only frame history, camera-aware midpoint generation, HUD composite, double-Present output, selectable pacing, and fail-safe bypass are implemented. The next focus is adaptive pacing, zoom handling, optical flow, and first in-game test packaging.
