@@ -3,8 +3,13 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <windows.h>
 #include <d3d11.h>
+#include <d3d11_4.h>
 #include <dxgi.h>
 #include <MinHook.h>
 #include <wrl/client.h>
@@ -16,6 +21,7 @@ namespace RimFGPresent
     namespace
     {
         using PresentFn = HRESULT(__stdcall*)(IDXGISwapChain*, UINT, UINT);
+        using Clock = std::chrono::steady_clock;
         constexpr int kMaxHudRects = 8;
 
         struct GeneratedSourceSlot
@@ -26,6 +32,16 @@ namespace RimFGPresent
             int hudCount = 0;
             std::uint32_t frameIndex = 0;
             std::array<HudRectPx, kMaxHudRects> hud{};
+        };
+
+        struct AsyncFrameSlot
+        {
+            ComPtr<ID3D11Texture2D> composite;
+            ComPtr<IDXGISwapChain> swapChain;
+            UINT width = 0;
+            UINT height = 0;
+            DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+            std::uint64_t sequence = 0;
         };
 
         std::atomic<bool> g_installed{false};
@@ -41,11 +57,23 @@ namespace RimFGPresent
         std::atomic<std::uint64_t> g_generatedPresentCount{0};
         std::atomic<std::uint64_t> g_skippedPresentCount{0};
 
-        ComPtr<ID3D11Texture2D> g_realScratch;
-        ComPtr<ID3D11Texture2D> g_generatedComposite;
-        UINT g_cachedWidth = 0;
-        UINT g_cachedHeight = 0;
-        DXGI_FORMAT g_cachedFormat = DXGI_FORMAT_UNKNOWN;
+        std::array<AsyncFrameSlot, 2> g_asyncSlots{};
+        ComPtr<ID3D11Device> g_asyncDevice;
+        ComPtr<ID3D11DeviceContext> g_asyncContext;
+        ComPtr<ID3D11Multithread> g_multithread;
+        UINT g_asyncWidth = 0;
+        UINT g_asyncHeight = 0;
+        DXGI_FORMAT g_asyncFormat = DXGI_FORMAT_UNKNOWN;
+
+        std::thread g_presenterThread;
+        std::mutex g_presenterMutex;
+        std::condition_variable g_presenterCv;
+        bool g_presenterStop = false;
+        std::uint64_t g_preparedSequence = 0;
+        std::uint64_t g_scheduledSequence = 0;
+        Clock::time_point g_scheduledDeadline{};
+        Clock::time_point g_lastRealPresent{};
+        double g_realIntervalSeconds = 1.0 / 30.0;
 
         LRESULT CALLBACK DummyWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         {
@@ -82,40 +110,6 @@ namespace RimFGPresent
             return g_sourceSlots[seq & 1u];
         }
 
-        void ReleasePresentResources()
-        {
-            g_realScratch.Reset();
-            g_generatedComposite.Reset();
-            g_cachedWidth = 0;
-            g_cachedHeight = 0;
-            g_cachedFormat = DXGI_FORMAT_UNKNOWN;
-        }
-
-        bool EnsurePresentResources(ID3D11Device* device, ID3D11Texture2D* backBuffer)
-        {
-            if (!device || !backBuffer) return false;
-            D3D11_TEXTURE2D_DESC desc{};
-            backBuffer->GetDesc(&desc);
-            if (!desc.Width || !desc.Height || desc.SampleDesc.Count != 1) return false;
-            if (g_realScratch && g_generatedComposite && g_cachedWidth == desc.Width && g_cachedHeight == desc.Height && g_cachedFormat == desc.Format)
-                return true;
-
-            ReleasePresentResources();
-            D3D11_TEXTURE2D_DESC scratch = desc;
-            scratch.MipLevels = 1;
-            scratch.ArraySize = 1;
-            scratch.Usage = D3D11_USAGE_DEFAULT;
-            scratch.BindFlags = 0;
-            scratch.CPUAccessFlags = 0;
-            scratch.MiscFlags = 0;
-            if (FAILED(device->CreateTexture2D(&scratch, nullptr, &g_realScratch))) return false;
-            if (FAILED(device->CreateTexture2D(&scratch, nullptr, &g_generatedComposite))) { ReleasePresentResources(); return false; }
-            g_cachedWidth = desc.Width;
-            g_cachedHeight = desc.Height;
-            g_cachedFormat = desc.Format;
-            return true;
-        }
-
         void CopyHudRects(ID3D11DeviceContext* context, ID3D11Texture2D* realFrame, ID3D11Texture2D* composite, const GeneratedSourceSlot& source, UINT width, UINT height)
         {
             for (int i = 0; i < source.hudCount; ++i)
@@ -131,56 +125,185 @@ namespace RimFGPresent
             }
         }
 
-        bool TryPresentGeneratedFrame(IDXGISwapChain* swapChain, UINT originalSyncInterval, UINT originalFlags)
+        void ReleaseAsyncResources()
         {
-            const PresentMode mode = static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire));
-            if (mode == PresentMode::Disabled || !swapChain || !g_originalPresent || !g_sourceAvailable.load(std::memory_order_acquire)) return false;
-            if ((originalFlags & DXGI_PRESENT_TEST) != 0) return false;
+            for (auto& slot : g_asyncSlots)
+            {
+                slot.composite.Reset();
+                slot.swapChain.Reset();
+                slot.width = 0;
+                slot.height = 0;
+                slot.format = DXGI_FORMAT_UNKNOWN;
+                slot.sequence = 0;
+            }
+            g_multithread.Reset();
+            g_asyncContext.Reset();
+            g_asyncDevice.Reset();
+            g_asyncWidth = 0;
+            g_asyncHeight = 0;
+            g_asyncFormat = DXGI_FORMAT_UNKNOWN;
+        }
 
+        bool EnsureAsyncResources(ID3D11Device* device, ID3D11Texture2D* backBuffer)
+        {
+            if (!device || !backBuffer) return false;
+            D3D11_TEXTURE2D_DESC desc{};
+            backBuffer->GetDesc(&desc);
+            if (!desc.Width || !desc.Height || desc.SampleDesc.Count != 1) return false;
+
+            if (g_asyncDevice.Get() == device && g_asyncContext &&
+                g_asyncWidth == desc.Width && g_asyncHeight == desc.Height && g_asyncFormat == desc.Format &&
+                g_asyncSlots[0].composite && g_asyncSlots[1].composite)
+                return true;
+
+            ReleaseAsyncResources();
+            g_asyncDevice = device;
+            device->GetImmediateContext(&g_asyncContext);
+            if (!g_asyncContext) return false;
+
+            g_asyncContext.As(&g_multithread);
+            if (g_multithread)
+                g_multithread->SetMultithreadProtected(TRUE);
+
+            D3D11_TEXTURE2D_DESC copy = desc;
+            copy.MipLevels = 1;
+            copy.ArraySize = 1;
+            copy.Usage = D3D11_USAGE_DEFAULT;
+            copy.BindFlags = 0;
+            copy.CPUAccessFlags = 0;
+            copy.MiscFlags = 0;
+
+            if (FAILED(device->CreateTexture2D(&copy, nullptr, &g_asyncSlots[0].composite)) ||
+                FAILED(device->CreateTexture2D(&copy, nullptr, &g_asyncSlots[1].composite)))
+            {
+                ReleaseAsyncResources();
+                return false;
+            }
+
+            g_asyncWidth = desc.Width;
+            g_asyncHeight = desc.Height;
+            g_asyncFormat = desc.Format;
+            return true;
+        }
+
+        std::uint64_t PrepareAsyncGeneratedFrame(IDXGISwapChain* swapChain)
+        {
+            if (!swapChain || !g_sourceAvailable.load(std::memory_order_acquire)) return 0;
             const GeneratedSourceSlot source = ReadLatestSource();
-            if (!source.texture || source.width <= 0 || source.height <= 0) return false;
+            if (!source.texture || source.width <= 0 || source.height <= 0) return 0;
 
             ComPtr<ID3D11Device> device;
-            if (FAILED(swapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(device.GetAddressOf()))) || !device) return false;
-            ComPtr<ID3D11DeviceContext> context;
-            device->GetImmediateContext(&context);
-            if (!context) return false;
+            if (FAILED(swapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(device.GetAddressOf()))) || !device) return 0;
             ComPtr<ID3D11Texture2D> backBuffer;
-            if (FAILED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf()))) || !backBuffer) return false;
+            if (FAILED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf()))) || !backBuffer) return 0;
 
-            D3D11_TEXTURE2D_DESC backDesc{}, generatedDesc{};
+            D3D11_TEXTURE2D_DESC backDesc{}, sourceDesc{};
             backBuffer->GetDesc(&backDesc);
-            source.texture->GetDesc(&generatedDesc);
-            if (backDesc.Width != generatedDesc.Width || backDesc.Height != generatedDesc.Height || backDesc.Format != generatedDesc.Format || backDesc.SampleDesc.Count != 1 || generatedDesc.SampleDesc.Count != 1)
-                return false;
-            if (!EnsurePresentResources(device.Get(), backBuffer.Get())) return false;
+            source.texture->GetDesc(&sourceDesc);
+            if (backDesc.Width != sourceDesc.Width || backDesc.Height != sourceDesc.Height || backDesc.Format != sourceDesc.Format ||
+                backDesc.SampleDesc.Count != 1 || sourceDesc.SampleDesc.Count != 1)
+                return 0;
+            if (!EnsureAsyncResources(device.Get(), backBuffer.Get())) return 0;
 
-            context->CopyResource(g_realScratch.Get(), backBuffer.Get());
-            context->CopyResource(g_generatedComposite.Get(), source.texture);
-            CopyHudRects(context.Get(), g_realScratch.Get(), g_generatedComposite.Get(), source, backDesc.Width, backDesc.Height);
-            context->CopyResource(backBuffer.Get(), g_generatedComposite.Get());
+            const std::uint64_t next = g_preparedSequence + 1u;
+            AsyncFrameSlot& slot = g_asyncSlots[next & 1u];
+            g_asyncContext->CopyResource(slot.composite.Get(), source.texture);
+            CopyHudRects(g_asyncContext.Get(), backBuffer.Get(), slot.composite.Get(), source, backDesc.Width, backDesc.Height);
+            slot.swapChain = swapChain;
+            slot.width = backDesc.Width;
+            slot.height = backDesc.Height;
+            slot.format = backDesc.Format;
+            slot.sequence = next;
+            g_preparedSequence = next;
+            return next;
+        }
 
-            const UINT generatedSync = mode == PresentMode::VSync2x ? 1u : 0u;
-            const UINT generatedFlags = 0u;
-            const HRESULT generatedHr = g_originalPresent(swapChain, generatedSync, generatedFlags);
-            if (FAILED(generatedHr)) return false;
+        void ScheduleGeneratedFrame(std::uint64_t sequence, Clock::time_point now)
+        {
+            if (!sequence) return;
 
-            backBuffer.Reset();
-            if (FAILED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf()))) || !backBuffer) return false;
-            D3D11_TEXTURE2D_DESC restored{};
-            backBuffer->GetDesc(&restored);
-            if (restored.Width != backDesc.Width || restored.Height != backDesc.Height || restored.Format != backDesc.Format) return false;
-            context->CopyResource(backBuffer.Get(), g_realScratch.Get());
-            g_generatedPresentCount.fetch_add(1, std::memory_order_relaxed);
-            (void)originalSyncInterval;
-            return true;
+            if (g_lastRealPresent.time_since_epoch().count() != 0)
+            {
+                double seconds = std::chrono::duration<double>(now - g_lastRealPresent).count();
+                if (seconds >= 1.0 / 240.0 && seconds <= 1.0 / 12.0)
+                    g_realIntervalSeconds += (seconds - g_realIntervalSeconds) * 0.15;
+            }
+            g_lastRealPresent = now;
+
+            const double half = std::max(0.002, std::min(0.030, g_realIntervalSeconds * 0.5));
+            {
+                std::lock_guard<std::mutex> lock(g_presenterMutex);
+                if (g_scheduledSequence != 0 && g_scheduledSequence != sequence)
+                    g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
+                g_scheduledSequence = sequence;
+                g_scheduledDeadline = now + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(half));
+            }
+            g_presenterCv.notify_one();
+        }
+
+        void PresenterMain()
+        {
+            std::unique_lock<std::mutex> lock(g_presenterMutex);
+            while (!g_presenterStop)
+            {
+                g_presenterCv.wait(lock, [] { return g_presenterStop || g_scheduledSequence != 0; });
+                if (g_presenterStop) break;
+
+                const std::uint64_t sequence = g_scheduledSequence;
+                const Clock::time_point deadline = g_scheduledDeadline;
+                if (g_presenterCv.wait_until(lock, deadline, [sequence] { return g_presenterStop || g_scheduledSequence != sequence; }))
+                    continue;
+                if (g_presenterStop) break;
+
+                AsyncFrameSlot slot = g_asyncSlots[sequence & 1u];
+                if (slot.sequence != sequence || !slot.swapChain || !slot.composite)
+                {
+                    g_scheduledSequence = 0;
+                    g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
+                    continue;
+                }
+                g_scheduledSequence = 0;
+                lock.unlock();
+
+                bool presented = false;
+                if (static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire)) != PresentMode::Disabled && g_originalPresent)
+                {
+                    ComPtr<ID3D11Texture2D> backBuffer;
+                    if (SUCCEEDED(slot.swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf()))) && backBuffer && g_asyncContext)
+                    {
+                        D3D11_TEXTURE2D_DESC desc{};
+                        backBuffer->GetDesc(&desc);
+                        if (desc.Width == slot.width && desc.Height == slot.height && desc.Format == slot.format && desc.SampleDesc.Count == 1)
+                        {
+                            g_asyncContext->CopyResource(backBuffer.Get(), slot.composite.Get());
+                            HRESULT hr = g_originalPresent(slot.swapChain.Get(), 0, DXGI_PRESENT_DO_NOT_WAIT);
+                            if (hr == DXGI_ERROR_INVALID_CALL)
+                                hr = g_originalPresent(slot.swapChain.Get(), 0, 0);
+                            presented = SUCCEEDED(hr);
+                        }
+                    }
+                }
+
+                if (presented)
+                    g_generatedPresentCount.fetch_add(1, std::memory_order_relaxed);
+                else
+                    g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
+
+                lock.lock();
+            }
         }
 
         HRESULT __stdcall HookPresent(IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
         {
-            if (IsTargetSwapChain(swapChain))
+            const bool target = IsTargetSwapChain(swapChain);
+            std::uint64_t prepared = 0;
+            PresentMode mode = PresentMode::Disabled;
+
+            if (target)
             {
                 g_unitySwapChain.store(swapChain, std::memory_order_release);
+                mode = static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire));
+
                 BackbufferGenerationCallback callback = g_generationCallback.load(std::memory_order_acquire);
                 if (callback && (flags & DXGI_PRESENT_TEST) == 0)
                 {
@@ -189,10 +312,20 @@ namespace RimFGPresent
                         callback(backBuffer.Get());
                 }
 
-                if (!TryPresentGeneratedFrame(swapChain, syncInterval, flags))
+                if (mode != PresentMode::Disabled && (flags & DXGI_PRESENT_TEST) == 0)
+                    prepared = PrepareAsyncGeneratedFrame(swapChain);
+            }
+
+            const HRESULT hr = g_originalPresent ? g_originalPresent(swapChain, syncInterval, flags) : E_FAIL;
+
+            if (target && mode != PresentMode::Disabled && (flags & DXGI_PRESENT_TEST) == 0)
+            {
+                if (SUCCEEDED(hr) && prepared)
+                    ScheduleGeneratedFrame(prepared, Clock::now());
+                else
                     g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
             }
-            return g_originalPresent ? g_originalPresent(swapChain, syncInterval, flags) : E_FAIL;
+            return hr;
         }
 
         bool ResolvePresentAddress(void** outAddress)
@@ -233,13 +366,29 @@ namespace RimFGPresent
         if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) return false;
         if (MH_CreateHook(presentAddress, &HookPresent, reinterpret_cast<void**>(&g_originalPresent)) != MH_OK) { MH_Uninitialize(); return false; }
         if (MH_EnableHook(presentAddress) != MH_OK) { MH_RemoveHook(presentAddress); MH_Uninitialize(); g_originalPresent = nullptr; return false; }
+
+        {
+            std::lock_guard<std::mutex> lock(g_presenterMutex);
+            g_presenterStop = false;
+            g_scheduledSequence = 0;
+        }
+        g_presenterThread = std::thread(PresenterMain);
         g_installed.store(true, std::memory_order_release);
         return true;
     }
 
     void Shutdown()
     {
-        ClearGeneratedFrameSource(); ReleasePresentResources();
+        {
+            std::lock_guard<std::mutex> lock(g_presenterMutex);
+            g_presenterStop = true;
+            g_scheduledSequence = 0;
+        }
+        g_presenterCv.notify_all();
+        if (g_presenterThread.joinable()) g_presenterThread.join();
+
+        ClearGeneratedFrameSource();
+        ReleaseAsyncResources();
         g_generationCallback.store(nullptr, std::memory_order_release);
         if (g_installed.exchange(false, std::memory_order_acq_rel)) { MH_DisableHook(MH_ALL_HOOKS); MH_Uninitialize(); }
         g_originalPresent = nullptr; g_unitySwapChain.store(nullptr, std::memory_order_release); g_unityDevice = nullptr;
@@ -248,7 +397,16 @@ namespace RimFGPresent
     bool IsInstalled() { return g_installed.load(std::memory_order_acquire); }
     bool HasUnitySwapChain() { return g_unitySwapChain.load(std::memory_order_acquire) != nullptr; }
     IDXGISwapChain* GetUnitySwapChain() { return g_unitySwapChain.load(std::memory_order_acquire); }
-    void SetPresentMode(PresentMode mode) { g_presentMode.store(static_cast<int>(mode), std::memory_order_release); }
+    void SetPresentMode(PresentMode mode)
+    {
+        g_presentMode.store(static_cast<int>(mode), std::memory_order_release);
+        if (mode == PresentMode::Disabled)
+        {
+            std::lock_guard<std::mutex> lock(g_presenterMutex);
+            g_scheduledSequence = 0;
+            g_presenterCv.notify_one();
+        }
+    }
     PresentMode GetPresentMode() { return static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire)); }
     void SetBackbufferGenerationCallback(BackbufferGenerationCallback callback) { g_generationCallback.store(callback, std::memory_order_release); }
 
