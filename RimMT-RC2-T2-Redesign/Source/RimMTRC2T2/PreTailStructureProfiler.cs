@@ -117,6 +117,30 @@ namespace RimMTRC2T2
             }
         }
 
+        internal static bool IsJobScopeActive
+        {
+            get { return jobDepth > 0 && jobStarted != 0L; }
+        }
+
+        internal static bool IsTailActive
+        {
+            get
+            {
+                long start = jobStarted;
+                return jobDepth > 0 && start != 0L && (Stopwatch.GetTimestamp() - start) * TimestampToMs >= TailThresholdMs;
+            }
+        }
+
+        internal static double CurrentJobElapsedMs
+        {
+            get
+            {
+                long start = jobStarted;
+                if (jobDepth <= 0 || start == 0L) return 0.0;
+                return (Stopwatch.GetTimestamp() - start) * TimestampToMs;
+            }
+        }
+
         public static void JobPrefix()
         {
             if (jobDepth == 0)
