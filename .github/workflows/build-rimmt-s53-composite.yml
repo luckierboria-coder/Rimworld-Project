@@ -5,7 +5,7 @@ permissions:
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, rimmt-v0.9.1-rc2 ]
     paths:
       - 'RimMT-S5.3-Composite-Optimizer/**'
       - '.github/workflows/build-rimmt-s53-composite.yml'
