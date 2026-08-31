@@ -17,7 +17,7 @@ namespace RimFGPresent
 
         std::atomic<bool> g_installed{false};
         std::atomic<IDXGISwapChain*> g_unitySwapChain{nullptr};
-        ID3D11Device* g_unityDevice = nullptr; // Unity-owned; lifetime bounded by graphics events.
+        ID3D11Device* g_unityDevice = nullptr; // optional Unity-owned filter.
         PresentFn g_originalPresent = nullptr;
 
         LRESULT CALLBACK DummyWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -25,17 +25,51 @@ namespace RimFGPresent
             return DefWindowProc(hwnd, msg, wp, lp);
         }
 
-        HRESULT __stdcall HookPresent(IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
+        bool IsCurrentProcessWindow(HWND hwnd)
         {
-            if (swapChain && g_unityDevice)
+            if (!hwnd)
+                return false;
+
+            DWORD pid = 0;
+            GetWindowThreadProcessId(hwnd, &pid);
+            if (pid != GetCurrentProcessId())
+                return false;
+
+            RECT rc{};
+            if (!GetClientRect(hwnd, &rc))
+                return false;
+
+            // Ignore helper/thumbnail/tiny swapchains. RimWorld's render target is
+            // expected to be a normal game window with a meaningful client area.
+            const LONG width = rc.right - rc.left;
+            const LONG height = rc.bottom - rc.top;
+            return width >= 320 && height >= 240;
+        }
+
+        bool IsTargetSwapChain(IDXGISwapChain* swapChain)
+        {
+            if (!swapChain)
+                return false;
+
+            if (g_unityDevice)
             {
                 ComPtr<ID3D11Device> device;
                 if (SUCCEEDED(swapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(device.GetAddressOf()))) &&
                     device.Get() == g_unityDevice)
-                {
-                    g_unitySwapChain.store(swapChain, std::memory_order_release);
-                }
+                    return true;
             }
+
+            DXGI_SWAP_CHAIN_DESC desc{};
+            if (FAILED(swapChain->GetDesc(&desc)))
+                return false;
+
+            return IsCurrentProcessWindow(desc.OutputWindow);
+        }
+
+        HRESULT __stdcall HookPresent(IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
+        {
+            if (IsTargetSwapChain(swapChain))
+                g_unitySwapChain.store(swapChain, std::memory_order_release);
 
             return g_originalPresent ? g_originalPresent(swapChain, syncInterval, flags) : E_FAIL;
         }
@@ -108,10 +142,9 @@ namespace RimFGPresent
 
     bool Initialize(ID3D11Device* unityDevice)
     {
-        if (!unityDevice)
-            return false;
+        if (unityDevice)
+            g_unityDevice = unityDevice;
 
-        g_unityDevice = unityDevice;
         if (g_installed.load(std::memory_order_acquire))
             return true;
 
@@ -119,7 +152,8 @@ namespace RimFGPresent
         if (!ResolvePresentAddress(&presentAddress))
             return false;
 
-        if (MH_Initialize() != MH_OK)
+        const MH_STATUS initStatus = MH_Initialize();
+        if (initStatus != MH_OK && initStatus != MH_ERROR_ALREADY_INITIALIZED)
             return false;
 
         if (MH_CreateHook(presentAddress, &HookPresent, reinterpret_cast<void**>(&g_originalPresent)) != MH_OK)
@@ -167,4 +201,19 @@ namespace RimFGPresent
     {
         return g_unitySwapChain.load(std::memory_order_acquire);
     }
+}
+
+extern "C" __declspec(dllexport) int __cdecl RimFG_StartPresentHook()
+{
+    return RimFGPresent::Initialize(nullptr) ? 1 : 0;
+}
+
+extern "C" __declspec(dllexport) int __cdecl RimFG_HasUnitySwapChain()
+{
+    return RimFGPresent::HasUnitySwapChain() ? 1 : 0;
+}
+
+extern "C" __declspec(dllexport) void __cdecl RimFG_StopPresentHook()
+{
+    RimFGPresent::Shutdown();
 }
