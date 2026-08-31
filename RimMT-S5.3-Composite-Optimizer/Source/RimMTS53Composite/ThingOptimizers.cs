@@ -43,7 +43,16 @@ namespace RimMTS53Composite
 
             WorkGiver_DoBill billGiverWork = __instance as WorkGiver_DoBill;
             if (!DoBill.Enabled || billGiverWork == null) return;
-            if (DoBill.ShouldParityBypass()) return;
+
+            // IMPORTANT: Do not use per-call parity bypass here.
+            // Vanilla FloatMenuMakerMap.ScannerShouldSkip calls PotentialWorkThingsGlobal(pawn)
+            // twice in one expression. If the first call is optimized to a non-null enumerable
+            // and the second call parity-bypasses back to Vanilla null, Enumerable.Contains
+            // receives a null source and throws ArgumentNullException. Keep the return shape
+            // deterministic for every call and leave parity validation to non-authoritative
+            // shadow/telemetry paths instead.
+            DoBill.RecordInvocation();
+
             BillMapCache billCache = BillCaches.GetValue(pawn.Map, delegate(Map m) { return new BillMapCache(); });
             __result = billCache.Get(billGiverWork, pawn.Map);
         }
