@@ -1,29 +1,32 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using System.Threading;
 using HarmonyLib;
 using RimWorld;
 using Verse;
-using Verse.AI;
 
 namespace RimMTRC2T2
 {
     /// <summary>
-    /// Stage 4B: bounded Pick Up And Haul candidate contraction.
+    /// Stage 4B.1: cheap-only Pick Up And Haul candidate contraction.
     ///
-    /// The v1.5 PUAH WorkGiver_HaulToInventory performs its expensive
-    /// StoreUtility.TryFindBestBetterStorageFor call from HasJobOnThing. This layer
-    /// never replaces HasJobOnThing/JobOnThing. It only removes candidates that are
-    /// already provably rejected by PUAH's own pre-storage predicates, plus the
-    /// mathematically terminal StoragePriority.Critical case (there is no better
-    /// storage priority than Critical).
+    /// This layer intentionally avoids CanReserve, Reachability, StoreUtility,
+    /// PawnCanAutomaticallyHaulFast and reflection-based corpse-policy calls while
+    /// building the candidate shortlist. Those checks were too expensive at the
+    /// PotentialWorkThingsGlobal layer and mostly shifted HasJobOnThing cost earlier.
     ///
-    /// To avoid paying for a second full scan when contraction would not help, only
-    /// >=256 candidate sources are considered. The first 32 candidates are probed;
-    /// the full source is copied/filtered only if >=25% of the probe is hard-negative.
-    /// Candidate order is preserved. Any foreign authority patch on PUAH source or
-    /// HasJobOnThing disables this feature entirely.
+    /// Only O(1)/very-cheap hard negatives are considered:
+    /// - null/despawned/wrong-map;
+    /// - forbidden to this pawn;
+    /// - already stored at StoragePriority.Critical, where no better priority exists.
+    ///
+    /// Sources smaller than 256 are untouched. Large sources are sampled over the
+    /// first 32 candidates and only contracted when at least 8 are cheaply rejected.
+    /// Candidate order is preserved and PUAH HasJobOnThing/JobOnThing remain final
+    /// authority. Any foreign authority patch on PUAH source/HasJobOnThing disables
+    /// this feature entirely.
     /// </summary>
     [StaticConstructorOnStartup]
     internal static class PickUpAndHaulCandidateContraction
@@ -37,7 +40,6 @@ namespace RimMTRC2T2
         private static Type puahType;
         private static MethodInfo sourceMethod;
         private static MethodInfo hasThingMethod;
-        private static MethodInfo corpseAllowedMethod;
         private static bool installed;
         private static bool active;
         private static string inactiveReason = "not installed";
@@ -51,10 +53,10 @@ namespace RimMTRC2T2
         private static long prunedCandidates;
         private static long prunedNullOrMap;
         private static long prunedForbidden;
-        private static long prunedReserve;
-        private static long prunedCorpse;
-        private static long prunedHaulFast;
         private static long prunedCritical;
+        private static long probeCandidates;
+        private static long probeRejected;
+        private static long elapsedTicks;
         private static long failures;
 
         static PickUpAndHaulCandidateContraction()
@@ -78,7 +80,6 @@ namespace RimMTRC2T2
 
                 sourceMethod = puahType.GetMethod("PotentialWorkThingsGlobal", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
                 hasThingMethod = puahType.GetMethod("HasJobOnThing", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                corpseAllowedMethod = puahType.GetMethod("IsNotCorpseOrAllowed", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
 
                 if (sourceMethod == null || hasThingMethod == null)
                 {
@@ -101,15 +102,15 @@ namespace RimMTRC2T2
                     Harmony.Patch(report, postfix: new HarmonyMethod(typeof(PickUpAndHaulCandidateContraction), nameof(ReportPostfix)) { priority = Priority.Last });
 
                 active = true;
-                inactiveReason = "active";
-                Log.Message("[RimMT] RC2-T2 Stage 4B PickUpAndHaul Candidate Contraction installed: >=256 source, 32-candidate probe, >=25% hard-negative admission. PUAH HasJobOnThing/JobOnThing remain authoritative.");
+                inactiveReason = "active-cheap-only";
+                Log.Message("[RimMT] RC2-T2 Stage 4B.1 PUAH Cheap-Only Contraction installed: >=256 source, 32-candidate probe, >=25% cheap hard-negative admission. No CanReserve/Reachability/StoreUtility/haul-fast calls are made by the contraction layer.");
             }
             catch (Exception ex)
             {
                 active = false;
                 inactiveReason = ex.GetType().Name + ": " + ex.Message;
                 Interlocked.Increment(ref failures);
-                Log.Warning("[RimMT] RC2-T2 Stage 4B PUAH contraction failed closed: " + inactiveReason);
+                Log.Warning("[RimMT] RC2-T2 Stage 4B.1 PUAH contraction failed closed: " + inactiveReason);
             }
         }
 
@@ -138,6 +139,7 @@ namespace RimMTRC2T2
             if (!active || pawn == null || pawn.Map == null || __result == null) return;
             if (!PreTailStructureProfiler.IsJobScopeActive) return;
 
+            long start = Stopwatch.GetTimestamp();
             try
             {
                 IList<Thing> source = __result as IList<Thing>;
@@ -160,13 +162,15 @@ namespace RimMTRC2T2
                 int probe = Math.Min(ProbeCount, count);
                 bool[] probeReject = new bool[probe];
                 int rejected = 0;
+                Interlocked.Add(ref probeCandidates, probe);
                 for (int i = 0; i < probe; i++)
                 {
                     int reason;
-                    bool reject = IsHardNegative(source[i], pawn, out reason);
+                    bool reject = IsCheapHardNegative(source[i], pawn, out reason);
                     probeReject[i] = reject;
                     if (reject) rejected++;
                 }
+                Interlocked.Add(ref probeRejected, rejected);
 
                 if (rejected < ProbeRejectThreshold)
                 {
@@ -183,14 +187,11 @@ namespace RimMTRC2T2
                     if (i < probe)
                     {
                         reject = probeReject[i];
-                        if (reject)
-                        {
-                            IsHardNegative(thing, pawn, out reason);
-                        }
+                        if (reject) IsCheapHardNegative(thing, pawn, out reason);
                     }
                     else
                     {
-                        reject = IsHardNegative(thing, pawn, out reason);
+                        reject = IsCheapHardNegative(thing, pawn, out reason);
                     }
 
                     if (reject)
@@ -212,11 +213,16 @@ namespace RimMTRC2T2
             {
                 Interlocked.Increment(ref failures);
                 if (Interlocked.Read(ref failures) <= 4)
-                    Log.Warning("[RimMT] RC2-T2 Stage 4B PUAH contraction bypassed after failure: " + ex.GetType().Name + ": " + ex.Message);
+                    Log.Warning("[RimMT] RC2-T2 Stage 4B.1 PUAH contraction bypassed after failure: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                Interlocked.Add(ref elapsedTicks, Stopwatch.GetTimestamp() - start);
             }
         }
 
-        private static bool IsHardNegative(Thing thing, Pawn pawn, out int reason)
+        // Reasons: 1 null/map, 2 forbidden, 3 terminal Critical storage priority.
+        private static bool IsCheapHardNegative(Thing thing, Pawn pawn, out int reason)
         {
             reason = 0;
             if (thing == null || !thing.Spawned || thing.Map != pawn.Map)
@@ -231,31 +237,9 @@ namespace RimMTRC2T2
                 return true;
             }
 
-            if (!pawn.CanReserve(thing))
-            {
-                reason = 3;
-                return true;
-            }
-
-            if (corpseAllowedMethod != null && thing is Corpse)
-            {
-                object allowed = corpseAllowedMethod.Invoke(null, new object[] { thing });
-                if (allowed is bool && !(bool)allowed)
-                {
-                    reason = 4;
-                    return true;
-                }
-            }
-
-            if (!HaulAIUtility.PawnCanAutomaticallyHaulFast(pawn, thing, false))
-            {
-                reason = 5;
-                return true;
-            }
-
             if (StoreUtility.CurrentStoragePriorityOf(thing) == StoragePriority.Critical)
             {
-                reason = 6;
+                reason = 3;
                 return true;
             }
 
@@ -266,31 +250,31 @@ namespace RimMTRC2T2
         {
             if (reason == 1) Interlocked.Increment(ref prunedNullOrMap);
             else if (reason == 2) Interlocked.Increment(ref prunedForbidden);
-            else if (reason == 3) Interlocked.Increment(ref prunedReserve);
-            else if (reason == 4) Interlocked.Increment(ref prunedCorpse);
-            else if (reason == 5) Interlocked.Increment(ref prunedHaulFast);
-            else if (reason == 6) Interlocked.Increment(ref prunedCritical);
+            else if (reason == 3) Interlocked.Increment(ref prunedCritical);
         }
 
         public static void ReportPostfix()
         {
-            Log.Message("[RimMT] RC2-T2 Stage 4B PUAH Contraction report: active=" + active +
+            long obs = Interlocked.Read(ref observed);
+            double totalMs = Interlocked.Read(ref elapsedTicks) * 1000.0 / Stopwatch.Frequency;
+            double avgUs = obs > 0 ? totalMs * 1000.0 / obs : 0.0;
+            Log.Message("[RimMT] RC2-T2 Stage 4B.1 PUAH Cheap-Only report: active=" + active +
                 ", state=" + inactiveReason +
                 ", minSource=" + MinSource +
                 ", probe=" + ProbeCount + "/" + ProbeRejectThreshold +
-                ", observed=" + Interlocked.Read(ref observed) +
+                ", observed=" + obs +
                 ", sourceCandidates=" + Interlocked.Read(ref sourceCandidates) +
                 ", smallBypass=" + Interlocked.Read(ref smallBypass) +
                 ", lowYieldBypass=" + Interlocked.Read(ref lowYieldBypass) +
                 ", contractedCalls=" + Interlocked.Read(ref contractedCalls) +
                 ", kept/pruned=" + Interlocked.Read(ref keptCandidates) + "/" + Interlocked.Read(ref prunedCandidates) +
-                ", pruneReasons(nullMap/forbidden/reserve/corpse/haulFast/critical)=" +
+                ", probeCandidates/rejected=" + Interlocked.Read(ref probeCandidates) + "/" + Interlocked.Read(ref probeRejected) +
+                ", pruneReasons(nullMap/forbidden/critical)=" +
                 Interlocked.Read(ref prunedNullOrMap) + "/" +
                 Interlocked.Read(ref prunedForbidden) + "/" +
-                Interlocked.Read(ref prunedReserve) + "/" +
-                Interlocked.Read(ref prunedCorpse) + "/" +
-                Interlocked.Read(ref prunedHaulFast) + "/" +
                 Interlocked.Read(ref prunedCritical) +
+                ", ownTotalMs=" + totalMs.ToString("F2") +
+                ", ownAvgUs=" + avgUs.ToString("F1") +
                 ", failures=" + Interlocked.Read(ref failures) + ".");
         }
     }
