@@ -6,6 +6,8 @@
 
 namespace RimFGPresent
 {
+    constexpr int MaxHudRects = 256;
+
     enum class PresentMode : int
     {
         Disabled = 0,
@@ -21,14 +23,7 @@ namespace RimFGPresent
         float height;
     };
 
-    // Called once for every real RimWorld frame. It captures the new real frame,
-    // advances temporal history and prepares motion/flow state for prediction.
     using BackbufferGenerationCallback = bool(*)(ID3D11Texture2D* backBuffer);
-
-    // Called by the independent presenter for every generated frame. fraction is
-    // the requested temporal position after the latest real frame, normally in
-    // the open interval (0,1). The returned texture is owned by RimFG.Native and
-    // may be reused by the next callback invocation.
     using PredictionGenerationCallback = ID3D11Texture2D*(*)(float fraction);
 
     bool Initialize(ID3D11Device* unityDevice);
@@ -64,4 +59,8 @@ namespace RimFGPresent
     std::uint64_t GeneratedPresentCount();
     std::uint64_t SkippedPresentCount();
     std::uint64_t FrameLatencyTimeoutCount();
+    std::uint64_t PresentFailureCount();
+    std::uint64_t StalePredictionCount();
+    std::uint64_t RingBusyDropCount();
+    std::uint64_t CompositionFailureCount();
 }
