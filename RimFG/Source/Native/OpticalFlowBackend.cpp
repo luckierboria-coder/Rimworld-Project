@@ -79,6 +79,28 @@ float LocalContrast(int2 center)
     return abs(c - l) + abs(c - r) + abs(c - u) + abs(c - d);
 }
 
+void ConsiderCandidate(int2 currentCenter, float2 predictedPrevious, float2 offset,
+    inout float bestError, inout float secondError, inout float2 bestOffset)
+{
+    float e = PatchError(currentCenter, predictedPrevious + offset);
+
+    // Prefer smaller vectors when two matches are nearly equivalent. RimWorld has
+    // many repeated floor/wall/sprite-edge patterns where a huge brute-force radius
+    // otherwise locks onto a visually similar but unrelated patch.
+    e += dot(offset, offset) * 0.00035;
+
+    if (e < bestError)
+    {
+        secondError = bestError;
+        bestError = e;
+        bestOffset = offset;
+    }
+    else if (e < secondError)
+    {
+        secondError = e;
+    }
+}
+
 [numthreads(8, 8, 1)]
 void CSMain(uint3 tid : SV_DispatchThreadID)
 {
@@ -89,55 +111,61 @@ void CSMain(uint3 tid : SV_DispatchThreadID)
     float2 center = (float2(FrameSize) - 1.0) * 0.5;
 
     // Remove deterministic orthographic camera translation/zoom first. Residual
-    // search is then reserved for local object motion such as pawns/projectiles.
+    // search is only for local motion (pawns/projectiles/animated objects).
     float2 currentFromCenter = float2(currentCenter) - center;
     float safeZoom = max(ZoomScale, 0.001);
     float2 predictedPrevious = center + currentFromCenter / safeZoom - GlobalShiftPixels;
 
     float bestError = 1e20;
     float secondError = 1e20;
-    int2 best = int2(0, 0);
+    float2 bestOffset = float2(0.0, 0.0);
 
-    // Flow is calculated on a half-resolution grid. A +/-8 search here covers
-    // roughly +/-16 full-resolution pixels between real frames, which is much
-    // more appropriate for RimWorld at 10-30 base FPS than the old +/-3 radius.
+    // Coarse stage: 9x9 candidates at 4-pixel spacing. This covers +/-16 full-res
+    // pixels but is dramatically cheaper than the old 17x17 exhaustive search.
     [loop]
-    for (int dy = -8; dy <= 8; ++dy)
+    for (int cy = -4; cy <= 4; ++cy)
     {
         [loop]
-        for (int dx = -8; dx <= 8; ++dx)
+        for (int cx = -4; cx <= 4; ++cx)
         {
-            float e = PatchError(currentCenter, predictedPrevious + float2(dx * 2, dy * 2));
-            if (e < bestError)
-            {
-                secondError = bestError;
-                bestError = e;
-                best = int2(dx, dy);
-            }
-            else if (e < secondError)
-            {
-                secondError = e;
-            }
+            float2 offset = float2(cx * 4, cy * 4);
+            ConsiderCandidate(currentCenter, predictedPrevious, offset,
+                bestError, secondError, bestOffset);
         }
     }
 
-    // Confidence is based on uniqueness of the best match. Keep the rejection
-    // behavior conservative around flat/repeated textures, but do not suppress
-    // valid sprite motion as aggressively as the old low-radius search did.
+    // Fine stage: refine within +/-2 full-res pixels around the best coarse vector.
+    float2 coarseBest = bestOffset;
+    [unroll]
+    for (int fy = -2; fy <= 2; ++fy)
+    {
+        [unroll]
+        for (int fx = -2; fx <= 2; ++fx)
+        {
+            float2 offset = coarseBest + float2(fx, fy);
+            ConsiderCandidate(currentCenter, predictedPrevious, offset,
+                bestError, secondError, bestOffset);
+        }
+    }
+
     float uniqueness = saturate((secondError - bestError) / max(secondError, 0.0001));
     float contrast = saturate(LocalContrast(currentCenter) * 5.0);
-    float errorGate = 1.0 - smoothstep(0.28, 0.52, bestError);
+    float errorGate = 1.0 - smoothstep(0.22, 0.42, bestError);
     float confidence = uniqueness * contrast * errorGate;
 
-    float weight = smoothstep(0.06, 0.34, confidence);
+    // Keep the gate conservative. A missing vector produces a locally un-interpolated
+    // sprite; a false vector produces the much more objectionable smear/warping the
+    // previous build exhibited.
+    float weight = smoothstep(0.10, 0.42, confidence);
+    float2 residual = bestOffset * weight;
 
-    // 'best' is expressed in half-resolution flow-grid cells. Convert it back to
-    // full-resolution pixel displacement before publishing the vector. The old
-    // code forgot this x2 conversion, halving all local motion in generated frames.
-    float2 residual = float2(best) * 2.0 * weight;
-
-    if (dot(residual, residual) < 0.20)
+    if (dot(residual, residual) < 0.25)
         residual = float2(0.0, 0.0);
+
+    // Hard safety bound. Never allow a bad local match to fling pixels arbitrarily.
+    float mag = length(residual);
+    if (mag > 18.0)
+        residual *= 18.0 / mag;
 
     ResidualFlow[tid.xy] = residual;
 }
@@ -268,9 +296,9 @@ void CSMain(uint3 tid : SV_DispatchThreadID)
         if (!context || !previous || !current || !shader_ || !flowUav_ || !UploadConstants(context, motion))
             return false;
 
-        ID3D11ShaderResourceView* srvs[2] = { previous, current };
-        ID3D11UnorderedAccessView* uavs[1] = { flowUav_.Get() };
-        ID3D11Buffer* cbs[1] = { constants_.Get() };
+        ID3D11ShaderResourceView* srvs[2] = {previous, current};
+        ID3D11UnorderedAccessView* uavs[1] = {flowUav_.Get()};
+        ID3D11Buffer* cbs[1] = {constants_.Get()};
 
         context->CSSetShader(shader_.Get(), nullptr, 0);
         context->CSSetShaderResources(0, 2, srvs);
@@ -278,9 +306,9 @@ void CSMain(uint3 tid : SV_DispatchThreadID)
         context->CSSetConstantBuffers(0, 1, cbs);
         context->Dispatch(static_cast<UINT>((flowWidth_ + 7) / 8), static_cast<UINT>((flowHeight_ + 7) / 8), 1);
 
-        ID3D11ShaderResourceView* nullSrvs[2] = { nullptr, nullptr };
-        ID3D11UnorderedAccessView* nullUavs[1] = { nullptr };
-        ID3D11Buffer* nullCbs[1] = { nullptr };
+        ID3D11ShaderResourceView* nullSrvs[2] = {nullptr, nullptr};
+        ID3D11UnorderedAccessView* nullUavs[1] = {nullptr};
+        ID3D11Buffer* nullCbs[1] = {nullptr};
         context->CSSetShaderResources(0, 2, nullSrvs);
         context->CSSetUnorderedAccessViews(0, 1, nullUavs, nullptr);
         context->CSSetConstantBuffers(0, 1, nullCbs);
