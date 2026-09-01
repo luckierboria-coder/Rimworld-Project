@@ -51,6 +51,7 @@ namespace RimFG
     internal static class NativeInterop
     {
         internal const uint AbiVersion = 1;
+        internal const int MaxHudRects = 256;
         private const string DllName = "RimFG.Native";
         private const uint LoadLibrarySearchDllLoadDir = 0x00000100;
         private const uint LoadLibrarySearchDefaultDirs = 0x00001000;
@@ -124,8 +125,16 @@ namespace RimFG
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_GetTargetOutputFps();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern double RimFG_GetEstimatedBaseFps();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern double RimFG_GetEstimatedOutputFps();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_IsPresenterReady();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_GetMonitorRefreshHz();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetRealPresentCount();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetGeneratedPresentCount();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetSkippedPresentCount();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetFrameLatencyTimeoutCount();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetPresentFailureCount();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetStalePredictionCount();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetRingBusyDropCount();
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern ulong RimFG_GetCompositionFailureCount();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern int RimFG_GetGpuQualityTier();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern double RimFG_GetGpuFrameGenerationMs();
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)] internal static extern void RimFG_StopPresentHook();
