@@ -44,6 +44,15 @@ jobs:
           Copy-Item $wtl 'WTL-Final-Guard-1.5\References\WorldTechLevel.dll' -Force
           Get-Item 'WTL-Final-Guard-1.5\References\WorldTechLevel.dll' | Format-Table Name,Length,LastWriteTime
 
+      - name: Normalize RimWorld 1.5 private API references
+        shell: pwsh
+        run: |
+          $p = 'WTL-Final-Guard-1.5\Source\FinalGuard.cs'
+          $s = Get-Content $p -Raw
+          $s = $s.Replace('nameof(PawnGenerator.GenerateGearFor)', '"GenerateGearFor"')
+          $s = $s.Replace('TechLevel minLevel = TechLevelUtility.Min(limit, TechLevel.Medieval);', 'TechLevel minLevel = WorldTechLevel.TechLevelUtility.Min(limit, TechLevel.Medieval);')
+          Set-Content $p $s -Encoding UTF8
+
       - name: Restore
         run: dotnet restore WTL-Final-Guard-1.5/Source/WTLFinalGuard.csproj
 
