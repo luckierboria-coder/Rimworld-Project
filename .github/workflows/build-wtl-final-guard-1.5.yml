@@ -1,0 +1,86 @@
+name: Build WTL Final Guard 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'WTL-Final-Guard-1.5/**'
+      - '.github/workflows/build-wtl-final-guard-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download SteamCMD
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path steamcmd | Out-Null
+          Invoke-WebRequest -Uri 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile steamcmd.zip
+          Expand-Archive steamcmd.zip -DestinationPath steamcmd -Force
+
+      - name: Download World Tech Level 3414187030
+        shell: pwsh
+        run: |
+          & .\steamcmd\steamcmd.exe +login anonymous +workshop_download_item 294100 3414187030 validate +quit
+          $global:LASTEXITCODE = 0
+          $candidate = Join-Path (Resolve-Path steamcmd).Path 'steamapps\workshop\content\294100\3414187030'
+          if (!(Test-Path $candidate)) {
+            $hit = Get-ChildItem -Path . -Directory -Recurse -Filter 3414187030 | Select-Object -First 1
+            if (!$hit) { throw 'SteamCMD did not download World Tech Level 3414187030.' }
+            $candidate = $hit.FullName
+          }
+          $wtl = Join-Path $candidate '1.5\Lunar\Components\WorldTechLevel.dll'
+          if (!(Test-Path $wtl)) { throw "WTL 1.5 assembly not found at $wtl" }
+          New-Item -ItemType Directory -Force -Path 'WTL-Final-Guard-1.5\References' | Out-Null
+          Copy-Item $wtl 'WTL-Final-Guard-1.5\References\WorldTechLevel.dll' -Force
+          Get-Item 'WTL-Final-Guard-1.5\References\WorldTechLevel.dll' | Format-Table Name,Length,LastWriteTime
+
+      - name: Restore
+        run: dotnet restore WTL-Final-Guard-1.5/Source/WTLFinalGuard.csproj
+
+      - name: Build Release
+        run: dotnet build WTL-Final-Guard-1.5/Source/WTLFinalGuard.csproj --configuration Release --no-restore
+
+      - name: Stage assembly
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem 'WTL-Final-Guard-1.5\Source\bin\Release\net472\WTLFinalGuard.dll' -File | Select-Object -First 1
+          if (!$dll) { throw 'WTLFinalGuard.dll was not produced.' }
+          New-Item -ItemType Directory -Force -Path 'WTL-Final-Guard-1.5\1.5\Assemblies' | Out-Null
+          Copy-Item $dll.FullName 'WTL-Final-Guard-1.5\1.5\Assemblies\WTLFinalGuard.dll' -Force
+          $bytes = [IO.File]::ReadAllBytes('WTL-Final-Guard-1.5\1.5\Assemblies\WTLFinalGuard.dll')
+          $ascii = [Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($needle in @('WTLFinalGuard', 'GeneratePawn_Finalizer', 'GenSpawn_PawnPrefix', 'ThingSetMaker_Finalizer')) {
+            if (!$ascii.Contains($needle)) { throw "Compiled DLL missing symbol: $needle" }
+          }
+          Write-Host 'Assembly verification passed.'
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build\WorldTechLevel_FinalGuard_1.5'
+          Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'WTL-Final-Guard-1.5\About' $stage -Recurse -Force
+          Copy-Item 'WTL-Final-Guard-1.5\1.5' $stage -Recurse -Force
+          Copy-Item 'WTL-Final-Guard-1.5\README.md' $stage -Force
+          New-Item -ItemType Directory -Force -Path "$stage\Source" | Out-Null
+          Copy-Item 'WTL-Final-Guard-1.5\Source\FinalGuard.cs' "$stage\Source\FinalGuard.cs" -Force
+          Copy-Item 'WTL-Final-Guard-1.5\Source\WTLFinalGuard.csproj' "$stage\Source\WTLFinalGuard.csproj" -Force
+          Compress-Archive -Path $stage -DestinationPath 'build\WorldTechLevel_FinalGuard_1.5_v0.1.0.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorldTechLevel-FinalGuard-1.5-v0.1.0
+          path: build/WorldTechLevel_FinalGuard_1.5_v0.1.0.zip
+          if-no-files-found: error
