@@ -27,8 +27,26 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(minhook)
 
+# Keep the validated UAV-safe producer as the canonical source, and apply the
+# narrow worker-state fix at configure time. This avoids duplicating the whole
+# native producer while the state machine is still under active validation.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/RimFGNativeUavSafe.cpp" RIMFG_UAV_SAFE_SOURCE)
+
+string(REPLACE
+"            if (!g_workerDevice)\n            {\n                if (g_adapter && CreateWorkerDevice()) g_workerReady.store(true, std::memory_order_release);\n                else { std::this_thread::sleep_for(std::chrono::milliseconds(10)); continue; }\n            }"
+"            if (!g_workerReady.load(std::memory_order_acquire))\n            {\n                if (g_adapter && CreateWorkerDevice()) g_workerReady.store(true, std::memory_order_release);\n                else { std::this_thread::sleep_for(std::chrono::milliseconds(10)); continue; }\n            }"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"            HWND window = nullptr;\n            if (!ConsumeSlot(index, window))\n            {\n                g_workerReady.store(false, std::memory_order_release);\n                std::this_thread::sleep_for(std::chrono::milliseconds(2));\n                continue;\n            }\n            if (g_havePreviousMetadata) PublishBatch(window);\n            else g_nativeStage.store(static_cast<int>(NativeStage::HistoryPrimed), std::memory_order_release);"
+"            const bool hadHistoryBeforeConsume = g_havePreviousMetadata;\n            HWND window = nullptr;\n            if (!ConsumeSlot(index, window))\n            {\n                // A keyed-mutex timeout or transient shared-resource miss must not\n                // permanently close the producer gate. Leave the slot READY and retry.\n                std::this_thread::sleep_for(std::chrono::milliseconds(2));\n                continue;\n            }\n            if (hadHistoryBeforeConsume) PublishBatch(window);\n            else g_nativeStage.store(static_cast<int>(NativeStage::HistoryPrimed), std::memory_order_release);"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+set(RIMFG_GATE_FIX_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/RimFGNativeUavSafeGateFix.cpp")
+file(WRITE "${RIMFG_GATE_FIX_SOURCE}" "${RIMFG_UAV_SAFE_SOURCE}")
+
 add_library(RimFG.Native SHARED
-  RimFGNativeUavSafe.cpp
+  "${RIMFG_GATE_FIX_SOURCE}"
   PresentHookOwnershipFix.cpp
   OpticalFlowBackend.cpp
   GpuBudget.cpp
@@ -36,7 +54,7 @@ add_library(RimFG.Native SHARED
 
 target_compile_features(RimFG.Native PRIVATE cxx_std_17)
 target_compile_definitions(RimFG.Native PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
-target_include_directories(RimFG.Native PRIVATE "${UNITY_PLUGIN_API_DIR}")
+target_include_directories(RimFG.Native PRIVATE "${UNITY_PLUGIN_API_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(RimFG.Native PRIVATE d3d11 dxgi d3dcompiler dcomp minhook)
 
 set_target_properties(RimFG.Native PROPERTIES
