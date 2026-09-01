@@ -52,30 +52,29 @@ int2 ClampFrame(int2 p)
 
 float PatchError(int2 currentCenter, float2 previousCenter)
 {
+    // Five samples are enough for RimWorld's high-contrast 2D sprites and are much
+    // cheaper than the old 3x3 patch. False vectors are filtered by confidence below.
+    int2 pc = ClampFrame(int2(round(previousCenter)));
     float e = 0.0;
-    [unroll]
-    for (int y = -1; y <= 1; ++y)
-    {
-        [unroll]
-        for (int x = -1; x <= 1; ++x)
-        {
-            int2 c = ClampFrame(currentCenter + int2(x, y));
-            int2 p = ClampFrame(int2(round(previousCenter)) + int2(x, y));
-            float a = Luma(CurrentFrame.Load(int3(c, 0)).rgb);
-            float b = Luma(PreviousFrame.Load(int3(p, 0)).rgb);
-            e += abs(a - b);
-        }
-    }
+    float c0 = Luma(CurrentFrame.Load(int3(ClampFrame(currentCenter), 0)).rgb);
+    float p0 = Luma(PreviousFrame.Load(int3(pc, 0)).rgb);
+    e += abs(c0 - p0) * 2.0;
+    const int2 d0 = int2(2, 0);
+    const int2 d1 = int2(0, 2);
+    e += abs(Luma(CurrentFrame.Load(int3(ClampFrame(currentCenter + d0), 0)).rgb) - Luma(PreviousFrame.Load(int3(ClampFrame(pc + d0), 0)).rgb));
+    e += abs(Luma(CurrentFrame.Load(int3(ClampFrame(currentCenter - d0), 0)).rgb) - Luma(PreviousFrame.Load(int3(ClampFrame(pc - d0), 0)).rgb));
+    e += abs(Luma(CurrentFrame.Load(int3(ClampFrame(currentCenter + d1), 0)).rgb) - Luma(PreviousFrame.Load(int3(ClampFrame(pc + d1), 0)).rgb));
+    e += abs(Luma(CurrentFrame.Load(int3(ClampFrame(currentCenter - d1), 0)).rgb) - Luma(PreviousFrame.Load(int3(ClampFrame(pc - d1), 0)).rgb));
     return e;
 }
 
 float LocalContrast(int2 center)
 {
     float c = Luma(CurrentFrame.Load(int3(ClampFrame(center), 0)).rgb);
-    float l = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(-1, 0)), 0)).rgb);
-    float r = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(1, 0)), 0)).rgb);
-    float u = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(0, -1)), 0)).rgb);
-    float d = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(0, 1)), 0)).rgb);
+    float l = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(-2, 0)), 0)).rgb);
+    float r = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(2, 0)), 0)).rgb);
+    float u = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(0, -2)), 0)).rgb);
+    float d = Luma(CurrentFrame.Load(int3(ClampFrame(center + int2(0, 2)), 0)).rgb);
     return abs(c - l) + abs(c - r) + abs(c - u) + abs(c - d);
 }
 
@@ -83,12 +82,7 @@ void ConsiderCandidate(int2 currentCenter, float2 predictedPrevious, float2 offs
     inout float bestError, inout float secondError, inout float2 bestOffset)
 {
     float e = PatchError(currentCenter, predictedPrevious + offset);
-
-    // Prefer smaller vectors when two matches are nearly equivalent. RimWorld has
-    // many repeated floor/wall/sprite-edge patterns where a huge brute-force radius
-    // otherwise locks onto a visually similar but unrelated patch.
-    e += dot(offset, offset) * 0.00035;
-
+    e += dot(offset, offset) * 0.00045;
     if (e < bestError)
     {
         secondError = bestError;
@@ -107,11 +101,10 @@ void CSMain(uint3 tid : SV_DispatchThreadID)
     if (tid.x >= (uint)FlowSize.x || tid.y >= (uint)FlowSize.y)
         return;
 
-    int2 currentCenter = min(int2(tid.xy) * 2 + int2(1, 1), FrameSize - int2(1, 1));
+    // Quarter-resolution vector field: one vector per 4x4 full-resolution pixels.
+    // This cuts flow workload to one quarter of the previous half-resolution field.
+    int2 currentCenter = min(int2(tid.xy) * 4 + int2(2, 2), FrameSize - int2(1, 1));
     float2 center = (float2(FrameSize) - 1.0) * 0.5;
-
-    // Remove deterministic orthographic camera translation/zoom first. Residual
-    // search is only for local motion (pawns/projectiles/animated objects).
     float2 currentFromCenter = float2(currentCenter) - center;
     float safeZoom = max(ZoomScale, 0.001);
     float2 predictedPrevious = center + currentFromCenter / safeZoom - GlobalShiftPixels;
@@ -120,52 +113,43 @@ void CSMain(uint3 tid : SV_DispatchThreadID)
     float secondError = 1e20;
     float2 bestOffset = float2(0.0, 0.0);
 
-    // Coarse stage: 9x9 candidates at 4-pixel spacing. This covers +/-16 full-res
-    // pixels but is dramatically cheaper than the old 17x17 exhaustive search.
+    // 9x9 coarse search at 4px spacing covers +/-16px local displacement.
     [loop]
     for (int cy = -4; cy <= 4; ++cy)
     {
         [loop]
         for (int cx = -4; cx <= 4; ++cx)
         {
-            float2 offset = float2(cx * 4, cy * 4);
-            ConsiderCandidate(currentCenter, predictedPrevious, offset,
+            ConsiderCandidate(currentCenter, predictedPrevious, float2(cx * 4, cy * 4),
                 bestError, secondError, bestOffset);
         }
     }
 
-    // Fine stage: refine within +/-2 full-res pixels around the best coarse vector.
+    // Small fine refinement around the coarse winner.
     float2 coarseBest = bestOffset;
     [unroll]
-    for (int fy = -2; fy <= 2; ++fy)
+    for (int fy = -1; fy <= 1; ++fy)
     {
         [unroll]
-        for (int fx = -2; fx <= 2; ++fx)
+        for (int fx = -1; fx <= 1; ++fx)
         {
-            float2 offset = coarseBest + float2(fx, fy);
-            ConsiderCandidate(currentCenter, predictedPrevious, offset,
+            ConsiderCandidate(currentCenter, predictedPrevious, coarseBest + float2(fx * 2, fy * 2),
                 bestError, secondError, bestOffset);
         }
     }
 
     float uniqueness = saturate((secondError - bestError) / max(secondError, 0.0001));
-    float contrast = saturate(LocalContrast(currentCenter) * 5.0);
-    float errorGate = 1.0 - smoothstep(0.22, 0.42, bestError);
+    float contrast = saturate(LocalContrast(currentCenter) * 4.0);
+    float errorGate = 1.0 - smoothstep(0.18, 0.38, bestError);
     float confidence = uniqueness * contrast * errorGate;
-
-    // Keep the gate conservative. A missing vector produces a locally un-interpolated
-    // sprite; a false vector produces the much more objectionable smear/warping the
-    // previous build exhibited.
-    float weight = smoothstep(0.10, 0.42, confidence);
+    float weight = smoothstep(0.12, 0.46, confidence);
     float2 residual = bestOffset * weight;
 
-    if (dot(residual, residual) < 0.25)
+    if (dot(residual, residual) < 0.50)
         residual = float2(0.0, 0.0);
-
-    // Hard safety bound. Never allow a bad local match to fling pixels arbitrarily.
     float mag = length(residual);
-    if (mag > 18.0)
-        residual *= 18.0 / mag;
+    if (mag > 16.0)
+        residual *= 16.0 / mag;
 
     ResidualFlow[tid.xy] = residual;
 }
@@ -243,8 +227,8 @@ void CSMain(uint3 tid : SV_DispatchThreadID)
         if (!device_ || width_ <= 0 || height_ <= 0)
             return false;
 
-        flowWidth_ = std::max(1, (width_ + 1) / 2);
-        flowHeight_ = std::max(1, (height_ + 1) / 2);
+        flowWidth_ = std::max(1, (width_ + 3) / 4);
+        flowHeight_ = std::max(1, (height_ + 3) / 4);
 
         D3D11_TEXTURE2D_DESC td{};
         td.Width = static_cast<UINT>(flowWidth_);
