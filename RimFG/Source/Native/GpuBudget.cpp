@@ -16,7 +16,7 @@ namespace RimFGFlow
             if (FAILED(device->CreateQuery(&q, &s.end))) return false;
         }
         initialized_ = true;
-        tier_ = QualityTier::ResidualFlow;
+        tier_.store(QualityTier::ResidualFlow, std::memory_order_release);
         return true;
     }
 
@@ -26,8 +26,11 @@ namespace RimFGFlow
         {
             s.disjoint.Reset(); s.begin.Reset(); s.end.Reset(); s.issued = false;
         }
-        initialized_ = false; haveEma_ = false; emaMs_ = 0.0; writeIndex_ = 0;
-        tier_ = QualityTier::ResidualFlow;
+        initialized_ = false;
+        haveEma_ = false;
+        emaMs_.store(0.0, std::memory_order_release);
+        writeIndex_ = 0;
+        tier_.store(QualityTier::ResidualFlow, std::memory_order_release);
     }
 
     void GpuBudget::Begin(ID3D11DeviceContext* context)
@@ -64,34 +67,25 @@ namespace RimFGFlow
         if (disjoint.Disjoint || disjoint.Frequency == 0 || end <= begin) return;
 
         const double ms = (static_cast<double>(end - begin) * 1000.0) / static_cast<double>(disjoint.Frequency);
-        emaMs_ = haveEma_ ? (emaMs_ * 0.85 + ms * 0.15) : ms;
+        const double previous = emaMs_.load(std::memory_order_relaxed);
+        const double next = haveEma_ ? (previous * 0.85 + ms * 0.15) : ms;
+        emaMs_.store(next, std::memory_order_release);
         haveEma_ = true;
         UpdateTier();
     }
 
     void GpuBudget::UpdateTier()
     {
-        // Never enter a terminal GPU-quality bypass here. GenerateMidpointFrame()
-        // cannot collect new timestamp samples while QualityTier::Bypass is active,
-        // so the old state machine could permanently lock itself in Bypass after a
-        // single expensive period. Presentation-level adaptive bypass is handled by
-        // the managed runtime and can be disabled explicitly by the user.
-        //
-        // The GPU quality controller therefore only switches between residual-flow
-        // and the cheaper camera/zoom path. This keeps timing queries alive and lets
-        // the EMA recover naturally without adding any framebuffer readback or CPU
-        // image work.
-        if (tier_ == QualityTier::ResidualFlow)
+        const double ema = emaMs_.load(std::memory_order_acquire);
+        const QualityTier current = tier_.load(std::memory_order_acquire);
+        if (current == QualityTier::ResidualFlow)
         {
-            if (emaMs_ > 3.5)
-                tier_ = QualityTier::CameraZoomOnly;
+            if (ema > 3.5)
+                tier_.store(QualityTier::CameraZoomOnly, std::memory_order_release);
         }
         else
         {
-            if (emaMs_ < 2.6)
-                tier_ = QualityTier::ResidualFlow;
-            else
-                tier_ = QualityTier::CameraZoomOnly;
+            tier_.store(ema < 2.6 ? QualityTier::ResidualFlow : QualityTier::CameraZoomOnly, std::memory_order_release);
         }
     }
 }
