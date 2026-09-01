@@ -28,9 +28,17 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(minhook)
 
 # Keep the validated UAV-safe producer as the canonical source, and apply the
-# narrow worker-state fix at configure time. This avoids duplicating the whole
-# native producer while the state machine is still under active validation.
+# narrow worker-state fixes at configure time while the native state machine is
+# under active validation.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/RimFGNativeUavSafe.cpp" RIMFG_UAV_SAFE_SOURCE)
+
+# Bootstrap the Unity D3D11 device/adapter before checking workerReady. The
+# worker itself needs g_adapter to create its independent device, so gating
+# RefreshUnityDevice behind workerReady creates a permanent startup deadlock.
+string(REPLACE
+"        if (!g_enabled.load(std::memory_order_relaxed) || !source || !sourceWindow) return false;\n        if (!g_workerReady.load(std::memory_order_acquire)) return false;\n        if (!EnsureCaptureResources(source) || !g_unityContext) return false;"
+"        if (!g_enabled.load(std::memory_order_relaxed) || !source || !sourceWindow) return false;\n        if (!RefreshUnityDevice()) return false;\n        if (!g_workerReady.load(std::memory_order_acquire))\n        {\n            g_workerCv.notify_one();\n            return false;\n        }\n        if (!EnsureCaptureResources(source) || !g_unityContext) return false;"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
 
 string(REPLACE
 "            if (!g_workerDevice)\n            {\n                if (g_adapter && CreateWorkerDevice()) g_workerReady.store(true, std::memory_order_release);\n                else { std::this_thread::sleep_for(std::chrono::milliseconds(10)); continue; }\n            }"
