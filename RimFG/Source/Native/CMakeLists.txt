@@ -28,7 +28,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(minhook)
 
 add_library(RimFG.Native SHARED
-  RimFGNativeOwnershipFix.cpp
+  RimFGNativeSlotState.cpp
   PresentHookOwnershipFix.cpp
   OpticalFlowBackend.cpp
   GpuBudget.cpp
