@@ -141,6 +141,7 @@ namespace
     bool g_haveHistory = false;
     bool g_havePreviousMetadata = false;
     FrameMetadata g_previousMetadata{};
+    MetadataSlot g_previousSlot{};
     int g_frameWidth = 0;
     int g_frameHeight = 0;
     DXGI_FORMAT g_frameFormat = DXGI_FORMAT_UNKNOWN;
@@ -177,17 +178,19 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     float2 p = float2(id.xy);
     float2 center = (float2(FrameSize) - 1.0) * 0.5;
 
-    // This is a buffered interpolation pass. PredictionFraction is how far we
-    // move BACKWARD from Current toward Previous: 1 = previous-like, 0 = current.
+    // Buffered interpolation samples Current and walks backward toward Previous.
+    // ImageShiftPixels is current-minus-previous image translation, so the inverse
+    // sample uses +shift*f. ZoomScale is current-scale/previous-scale and must be
+    // multiplied, not divided, when sampling Current to reconstruct an older frame.
     float f = saturate(PredictionFraction);
     float safeZoom = max(ZoomScale, 0.001);
-    float interpolatedZoom = pow(safeZoom, f);
-    float2 sourceCoord = center + (p - center - ImageShiftPixels * f) / interpolatedZoom;
+    float backwardZoom = pow(safeZoom, f);
+    float2 sourceCoord = center + (p - center) * backwardZoom + ImageShiftPixels * f;
     if (UseResidualFlow > 0.5 && FlowSize.x > 0 && FlowSize.y > 0)
     {
         int2 fp = clamp(int2(id.xy / 2), int2(0, 0), FlowSize - int2(1, 1));
-        float2 residual = ResidualFlow.Load(int3(fp, 0));
-        sourceCoord -= residual * f;
+        float2 residualPreviousMinusCurrent = ResidualFlow.Load(int3(fp, 0));
+        sourceCoord -= residualPreviousMinusCurrent * f;
     }
     OutputFrame[id.xy] = CurrentFrame.Load(int3(ClampCoord(sourceCoord), 0));
 }
@@ -240,6 +243,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         g_motionConstants.Reset();
         g_haveHistory = false;
         g_havePreviousMetadata = false;
+        g_previousSlot = MetadataSlot{};
         g_hasGeneratedFrame.store(false, std::memory_order_release);
         g_frameWidth = 0;
         g_frameHeight = 0;
@@ -632,9 +636,12 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             const float backward = 1.0f - t;
             if (DispatchInterpolation(motion, useFlow, backward))
             {
-                // Text/UI is never warped. Use nearest-real UI so names do not smear.
-                ID3D11Texture2D* uiSource = t < 0.5f ? g_previousFrame.Get() : g_currentFrame.Get();
-                CopyProtectedRects(uiSource, g_generatedFrame.Get(), slot);
+                // Text/UI is never warped. The first half uses the actual previous
+                // frame's rectangles and the second half the current frame's rectangles.
+                const bool usePreviousUi = t < 0.5f;
+                ID3D11Texture2D* uiSource = usePreviousUi ? g_previousFrame.Get() : g_currentFrame.Get();
+                const MetadataSlot& uiSlot = usePreviousUi ? g_previousSlot : slot;
+                CopyProtectedRects(uiSource, g_generatedFrame.Get(), uiSlot);
                 g_context->CopyResource(shared.texture.Get(), g_generatedFrame.Get());
             }
             else
@@ -690,6 +697,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         {
             g_context->CopyResource(g_previousFrame.Get(), g_currentFrame.Get());
             g_previousMetadata = slot.frame;
+            g_previousSlot = slot;
             g_haveHistory = true;
             g_havePreviousMetadata = true;
             const bool published = PublishRealOnlyBatch(slot, sourceWindow);
@@ -703,6 +711,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         // Only after the whole delayed batch is generated may Current become Previous.
         g_context->CopyResource(g_previousFrame.Get(), g_currentFrame.Get());
         g_previousMetadata = slot.frame;
+        g_previousSlot = slot;
         return published;
     }
 
