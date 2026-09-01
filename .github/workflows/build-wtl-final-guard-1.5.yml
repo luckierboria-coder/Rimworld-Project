@@ -51,6 +51,8 @@ jobs:
           $s = Get-Content $p -Raw
           $s = $s.Replace('nameof(PawnGenerator.GenerateGearFor)', '"GenerateGearFor"')
           $s = $s.Replace('TechLevel minLevel = TechLevelUtility.Min(limit, TechLevel.Medieval);', 'TechLevel minLevel = WorldTechLevel.TechLevelUtility.Min(limit, TechLevel.Medieval);')
+          $s = $s.Replace('public static void GenSpawn_PawnPrefix(Thing newThing)', 'public static void GenSpawn_PawnPrefix(Thing __0)')
+          $s = $s.Replace('Pawn pawn = newThing as Pawn;', 'Pawn pawn = __0 as Pawn;')
           Set-Content $p $s -Encoding UTF8
 
       - name: Restore
