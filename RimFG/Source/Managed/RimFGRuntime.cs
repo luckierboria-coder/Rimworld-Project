@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Threading;
 using RimWorld;
 using UnityEngine;
 using Verse;
@@ -33,6 +35,7 @@ namespace RimFG
     internal sealed class RimFGRuntime : MonoBehaviour
     {
         private const float TelemetryIntervalSeconds = 5f;
+        private static readonly object TelemetryFileLock = new object();
 
         private bool nativeAvailable;
         private bool nativeReadyLogged;
@@ -54,6 +57,7 @@ namespace RimFG
         private ulong previousStalePredictions;
         private ulong previousRingBusyDrops;
         private ulong previousCompositionFailures;
+        private string telemetryPath;
 
         private readonly HudRect[] hudRects = new HudRect[NativeInterop.MaxHudRects];
         private int hudRectCount;
@@ -62,6 +66,9 @@ namespace RimFG
         {
             try
             {
+                telemetryPath = Path.Combine(Application.persistentDataPath, "RimFG.log");
+                QueueTelemetry("=== RimFG session " + DateTime.UtcNow.ToString("O") + " ===");
+
                 if (!NativeInterop.EnsureNativeLoaded(out string loadError))
                 {
                     nativeAvailable = false;
@@ -78,14 +85,34 @@ namespace RimFG
 
                 ApplyConfiguredState(force: true);
                 ResetTelemetryBaselines();
-                Log.Message("[RimFG] DirectComposition presenter armed. Unity swapchain is capture-only; RimFG does not create an input overlay window.");
-                Log.Message("[RimFG] Diagnostics enabled: presenter effectiveness summary is written to Player.log every 5 seconds while RimFG is active.");
+                Log.Message("[RimFG] Buffered DirectComposition presenter armed. Presenter uses an independent D3D11 device/context.");
+                Log.Message("[RimFG] Diagnostics are written to RimFG.log under Unity persistentDataPath; periodic telemetry no longer goes through Verse.Log.");
             }
             catch (Exception ex)
             {
                 nativeAvailable = false;
                 Log.Warning("[RimFG] Native bridge unavailable: " + ex);
             }
+        }
+
+        private void QueueTelemetry(string line)
+        {
+            string path = telemetryPath;
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(line))
+                return;
+            string payload = DateTime.UtcNow.ToString("O") + " " + line + Environment.NewLine;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    lock (TelemetryFileLock)
+                        File.AppendAllText(path, payload);
+                }
+                catch
+                {
+                    // Diagnostics must never affect gameplay or disable FG.
+                }
+            });
         }
 
         private void ResetTelemetryBaselines()
@@ -142,7 +169,7 @@ namespace RimFG
                 if (!generatedLogged && NativeInterop.RimFG_HasGeneratedFrame() != 0)
                 {
                     generatedLogged = true;
-                    Log.Message("[RimFG] DXGI backbuffer prediction history is ready.");
+                    Log.Message("[RimFG] Buffered interpolation history is ready.");
                 }
                 if (!swapChainLogged && NativeInterop.RimFG_HasUnitySwapChain() != 0)
                 {
@@ -152,7 +179,7 @@ namespace RimFG
                 if (!firstGeneratedPresentLogged && NativeInterop.RimFG_GetGeneratedPresentCount() > 0UL)
                 {
                     firstGeneratedPresentLogged = true;
-                    Log.Message("[RimFG] First generated frame reached the DirectComposition presenter.");
+                    Log.Message("[RimFG] First generated frame reached the independent DirectComposition presenter.");
                 }
 
                 EmitTelemetryIfDue();
@@ -208,7 +235,7 @@ namespace RimFG
                 skippedPerSecond, waitTimeoutPerSecond, presentFailPerSecond, stalePerSecond,
                 ringBusyPerSecond, compositionFailPerSecond, unitySwapchain, predictionReady, presenterReady);
 
-            Log.Message(
+            QueueTelemetry(
                 "[RimFG][PresenterDiag] " +
                 "base=" + baseFps.ToString("F1") + "fps, " +
                 "target=" + targetFps + "fps, monitor=" + monitorHz + "Hz, " +
@@ -231,7 +258,7 @@ namespace RimFG
             {
                 consecutiveNoOutputWindows++;
                 if (consecutiveNoOutputWindows == 2)
-                    Log.Warning("[RimFG][PresenterDiag] No measurable presenter output for 10 seconds while FG is requested. Use the per-cause counters in the preceding PresenterDiag lines to identify composition, Present, pacing, stale-frame, or ring-pressure failure.");
+                    QueueTelemetry("[RimFG][PresenterDiag] No measurable presenter output for 10 seconds while FG is requested.");
             }
             else
             {
@@ -262,9 +289,9 @@ namespace RimFG
             if (compositionFailPerSecond > 0.1) return "DIRECTCOMPOSITION_FAILURE";
             if (!presenterReady) return "COMPOSITION_PRESENTER_NOT_READY";
             if (presentFailPerSecond > 0.1) return "DXGI_PRESENT_FAILURE";
-            if (ringBusyPerSecond > 1.0) return "REAL_FRAME_RING_PRESSURE";
-            if (stalePerSecond > Math.Max(2.0, generatedPerSecond * 0.25)) return "STALE_PREDICTION_PRESSURE";
-            if (waitTimeoutPerSecond > Math.Max(2.0, generatedPerSecond * 0.25)) return "FRAME_LATENCY_BOUND";
+            if (ringBusyPerSecond > 1.0) return "SHARED_BATCH_PRODUCER_PRESSURE";
+            if (stalePerSecond > Math.Max(2.0, generatedPerSecond * 0.25)) return "STALE_BATCH_PRESSURE";
+            if (waitTimeoutPerSecond > Math.Max(2.0, generatedPerSecond * 0.25)) return "SHARED_TEXTURE_CONTENTION";
             if (outputFps < 1.0) return "PRESENTER_NOT_OUTPUTTING";
             if (generatedPerSecond < 0.1 && targetFps > baseFps + 1.0) return "OUTPUT_ACTIVE_BUT_NO_GENERATED_FRAMES";
 
@@ -422,6 +449,7 @@ namespace RimFG
                 try { NativeInterop.RimFG_SetEnabled(0); } catch { }
                 try { NativeInterop.RimFG_StopPresentHook(); } catch { }
             }
+            QueueTelemetry("=== RimFG session end ===");
         }
     }
 }
