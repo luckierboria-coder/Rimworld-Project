@@ -31,6 +31,8 @@ namespace RimFG
 
     internal sealed class RimFGRuntime : MonoBehaviour
     {
+        private const float TelemetryIntervalSeconds = 5f;
+
         private bool nativeAvailable;
         private bool nativeReadyLogged;
         private bool generatedLogged;
@@ -39,6 +41,12 @@ namespace RimFG
         private uint frameIndex;
         private int appliedTargetFps = -1;
         private PresentMode appliedPresentMode = (PresentMode)(-1);
+
+        private float nextTelemetryAt;
+        private ulong previousGeneratedPresents;
+        private ulong previousSkippedPresents;
+        private float previousTelemetryAt;
+        private int consecutiveNoOutputWindows;
 
         private readonly HudRect[] hudRects = new HudRect[8];
         private int hudRectCount;
@@ -62,7 +70,12 @@ namespace RimFG
                     Log.Warning("[RimFG] DXGI Present hook did not initialize; frame generation is disabled.");
 
                 ApplyConfiguredState(force: true);
-                Log.Message("[RimFG] Variable-ratio Target-FPS pacing armed. Generated-frame multiplier has no fixed 2x/3x cap.");
+                nextTelemetryAt = Time.realtimeSinceStartup + TelemetryIntervalSeconds;
+                previousTelemetryAt = Time.realtimeSinceStartup;
+                previousGeneratedPresents = NativeInterop.RimFG_GetGeneratedPresentCount();
+                previousSkippedPresents = NativeInterop.RimFG_GetSkippedPresentCount();
+                Log.Message("[RimFG] Dedicated presenter armed. Unity swapchain is capture-only; generated frames are presented through RimFG's independent output swapchain.");
+                Log.Message("[RimFG] Diagnostics enabled: presenter effectiveness summary will be written to Player.log every 5 seconds while RimFG is active.");
             }
             catch (Exception ex)
             {
@@ -120,8 +133,10 @@ namespace RimFG
                 if (!injectedPresentLogged && NativeInterop.RimFG_GetGeneratedPresentCount() > 0UL)
                 {
                     injectedPresentLogged = true;
-                    Log.Message("[RimFG] First variable-ratio target-paced generated frame was presented.");
+                    Log.Message("[RimFG] First generated frame reached the dedicated presenter swapchain.");
                 }
+
+                EmitTelemetryIfDue();
             }
             catch (Exception ex)
             {
@@ -129,6 +144,89 @@ namespace RimFG
                 try { NativeInterop.RimFG_SetPresentMode((int)PresentMode.Disabled); } catch { }
                 Log.Warning("[RimFG] Native bridge disabled after runtime error: " + ex);
             }
+        }
+
+        private void EmitTelemetryIfDue()
+        {
+            float now = Time.realtimeSinceStartup;
+            if (now < nextTelemetryAt)
+                return;
+
+            float elapsed = Mathf.Max(0.1f, now - previousTelemetryAt);
+            nextTelemetryAt = now + TelemetryIntervalSeconds;
+            previousTelemetryAt = now;
+
+            double baseFps = NativeInterop.RimFG_GetEstimatedBaseFps();
+            double outputFps = NativeInterop.RimFG_GetEstimatedOutputFps();
+            int targetFps = NativeInterop.RimFG_GetTargetOutputFps();
+            ulong generated = NativeInterop.RimFG_GetGeneratedPresentCount();
+            ulong skipped = NativeInterop.RimFG_GetSkippedPresentCount();
+            ulong generatedDelta = generated >= previousGeneratedPresents ? generated - previousGeneratedPresents : 0UL;
+            ulong skippedDelta = skipped >= previousSkippedPresents ? skipped - previousSkippedPresents : 0UL;
+            previousGeneratedPresents = generated;
+            previousSkippedPresents = skipped;
+
+            double generatedPerSecond = generatedDelta / (double)elapsed;
+            double skippedPerSecond = skippedDelta / (double)elapsed;
+            double gpuMs = NativeInterop.RimFG_GetGpuFrameGenerationMs();
+            int stage = NativeInterop.RimFG_GetNativeStage();
+            int quality = NativeInterop.RimFG_GetGpuQualityTier();
+            bool unitySwapchain = NativeInterop.RimFG_HasUnitySwapChain() != 0;
+            bool hasGeneratedFrame = NativeInterop.RimFG_HasGeneratedFrame() != 0;
+
+            string verdict = ClassifyPresenter(baseFps, outputFps, targetFps, generatedPerSecond, skippedPerSecond, unitySwapchain, hasGeneratedFrame);
+
+            Log.Message(
+                "[RimFG][PresenterDiag] " +
+                "base=" + baseFps.ToString("F1") + "fps, " +
+                "target=" + targetFps + "fps, " +
+                "actualOutput=" + outputFps.ToString("F1") + "fps, " +
+                "generated=" + generatedPerSecond.ToString("F1") + "/s, " +
+                "skipped=" + skippedPerSecond.ToString("F1") + "/s, " +
+                "gpuFG=" + gpuMs.ToString("F2") + "ms, " +
+                "stage=" + stage + ", quality=" + quality + ", " +
+                "unitySwapchain=" + (unitySwapchain ? "yes" : "no") + ", " +
+                "prediction=" + (hasGeneratedFrame ? "ready" : "not-ready") + ", " +
+                "verdict=" + verdict + ".");
+
+            if (targetFps > baseFps + 1.0 && outputFps < 1.0)
+            {
+                consecutiveNoOutputWindows++;
+                if (consecutiveNoOutputWindows == 2)
+                    Log.Warning("[RimFG][PresenterDiag] Dedicated presenter has produced no measurable output for 10 seconds even though FG is requested. This points to the output swapchain/window/present path rather than the prediction generator.");
+            }
+            else
+            {
+                consecutiveNoOutputWindows = 0;
+            }
+        }
+
+        private static string ClassifyPresenter(
+            double baseFps,
+            double outputFps,
+            int targetFps,
+            double generatedPerSecond,
+            double skippedPerSecond,
+            bool unitySwapchain,
+            bool hasGeneratedFrame)
+        {
+            if (!unitySwapchain)
+                return "NO_UNITY_SWAPCHAIN";
+            if (!hasGeneratedFrame)
+                return "PREDICTION_NOT_READY";
+            if (targetFps <= baseFps + 0.5)
+                return "FG_NOT_NEEDED_AT_CURRENT_BASE_FPS";
+            if (outputFps < 1.0)
+                return generatedPerSecond > 0.1 ? "GENERATED_BUT_OUTPUT_CLOCK_NOT_MEASURABLE" : "DEDICATED_PRESENTER_NOT_OUTPUTTING";
+            if (generatedPerSecond < 0.1)
+                return "OUTPUT_ACTIVE_BUT_NO_GENERATED_FRAMES";
+
+            double desired = Math.Min(targetFps, 1000);
+            if (outputFps >= desired * 0.90)
+                return skippedPerSecond > generatedPerSecond * 0.25 ? "OUTPUT_NEAR_TARGET_WITH_HIGH_DROP_RATE" : "OUTPUT_NEAR_TARGET";
+            if (skippedPerSecond > generatedPerSecond)
+                return "PRESENTER_DROP_BOUND";
+            return "OUTPUT_BELOW_TARGET";
         }
 
         private void ApplyConfiguredState(bool force)
