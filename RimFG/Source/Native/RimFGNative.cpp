@@ -1,14 +1,15 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
 
 #include <d3d11.h>
-#include <d3d11_4.h>
 #include <d3dcompiler.h>
+#include <dxgi.h>
 #include <wrl/client.h>
 
 #include "IUnityInterface.h"
@@ -22,8 +23,11 @@ using Microsoft::WRL::ComPtr;
 
 namespace
 {
+    using Clock = std::chrono::steady_clock;
     constexpr std::uint32_t kAbiVersion = 1;
     constexpr int kMaxHudRects = RimFGPresent::MaxHudRects;
+    constexpr int kMaxBatchFrames = RimFGPresent::MaxBatchFrames;
+    constexpr int kSharedBatchSetCount = 2;
     constexpr std::size_t kMetadataSlotCount = 4;
 
     enum class NativeStage : int
@@ -38,7 +42,8 @@ namespace
         ErrorHistoryTexture = -3,
         ErrorShader = -4,
         ErrorOutputTexture = -5,
-        ErrorMotionConstants = -6
+        ErrorMotionConstants = -6,
+        ErrorSharedTexture = -7
     };
 
 #pragma pack(push, 4)
@@ -86,7 +91,6 @@ namespace
     static_assert(sizeof(FrameMetadata) == 48, "Managed/native ABI mismatch for FrameMetadata");
     static_assert(sizeof(HudRect) == 16, "Managed/native HUD ABI mismatch");
     static_assert(sizeof(MotionConstants) == 48, "D3D11 constant buffer alignment mismatch");
-    static_assert(sizeof(RimFGPresent::HudRectPx) == sizeof(HudRect), "Present HUD ABI mismatch");
 
     struct MetadataSlot
     {
@@ -95,11 +99,17 @@ namespace
         std::int32_t hudCount = 0;
     };
 
+    struct SharedTextureSlot
+    {
+        ComPtr<ID3D11Texture2D> texture;
+        ComPtr<IDXGIKeyedMutex> keyedMutex;
+        HANDLE sharedHandle = nullptr;
+    };
+
     IUnityInterfaces* g_unityInterfaces = nullptr;
     IUnityGraphics* g_unityGraphics = nullptr;
     ID3D11Device* g_device = nullptr;
     ComPtr<ID3D11DeviceContext> g_context;
-    ComPtr<ID3D11Multithread> g_contextMultithread;
 
     std::atomic<bool> g_enabled{false};
     std::atomic<bool> g_d3d11Ready{false};
@@ -117,25 +127,28 @@ namespace
     ComPtr<ID3D11ComputeShader> g_interpolateCs;
     ComPtr<ID3D11Buffer> g_motionConstants;
 
+    std::array<std::array<SharedTextureSlot, kMaxBatchFrames>, kSharedBatchSetCount> g_sharedSets{};
+    int g_sharedWidth = 0;
+    int g_sharedHeight = 0;
+    DXGI_FORMAT g_sharedFormat = DXGI_FORMAT_UNKNOWN;
+    int g_nextSharedSet = 0;
+    std::uint64_t g_nextBatchId = 0;
+
     RimFGFlow::Backend g_flowBackend;
     RimFGFlow::GpuBudget g_gpuBudget;
     bool g_flowReady = false;
     bool g_computeReady = false;
-    bool g_cachedUseFlow = false;
     bool g_haveHistory = false;
     bool g_havePreviousMetadata = false;
-    bool g_predictionReady = false;
     FrameMetadata g_previousMetadata{};
-    RimFGFlow::MotionInput g_cachedMotion{};
-    MetadataSlot g_cachedSlot{};
     int g_frameWidth = 0;
     int g_frameHeight = 0;
     DXGI_FORMAT g_frameFormat = DXGI_FORMAT_UNKNOWN;
+    Clock::time_point g_lastCaptureAt{};
 
-    // Capture runs from Unity's Present path and prediction runs from RimFG's
-    // presenter thread. Both use try_lock in normal gameplay: contention drops an
-    // FG opportunity instead of making RimWorld wait.
-    std::mutex g_predictionMutex;
+    // Only Unity's render/Present thread records D3D11 commands now. The presenter
+    // never enters this mutex or this immediate context.
+    std::mutex g_resourceMutex;
 
     constexpr const char* kInterpolateShader = R"HLSL(
 Texture2D<float4> PreviousFrame : register(t0);
@@ -163,17 +176,20 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     if (id.x >= (uint)FrameSize.x || id.y >= (uint)FrameSize.y) return;
     float2 p = float2(id.xy);
     float2 center = (float2(FrameSize) - 1.0) * 0.5;
-    float f = clamp(PredictionFraction, 0.0, 0.999999);
+
+    // This is a buffered interpolation pass. PredictionFraction is how far we
+    // move BACKWARD from Current toward Previous: 1 = previous-like, 0 = current.
+    float f = saturate(PredictionFraction);
     float safeZoom = max(ZoomScale, 0.001);
-    float predictedZoom = pow(safeZoom, f);
-    float2 predictedCoord = center + (p - center - ImageShiftPixels * f) / predictedZoom;
+    float interpolatedZoom = pow(safeZoom, f);
+    float2 sourceCoord = center + (p - center - ImageShiftPixels * f) / interpolatedZoom;
     if (UseResidualFlow > 0.5 && FlowSize.x > 0 && FlowSize.y > 0)
     {
         int2 fp = clamp(int2(id.xy / 2), int2(0, 0), FlowSize - int2(1, 1));
         float2 residual = ResidualFlow.Load(int3(fp, 0));
-        predictedCoord -= residual * f;
+        sourceCoord -= residual * f;
     }
-    OutputFrame[id.xy] = CurrentFrame.Load(int3(ClampCoord(predictedCoord), 0));
+    OutputFrame[id.xy] = CurrentFrame.Load(int3(ClampCoord(sourceCoord), 0));
 }
 )HLSL";
 
@@ -191,27 +207,30 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return g_slots[seq % kMetadataSlotCount];
     }
 
-    void PublishGeneratedFrameSource(const MetadataSlot& slot)
+    void ReleaseSharedResources()
     {
-        if (!g_generatedFrame || slot.frame.frameIndex == 0) return;
-        std::array<RimFGPresent::HudRectPx, kMaxHudRects> rects{};
-        const int count = std::max(0, std::min(slot.hudCount, kMaxHudRects));
-        for (int i = 0; i < count; ++i)
+        for (auto& set : g_sharedSets)
         {
-            const HudRect& r = slot.hud[static_cast<std::size_t>(i)];
-            rects[static_cast<std::size_t>(i)] = {r.x, r.y, r.width, r.height};
+            for (SharedTextureSlot& slot : set)
+            {
+                slot.keyedMutex.Reset();
+                slot.texture.Reset();
+                slot.sharedHandle = nullptr;
+            }
         }
-        RimFGPresent::SetGeneratedFrameSource(g_generatedFrame.Get(), g_frameWidth, g_frameHeight, rects.data(), count, slot.frame.frameIndex);
+        g_sharedWidth = g_sharedHeight = 0;
+        g_sharedFormat = DXGI_FORMAT_UNKNOWN;
+        g_nextSharedSet = 0;
     }
 
     void ReleaseFrameResourcesUnlocked()
     {
         RimFGPresent::ClearGeneratedFrameSource();
+        ReleaseSharedResources();
         g_flowBackend.Shutdown();
         g_gpuBudget.Shutdown();
         g_flowReady = false;
         g_computeReady = false;
-        g_cachedUseFlow = false;
         g_previousSrv.Reset();
         g_currentSrv.Reset();
         g_generatedUav.Reset();
@@ -221,25 +240,11 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         g_motionConstants.Reset();
         g_haveHistory = false;
         g_havePreviousMetadata = false;
-        g_predictionReady = false;
-        g_cachedSlot = MetadataSlot{};
         g_hasGeneratedFrame.store(false, std::memory_order_release);
         g_frameWidth = 0;
         g_frameHeight = 0;
         g_frameFormat = DXGI_FORMAT_UNKNOWN;
-    }
-
-    void ReleaseFrameResources()
-    {
-        std::lock_guard<std::mutex> lock(g_predictionMutex);
-        ReleaseFrameResourcesUnlocked();
-    }
-
-    void ProtectImmediateContext()
-    {
-        g_contextMultithread.Reset();
-        if (g_context && SUCCEEDED(g_context.As(&g_contextMultithread)) && g_contextMultithread)
-            g_contextMultithread->SetMultithreadProtected(TRUE);
+        g_lastCaptureAt = Clock::time_point{};
     }
 
     bool EnsureComputeShader()
@@ -248,7 +253,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         if (!g_device) return false;
         ComPtr<ID3DBlob> bytecode;
         ComPtr<ID3DBlob> errors;
-        const HRESULT hr = D3DCompile(kInterpolateShader, std::strlen(kInterpolateShader), "RimFG.MultiPredictionCS",
+        const HRESULT hr = D3DCompile(kInterpolateShader, std::strlen(kInterpolateShader), "RimFG.BufferedInterpolationCS",
             nullptr, nullptr, "CSMain", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &bytecode, &errors);
         if (FAILED(hr) || !bytecode)
         {
@@ -273,6 +278,52 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return true;
     }
 
+    bool EnsureSharedResources(const D3D11_TEXTURE2D_DESC& sourceDesc)
+    {
+        if (g_sharedWidth == static_cast<int>(sourceDesc.Width) &&
+            g_sharedHeight == static_cast<int>(sourceDesc.Height) &&
+            g_sharedFormat == sourceDesc.Format && g_sharedSets[0][0].texture)
+            return true;
+
+        ReleaseSharedResources();
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = sourceDesc.Width;
+        desc.Height = sourceDesc.Height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = sourceDesc.Format;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = 0;
+        desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+
+        for (auto& set : g_sharedSets)
+        {
+            for (SharedTextureSlot& slot : set)
+            {
+                if (FAILED(g_device->CreateTexture2D(&desc, nullptr, &slot.texture)) || !slot.texture ||
+                    FAILED(slot.texture.As(&slot.keyedMutex)) || !slot.keyedMutex)
+                {
+                    ReleaseSharedResources();
+                    g_nativeStage.store(static_cast<int>(NativeStage::ErrorSharedTexture), std::memory_order_release);
+                    return false;
+                }
+                ComPtr<IDXGIResource> resource;
+                if (FAILED(slot.texture.As(&resource)) || !resource || FAILED(resource->GetSharedHandle(&slot.sharedHandle)) || !slot.sharedHandle)
+                {
+                    ReleaseSharedResources();
+                    g_nativeStage.store(static_cast<int>(NativeStage::ErrorSharedTexture), std::memory_order_release);
+                    return false;
+                }
+            }
+        }
+        g_sharedWidth = static_cast<int>(sourceDesc.Width);
+        g_sharedHeight = static_cast<int>(sourceDesc.Height);
+        g_sharedFormat = sourceDesc.Format;
+        return true;
+    }
+
     bool EnsureFrameResources(ID3D11Texture2D* source)
     {
         if (!source)
@@ -292,11 +343,9 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         {
             ReleaseFrameResourcesUnlocked();
             g_interpolateCs.Reset();
-            g_contextMultithread.Reset();
             g_context.Reset();
             g_device = sourceDevice.Get();
             g_device->GetImmediateContext(&g_context);
-            ProtectImmediateContext();
             g_d3d11Ready.store(g_context != nullptr, std::memory_order_release);
         }
         if (!g_device || !g_context)
@@ -314,7 +363,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         }
         if (g_previousFrame && g_currentFrame && g_generatedFrame &&
             g_frameWidth == static_cast<int>(desc.Width) && g_frameHeight == static_cast<int>(desc.Height) && g_frameFormat == desc.Format)
-            return true;
+            return EnsureSharedResources(desc);
 
         ReleaseFrameResourcesUnlocked();
 
@@ -333,7 +382,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         }
 
         D3D11_TEXTURE2D_DESC generated = history;
-        generated.BindFlags = 0;
+        generated.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
         if (FAILED(g_device->CreateTexture2D(&generated, nullptr, &g_generatedFrame)))
         {
             g_nativeStage.store(static_cast<int>(NativeStage::ErrorOutputTexture), std::memory_order_release);
@@ -345,30 +394,18 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         const bool canSrv = queryOk && (support & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE) != 0;
         const bool canUav = queryOk && (support & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW) != 0;
         g_computeReady = false;
-        if (canSrv && canUav)
-        {
-            ComPtr<ID3D11Texture2D> computeOutput;
-            generated.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
-            if (SUCCEEDED(g_device->CreateTexture2D(&generated, nullptr, &computeOutput)) &&
-                SUCCEEDED(g_device->CreateShaderResourceView(g_previousFrame.Get(), nullptr, &g_previousSrv)) &&
-                SUCCEEDED(g_device->CreateShaderResourceView(g_currentFrame.Get(), nullptr, &g_currentSrv)))
-            {
-                ComPtr<ID3D11UnorderedAccessView> outputUav;
-                if (SUCCEEDED(g_device->CreateUnorderedAccessView(computeOutput.Get(), nullptr, &outputUav)) && EnsureComputeShader())
-                {
-                    g_generatedFrame = computeOutput;
-                    g_generatedUav = outputUav;
-                    g_computeReady = true;
-                }
-            }
-        }
+        if (canSrv && canUav &&
+            SUCCEEDED(g_device->CreateShaderResourceView(g_previousFrame.Get(), nullptr, &g_previousSrv)) &&
+            SUCCEEDED(g_device->CreateShaderResourceView(g_currentFrame.Get(), nullptr, &g_currentSrv)) &&
+            SUCCEEDED(g_device->CreateUnorderedAccessView(g_generatedFrame.Get(), nullptr, &g_generatedUav)) && EnsureComputeShader())
+            g_computeReady = true;
 
         g_flowReady = g_computeReady && g_flowBackend.Initialize(g_device, static_cast<int>(desc.Width), static_cast<int>(desc.Height));
         g_gpuBudget.Initialize(g_device);
         g_frameWidth = static_cast<int>(desc.Width);
         g_frameHeight = static_cast<int>(desc.Height);
         g_frameFormat = desc.Format;
-        return true;
+        return EnsureSharedResources(desc);
     }
 
     bool RefreshD3D11Device()
@@ -400,7 +437,6 @@ void CSMain(uint3 id : SV_DispatchThreadID)
                 }
             }
         }
-        ProtectImmediateContext();
         const bool ready = g_device != nullptr && g_context != nullptr;
         g_d3d11Ready.store(ready, std::memory_order_release);
         return ready;
@@ -417,10 +453,9 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         case kUnityGfxDeviceEventBeforeReset:
         case kUnityGfxDeviceEventShutdown:
         {
-            std::lock_guard<std::mutex> lock(g_predictionMutex);
+            std::lock_guard<std::mutex> lock(g_resourceMutex);
             ReleaseFrameResourcesUnlocked();
             g_interpolateCs.Reset();
-            g_contextMultithread.Reset();
             g_context.Reset();
             g_d3d11Ready.store(false, std::memory_order_release);
             g_device = nullptr;
@@ -454,7 +489,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return result;
     }
 
-    bool UploadMotionConstants(const RimFGFlow::MotionInput& motion, bool useFlow, float fraction)
+    bool UploadMotionConstants(const RimFGFlow::MotionInput& motion, bool useFlow, float backwardFraction)
     {
         if (!g_context || !g_motionConstants) return false;
         MotionConstants c{};
@@ -466,7 +501,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         c.height = g_frameHeight;
         c.flowWidth = useFlow ? g_flowBackend.FlowWidth() : 0;
         c.flowHeight = useFlow ? g_flowBackend.FlowHeight() : 0;
-        c.predictionFraction = std::max(0.0f, std::min(0.999999f, fraction));
+        c.predictionFraction = std::max(0.0f, std::min(1.0f, backwardFraction));
         D3D11_MAPPED_SUBRESOURCE mapped{};
         if (FAILED(g_context->Map(g_motionConstants.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
         std::memcpy(mapped.pData, &c, sizeof(c));
@@ -474,10 +509,166 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return true;
     }
 
-    bool CaptureFromBackbuffer(ID3D11Texture2D* source)
+    void CopyProtectedRects(ID3D11Texture2D* from, ID3D11Texture2D* to, const MetadataSlot& slot)
     {
-        if (!g_enabled.load(std::memory_order_relaxed) || !source) return false;
-        std::unique_lock<std::mutex> lock(g_predictionMutex, std::try_to_lock);
+        if (!g_context || !from || !to) return;
+        for (int i = 0; i < slot.hudCount; ++i)
+        {
+            const HudRect& r = slot.hud[static_cast<std::size_t>(i)];
+            const LONG left = std::max<LONG>(0, static_cast<LONG>(std::floor(r.x)));
+            const LONG top = std::max<LONG>(0, static_cast<LONG>(std::floor(r.y)));
+            const LONG right = std::min<LONG>(g_frameWidth, static_cast<LONG>(std::ceil(r.x + r.width)));
+            const LONG bottom = std::min<LONG>(g_frameHeight, static_cast<LONG>(std::ceil(r.y + r.height)));
+            if (right <= left || bottom <= top) continue;
+            D3D11_BOX box{static_cast<UINT>(left), static_cast<UINT>(top), 0,
+                static_cast<UINT>(right), static_cast<UINT>(bottom), 1};
+            g_context->CopySubresourceRegion(to, 0, static_cast<UINT>(left), static_cast<UINT>(top), 0, from, 0, &box);
+        }
+    }
+
+    bool DispatchInterpolation(const RimFGFlow::MotionInput& motion, bool useFlow, float backwardFraction)
+    {
+        if (!g_computeReady || !g_context || !g_currentSrv || !g_generatedUav || !g_interpolateCs || !g_motionConstants)
+            return false;
+        if (!UploadMotionConstants(motion, useFlow, backwardFraction)) return false;
+
+        ID3D11ShaderResourceView* srvs[3] = {g_previousSrv.Get(), g_currentSrv.Get(), useFlow ? g_flowBackend.FlowSrv() : nullptr};
+        ID3D11UnorderedAccessView* uavs[1] = {g_generatedUav.Get()};
+        ID3D11Buffer* cbs[1] = {g_motionConstants.Get()};
+        g_context->CSSetShader(g_interpolateCs.Get(), nullptr, 0);
+        g_context->CSSetShaderResources(0, 3, srvs);
+        g_context->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
+        g_context->CSSetConstantBuffers(0, 1, cbs);
+        g_context->Dispatch(static_cast<UINT>((g_frameWidth + 7) / 8), static_cast<UINT>((g_frameHeight + 7) / 8), 1);
+        ID3D11ShaderResourceView* nullSrvs[3] = {nullptr, nullptr, nullptr};
+        ID3D11UnorderedAccessView* nullUavs[1] = {nullptr};
+        ID3D11Buffer* nullCbs[1] = {nullptr};
+        g_context->CSSetShaderResources(0, 3, nullSrvs);
+        g_context->CSSetUnorderedAccessViews(0, 1, nullUavs, nullptr);
+        g_context->CSSetConstantBuffers(0, 1, nullCbs);
+        g_context->CSSetShader(nullptr, nullptr, 0);
+        return true;
+    }
+
+    bool AcquireBatchSet(int setIndex, int frameCount)
+    {
+        int acquired = 0;
+        for (; acquired < frameCount; ++acquired)
+        {
+            SharedTextureSlot& slot = g_sharedSets[setIndex][acquired];
+            if (!slot.keyedMutex || slot.keyedMutex->AcquireSync(0, 0) != S_OK)
+                break;
+        }
+        if (acquired == frameCount) return true;
+        for (int i = 0; i < acquired; ++i)
+            g_sharedSets[setIndex][i].keyedMutex->ReleaseSync(0);
+        return false;
+    }
+
+    void ReleaseBatchToPresenter(int setIndex, int frameCount)
+    {
+        for (int i = 0; i < frameCount; ++i)
+            g_sharedSets[setIndex][i].keyedMutex->ReleaseSync(1);
+    }
+
+    int ComputeBatchFrameCount(double realInterval)
+    {
+        const int target = std::max(1, RimFGPresent::GetTargetOutputFps());
+        const int monitor = std::max(24, RimFGPresent::MonitorRefreshHz());
+        const int effectiveTarget = std::min(target, monitor);
+        const int count = static_cast<int>(std::lround(std::max(0.001, realInterval) * static_cast<double>(effectiveTarget)));
+        return std::max(1, std::min(kMaxBatchFrames, count));
+    }
+
+    bool PublishRealOnlyBatch(const MetadataSlot& slot, HWND sourceWindow)
+    {
+        const int setIndex = g_nextSharedSet++ % kSharedBatchSetCount;
+        if (!AcquireBatchSet(setIndex, 1)) return false;
+        g_context->CopyResource(g_sharedSets[setIndex][0].texture.Get(), g_currentFrame.Get());
+        g_context->Flush();
+        ReleaseBatchToPresenter(setIndex, 1);
+
+        RimFGPresent::SharedFrameBatch batch{};
+        batch.batchId = ++g_nextBatchId;
+        batch.frameIndex = slot.frame.frameIndex;
+        batch.width = g_frameWidth;
+        batch.height = g_frameHeight;
+        batch.format = g_frameFormat;
+        batch.sourceWindow = sourceWindow;
+        batch.frameCount = 1;
+        batch.realFrameIndex = 0;
+        batch.handles[0] = g_sharedSets[setIndex][0].sharedHandle;
+        RimFGPresent::PublishSharedFrameBatch(batch);
+        return true;
+    }
+
+    bool BuildAndPublishInterpolationBatch(const MetadataSlot& slot, HWND sourceWindow, double realInterval)
+    {
+        const int frameCount = ComputeBatchFrameCount(realInterval);
+        const int setIndex = g_nextSharedSet++ % kSharedBatchSetCount;
+        if (!AcquireBatchSet(setIndex, frameCount)) return false;
+
+        RimFGFlow::QualityTier tier = g_gpuBudget.Tier();
+        if (tier == RimFGFlow::QualityTier::Bypass) tier = RimFGFlow::QualityTier::CameraZoomOnly;
+        const RimFGFlow::MotionInput motion = BuildMotionInput(g_previousMetadata, slot.frame);
+        bool useFlow = false;
+
+        g_gpuBudget.Begin(g_context.Get());
+        if (tier == RimFGFlow::QualityTier::ResidualFlow && g_computeReady && g_flowReady && g_previousSrv && g_currentSrv)
+            useFlow = g_flowBackend.Dispatch(g_context.Get(), g_previousSrv.Get(), g_currentSrv.Get(), motion);
+
+        for (int i = 0; i < frameCount; ++i)
+        {
+            const float t = static_cast<float>(i + 1) / static_cast<float>(frameCount);
+            SharedTextureSlot& shared = g_sharedSets[setIndex][i];
+            if (i == frameCount - 1)
+            {
+                // Last slot is the exact real Current frame. This establishes a
+                // one-real-frame delayed timeline with no future extrapolation.
+                g_context->CopyResource(shared.texture.Get(), g_currentFrame.Get());
+                continue;
+            }
+
+            const float backward = 1.0f - t;
+            if (DispatchInterpolation(motion, useFlow, backward))
+            {
+                // Text/UI is never warped. Use nearest-real UI so names do not smear.
+                ID3D11Texture2D* uiSource = t < 0.5f ? g_previousFrame.Get() : g_currentFrame.Get();
+                CopyProtectedRects(uiSource, g_generatedFrame.Get(), slot);
+                g_context->CopyResource(shared.texture.Get(), g_generatedFrame.Get());
+            }
+            else
+            {
+                g_context->CopyResource(shared.texture.Get(), g_currentFrame.Get());
+                g_nativeStage.store(static_cast<int>(NativeStage::DuplicateFallback), std::memory_order_release);
+            }
+        }
+        g_gpuBudget.End(g_context.Get());
+        g_context->Flush();
+        ReleaseBatchToPresenter(setIndex, frameCount);
+
+        RimFGPresent::SharedFrameBatch batch{};
+        batch.batchId = ++g_nextBatchId;
+        batch.frameIndex = slot.frame.frameIndex;
+        batch.width = g_frameWidth;
+        batch.height = g_frameHeight;
+        batch.format = g_frameFormat;
+        batch.sourceWindow = sourceWindow;
+        batch.frameCount = frameCount;
+        batch.realFrameIndex = frameCount - 1;
+        for (int i = 0; i < frameCount; ++i)
+            batch.handles[i] = g_sharedSets[setIndex][i].sharedHandle;
+        RimFGPresent::PublishSharedFrameBatch(batch);
+
+        g_nativeStage.store(static_cast<int>(NativeStage::Generated), std::memory_order_release);
+        g_hasGeneratedFrame.store(frameCount > 1, std::memory_order_release);
+        return true;
+    }
+
+    bool CaptureFromBackbuffer(ID3D11Texture2D* source, HWND sourceWindow)
+    {
+        if (!g_enabled.load(std::memory_order_relaxed) || !source || !sourceWindow) return false;
+        std::unique_lock<std::mutex> lock(g_resourceMutex, std::try_to_lock);
         if (!lock.owns_lock()) return false;
 
         const MetadataSlot slot = ReadLatestSlot();
@@ -485,80 +676,34 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         if (slot.frame.abiVersion != kAbiVersion || slot.frame.frameIndex == 0 || !EnsureFrameResources(source)) return false;
         if (!g_context || !g_previousFrame || !g_currentFrame || !g_generatedFrame) return false;
 
+        const Clock::time_point now = Clock::now();
+        double realInterval = 1.0 / std::max(1.0, RimFGPresent::EstimatedBaseFps());
+        if (g_lastCaptureAt.time_since_epoch().count() != 0)
+        {
+            const double measured = std::chrono::duration<double>(now - g_lastCaptureAt).count();
+            if (measured >= 0.001 && measured <= 0.5) realInterval = measured;
+        }
+        g_lastCaptureAt = now;
+
         g_context->CopyResource(g_currentFrame.Get(), source);
         if (!g_haveHistory || !g_havePreviousMetadata)
         {
             g_context->CopyResource(g_previousFrame.Get(), g_currentFrame.Get());
-            g_haveHistory = true;
             g_previousMetadata = slot.frame;
+            g_haveHistory = true;
             g_havePreviousMetadata = true;
-            g_predictionReady = false;
+            const bool published = PublishRealOnlyBatch(slot, sourceWindow);
             g_nativeStage.store(static_cast<int>(NativeStage::HistoryPrimed), std::memory_order_release);
-            return false;
+            return published;
         }
 
         g_gpuBudget.Poll(g_context.Get());
-        RimFGFlow::QualityTier tier = g_gpuBudget.Tier();
-        if (tier == RimFGFlow::QualityTier::Bypass) tier = RimFGFlow::QualityTier::CameraZoomOnly;
-        g_cachedMotion = BuildMotionInput(g_previousMetadata, slot.frame);
-        g_cachedUseFlow = false;
-        if (tier == RimFGFlow::QualityTier::ResidualFlow && g_computeReady && g_flowReady && g_previousSrv && g_currentSrv)
-            g_cachedUseFlow = g_flowBackend.Dispatch(g_context.Get(), g_previousSrv.Get(), g_currentSrv.Get(), g_cachedMotion);
+        const bool published = BuildAndPublishInterpolationBatch(slot, sourceWindow, realInterval);
 
+        // Only after the whole delayed batch is generated may Current become Previous.
         g_context->CopyResource(g_previousFrame.Get(), g_currentFrame.Get());
         g_previousMetadata = slot.frame;
-        g_cachedSlot = slot;
-        g_predictionReady = true;
-        g_hasGeneratedFrame.store(true, std::memory_order_release);
-        PublishGeneratedFrameSource(slot);
-        return true;
-    }
-
-    ID3D11Texture2D* GeneratePredictionAtFraction(float fraction)
-    {
-        if (!g_enabled.load(std::memory_order_relaxed)) return nullptr;
-        std::unique_lock<std::mutex> lock(g_predictionMutex, std::try_to_lock);
-        if (!lock.owns_lock() || !g_predictionReady || !g_context || !g_generatedFrame || !g_currentFrame) return nullptr;
-
-        RimFGFlow::QualityTier tier = g_gpuBudget.Tier();
-        if (tier == RimFGFlow::QualityTier::Bypass) tier = RimFGFlow::QualityTier::CameraZoomOnly;
-        bool generatedByCompute = false;
-        if (g_computeReady && g_currentSrv && g_generatedUav && g_interpolateCs && g_motionConstants)
-        {
-            g_gpuBudget.Begin(g_context.Get());
-            const bool useFlow = tier == RimFGFlow::QualityTier::ResidualFlow && g_cachedUseFlow;
-            if (UploadMotionConstants(g_cachedMotion, useFlow, fraction))
-            {
-                ID3D11ShaderResourceView* srvs[3] = {g_previousSrv.Get(), g_currentSrv.Get(), useFlow ? g_flowBackend.FlowSrv() : nullptr};
-                ID3D11UnorderedAccessView* uavs[1] = {g_generatedUav.Get()};
-                ID3D11Buffer* cbs[1] = {g_motionConstants.Get()};
-                g_context->CSSetShader(g_interpolateCs.Get(), nullptr, 0);
-                g_context->CSSetShaderResources(0, 3, srvs);
-                g_context->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
-                g_context->CSSetConstantBuffers(0, 1, cbs);
-                g_context->Dispatch(static_cast<UINT>((g_frameWidth + 7) / 8), static_cast<UINT>((g_frameHeight + 7) / 8), 1);
-                ID3D11ShaderResourceView* nullSrvs[3] = {nullptr, nullptr, nullptr};
-                ID3D11UnorderedAccessView* nullUavs[1] = {nullptr};
-                ID3D11Buffer* nullCbs[1] = {nullptr};
-                g_context->CSSetShaderResources(0, 3, nullSrvs);
-                g_context->CSSetUnorderedAccessViews(0, 1, nullUavs, nullptr);
-                g_context->CSSetConstantBuffers(0, 1, nullCbs);
-                g_context->CSSetShader(nullptr, nullptr, 0);
-                generatedByCompute = true;
-            }
-            g_gpuBudget.End(g_context.Get());
-        }
-
-        if (!generatedByCompute)
-        {
-            g_context->CopyResource(g_generatedFrame.Get(), g_currentFrame.Get());
-            g_nativeStage.store(static_cast<int>(NativeStage::DuplicateFallback), std::memory_order_release);
-        }
-        else
-        {
-            g_nativeStage.store(static_cast<int>(NativeStage::Generated), std::memory_order_release);
-        }
-        return g_generatedFrame.Get();
+        return published;
     }
 
     void UNITY_INTERFACE_API OnRenderEvent(int eventId) { (void)eventId; }
@@ -574,7 +719,6 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnit
         OnGraphicsDeviceEvent(kUnityGfxDeviceEventInitialize);
     }
     RimFGPresent::SetBackbufferGenerationCallback(&CaptureFromBackbuffer);
-    RimFGPresent::SetPredictionGenerationCallback(&GeneratePredictionAtFraction);
 }
 
 extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
@@ -582,13 +726,11 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
     if (g_unityGraphics) g_unityGraphics->UnregisterDeviceEventCallback(OnGraphicsDeviceEvent);
     g_enabled.store(false, std::memory_order_release);
     RimFGPresent::SetBackbufferGenerationCallback(nullptr);
-    RimFGPresent::SetPredictionGenerationCallback(nullptr);
     RimFGPresent::Shutdown();
     {
-        std::lock_guard<std::mutex> lock(g_predictionMutex);
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
         ReleaseFrameResourcesUnlocked();
         g_interpolateCs.Reset();
-        g_contextMultithread.Reset();
         g_context.Reset();
         g_d3d11Ready.store(false, std::memory_order_release);
         g_device = nullptr;
@@ -600,7 +742,6 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
 extern "C" UnityRenderingEvent UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RimFG_GetRenderEventFunc()
 {
     RimFGPresent::SetBackbufferGenerationCallback(&CaptureFromBackbuffer);
-    RimFGPresent::SetPredictionGenerationCallback(&GeneratePredictionAtFraction);
     return OnRenderEvent;
 }
 
@@ -611,13 +752,11 @@ extern "C" UNITY_INTERFACE_EXPORT void RimFG_SetEnabled(int enabled)
     if (on)
     {
         RimFGPresent::SetBackbufferGenerationCallback(&CaptureFromBackbuffer);
-        RimFGPresent::SetPredictionGenerationCallback(&GeneratePredictionAtFraction);
     }
     else
     {
         RimFGPresent::ClearGeneratedFrameSource();
-        std::lock_guard<std::mutex> lock(g_predictionMutex);
-        g_predictionReady = false;
+        std::lock_guard<std::mutex> lock(g_resourceMutex);
         g_hasGeneratedFrame.store(false, std::memory_order_release);
     }
 }
