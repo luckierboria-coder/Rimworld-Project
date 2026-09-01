@@ -431,11 +431,13 @@ namespace RimFGPresent
 
         bool FrameLatencyReady()
         {
-            if (!g_frameLatencyWaitable) return true;
-            const DWORD result = WaitForSingleObject(g_frameLatencyWaitable, 1);
-            if (result == WAIT_OBJECT_0 || result == WAIT_ABANDONED) return true;
-            g_frameLatencyTimeoutCount.fetch_add(1, std::memory_order_relaxed);
-            return false;
+            // DirectComposition waitable swapchains can remain unsignaled before the
+            // first successful Present. Pre-gating every output slot on that handle
+            // therefore creates a bootstrap deadlock: no Present -> no signal -> no Present.
+            // The presenter already has an independent high-resolution output clock and
+            // Present(DXGI_PRESENT_DO_NOT_WAIT) is the authoritative non-blocking backpressure
+            // check, so never block or pre-drop a slot on the latency handle here.
+            return true;
         }
 
         bool CopyToOutputBackBuffer(const RealFrameSlot& slot, ID3D11Texture2D* source)
