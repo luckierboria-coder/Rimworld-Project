@@ -137,6 +137,11 @@ namespace RimMTRC2T2
             {
                 MethodInfo method = methods[i];
                 if (method == null || method.IsAbstract || method.ContainsGenericParameters) continue;
+                // Only patch methods actually declared/implemented by this hotspot type.
+                // Inherited scanner virtuals that are not overridden can surface here as
+                // base declarations; Harmony rejects attempting to patch them as if they
+                // belonged to the derived family type.
+                if (method.DeclaringType != type) continue;
                 if (ClassifyMethod(method.Name) < 0) continue;
                 targets.Add(method);
             }
