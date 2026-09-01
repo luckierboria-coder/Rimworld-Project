@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <d3d11.h>
 #include <wrl/client.h>
 #include "OpticalFlowBackend.h"
@@ -16,8 +17,8 @@ namespace RimFGFlow
         void End(ID3D11DeviceContext* context);
         void Poll(ID3D11DeviceContext* context);
 
-        QualityTier Tier() const { return tier_; }
-        double EmaMilliseconds() const { return emaMs_; }
+        QualityTier Tier() const { return tier_.load(std::memory_order_acquire); }
+        double EmaMilliseconds() const { return emaMs_.load(std::memory_order_acquire); }
 
     private:
         struct Slot
@@ -34,7 +35,7 @@ namespace RimFGFlow
         int writeIndex_ = 0;
         bool initialized_ = false;
         bool haveEma_ = false;
-        double emaMs_ = 0.0;
-        QualityTier tier_ = QualityTier::ResidualFlow;
+        std::atomic<double> emaMs_{0.0};
+        std::atomic<QualityTier> tier_{QualityTier::ResidualFlow};
     };
 }
