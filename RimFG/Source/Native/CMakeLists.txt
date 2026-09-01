@@ -27,17 +27,26 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(minhook)
 
-# Keep the validated UAV-safe producer as the canonical source, and apply the
-# narrow worker-state fixes at configure time while the native state machine is
-# under active validation.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/RimFGNativeUavSafe.cpp" RIMFG_UAV_SAFE_SOURCE)
 
-# Bootstrap the Unity D3D11 device/adapter before checking workerReady. The
-# worker itself needs g_adapter to create its independent device, so gating
-# RefreshUnityDevice behind workerReady creates a permanent startup deadlock.
+# RimWorld mods load this native DLL through LoadLibrary, so UnityPluginLoad is
+# not a reliable source of IUnityInterfaces. Bootstrap the real Unity D3D11
+# device directly from the backbuffer captured by the Present hook.
+string(REPLACE
+"    bool RefreshUnityDevice()\n    {\n        if (g_unityDevice && g_unityContext && g_adapter)\n        {\n            g_d3d11Ready.store(true, std::memory_order_release);\n            return true;\n        }\n        if (!g_unityInterfaces) return false;\n        auto* d3d11 = g_unityInterfaces->Get<IUnityGraphicsD3D11>();\n        if (!d3d11) return false;\n        g_unityDevice = d3d11->GetDevice();\n        if (!g_unityDevice) return false;\n        g_unityDevice->GetImmediateContext(&g_unityContext);\n        ComPtr<IDXGIDevice> dxgi;\n        if (SUCCEEDED(g_unityDevice->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(dxgi.GetAddressOf()))) && dxgi)\n            dxgi->GetAdapter(&g_adapter);\n        const bool ok = g_unityContext && g_adapter;\n        g_d3d11Ready.store(ok, std::memory_order_release);\n        return ok;\n    }"
+"    bool RefreshUnityDevice(ID3D11Texture2D* source = nullptr)\n    {\n        if (g_unityDevice && g_unityContext && g_adapter)\n        {\n            g_d3d11Ready.store(true, std::memory_order_release);\n            return true;\n        }\n\n        if (source)\n        {\n            ID3D11Device* device = nullptr;\n            source->GetDevice(&device);\n            if (device)\n            {\n                g_unityDevice = device;\n                g_unityDevice->GetImmediateContext(&g_unityContext);\n                ComPtr<IDXGIDevice> dxgi;\n                if (SUCCEEDED(g_unityDevice->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(dxgi.GetAddressOf()))) && dxgi)\n                    dxgi->GetAdapter(&g_adapter);\n                const bool ok = g_unityContext && g_adapter;\n                g_d3d11Ready.store(ok, std::memory_order_release);\n                if (ok) return true;\n            }\n        }\n\n        if (g_unityInterfaces)\n        {\n            auto* d3d11 = g_unityInterfaces->Get<IUnityGraphicsD3D11>();\n            if (d3d11)\n            {\n                g_unityDevice = d3d11->GetDevice();\n                if (g_unityDevice)\n                {\n                    g_unityDevice->GetImmediateContext(&g_unityContext);\n                    ComPtr<IDXGIDevice> dxgi;\n                    if (SUCCEEDED(g_unityDevice->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(dxgi.GetAddressOf()))) && dxgi)\n                        dxgi->GetAdapter(&g_adapter);\n                }\n            }\n        }\n        const bool ok = g_unityDevice && g_unityContext && g_adapter;\n        g_d3d11Ready.store(ok, std::memory_order_release);\n        return ok;\n    }"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"        if (!source || !RefreshUnityDevice()) return false;"
+"        if (!source || !RefreshUnityDevice(source)) return false;"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+# Bootstrap the device/adapter from the current backbuffer before waiting for
+# the worker. The worker needs the adapter to create its independent device.
 string(REPLACE
 "        if (!g_enabled.load(std::memory_order_relaxed) || !source || !sourceWindow) return false;\n        if (!g_workerReady.load(std::memory_order_acquire)) return false;\n        if (!EnsureCaptureResources(source) || !g_unityContext) return false;"
-"        if (!g_enabled.load(std::memory_order_relaxed) || !source || !sourceWindow) return false;\n        if (!RefreshUnityDevice()) return false;\n        if (!g_workerReady.load(std::memory_order_acquire))\n        {\n            g_workerCv.notify_one();\n            return false;\n        }\n        if (!EnsureCaptureResources(source) || !g_unityContext) return false;"
+"        if (!g_enabled.load(std::memory_order_relaxed) || !source || !sourceWindow) return false;\n        if (!RefreshUnityDevice(source))\n        {\n            g_nativeStage.store(static_cast<int>(NativeStage::ErrorNoDevice), std::memory_order_release);\n            return false;\n        }\n        if (!g_workerReady.load(std::memory_order_acquire))\n        {\n            g_workerCv.notify_one();\n            return false;\n        }\n        if (!EnsureCaptureResources(source) || !g_unityContext) return false;"
 RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
 
 string(REPLACE
@@ -47,15 +56,12 @@ RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
 
 string(REPLACE
 "            HWND window = nullptr;\n            if (!ConsumeSlot(index, window))\n            {\n                g_workerReady.store(false, std::memory_order_release);\n                std::this_thread::sleep_for(std::chrono::milliseconds(2));\n                continue;\n            }\n            if (g_havePreviousMetadata) PublishBatch(window);\n            else g_nativeStage.store(static_cast<int>(NativeStage::HistoryPrimed), std::memory_order_release);"
-"            const bool hadHistoryBeforeConsume = g_havePreviousMetadata;\n            HWND window = nullptr;\n            if (!ConsumeSlot(index, window))\n            {\n                // A keyed-mutex timeout or transient shared-resource miss must not\n                // permanently close the producer gate. Leave the slot READY and retry.\n                std::this_thread::sleep_for(std::chrono::milliseconds(2));\n                continue;\n            }\n            if (hadHistoryBeforeConsume) PublishBatch(window);\n            else g_nativeStage.store(static_cast<int>(NativeStage::HistoryPrimed), std::memory_order_release);"
+"            const bool hadHistoryBeforeConsume = g_havePreviousMetadata;\n            HWND window = nullptr;\n            if (!ConsumeSlot(index, window))\n            {\n                std::this_thread::sleep_for(std::chrono::milliseconds(2));\n                continue;\n            }\n            if (hadHistoryBeforeConsume) PublishBatch(window);\n            else g_nativeStage.store(static_cast<int>(NativeStage::HistoryPrimed), std::memory_order_release);"
 RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
 
 set(RIMFG_GATE_FIX_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/RimFGNativeUavSafeGateFix.cpp")
 file(WRITE "${RIMFG_GATE_FIX_SOURCE}" "${RIMFG_UAV_SAFE_SOURCE}")
 
-# Windowed RimWorld may straddle displays. Resolve refresh rate from the
-# physical monitor containing the client-area center, and refresh it whenever
-# a batch arrives so moving/maximizing the window updates the pacing cap.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/PresentHookOwnershipFix.cpp" RIMFG_PRESENT_SOURCE)
 
 string(REPLACE
