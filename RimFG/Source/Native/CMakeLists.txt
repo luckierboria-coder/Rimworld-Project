@@ -45,9 +45,27 @@ RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
 set(RIMFG_GATE_FIX_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/RimFGNativeUavSafeGateFix.cpp")
 file(WRITE "${RIMFG_GATE_FIX_SOURCE}" "${RIMFG_UAV_SAFE_SOURCE}")
 
+# Windowed RimWorld may straddle displays. Resolve refresh rate from the
+# physical monitor containing the client-area center, and refresh it whenever
+# a batch arrives so moving/maximizing the window updates the pacing cap.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/PresentHookOwnershipFix.cpp" RIMFG_PRESENT_SOURCE)
+
+string(REPLACE
+"        int QueryMonitorRefreshHz(HWND owner)\n        {\n            if (!owner) return 60;\n            MONITORINFOEXW mi{}; mi.cbSize = sizeof(mi);\n            if (!GetMonitorInfoW(MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST), &mi)) return 60;\n            DEVMODEW dm{}; dm.dmSize = sizeof(dm);\n            if (!EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm)) return 60;\n            const int hz = static_cast<int>(dm.dmDisplayFrequency);\n            return hz >= 24 && hz <= 1000 ? hz : 60;\n        }"
+"        int QueryMonitorRefreshHz(HWND owner)\n        {\n            if (!owner || !IsWindow(owner)) return 60;\n            RECT client{};\n            if (!GetClientRect(owner, &client)) return 60;\n            POINT center{(client.left + client.right) / 2, (client.top + client.bottom) / 2};\n            if (!ClientToScreen(owner, &center)) return 60;\n            const HMONITOR monitor = MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST);\n            MONITORINFOEXW mi{}; mi.cbSize = sizeof(mi);\n            if (!monitor || !GetMonitorInfoW(monitor, &mi)) return 60;\n            DEVMODEW dm{}; dm.dmSize = sizeof(dm);\n            if (!EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm)) return 60;\n            const int hz = static_cast<int>(dm.dmDisplayFrequency);\n            return hz >= 24 && hz <= 1000 ? hz : 60;\n        }"
+RIMFG_PRESENT_SOURCE "${RIMFG_PRESENT_SOURCE}")
+
+string(REPLACE
+"            if (g_presenterReady.load(std::memory_order_acquire) && g_outputSwapChain && g_outputDevice &&\n                g_compositionOwner == batch.sourceWindow && g_outputWidth == static_cast<UINT>(batch.width) &&\n                g_outputHeight == static_cast<UINT>(batch.height) && g_outputFormat == wanted) return true;"
+"            if (g_presenterReady.load(std::memory_order_acquire) && g_outputSwapChain && g_outputDevice &&\n                g_compositionOwner == batch.sourceWindow && g_outputWidth == static_cast<UINT>(batch.width) &&\n                g_outputHeight == static_cast<UINT>(batch.height) && g_outputFormat == wanted)\n            {\n                g_monitorRefreshHz.store(QueryMonitorRefreshHz(batch.sourceWindow), std::memory_order_release);\n                return true;\n            }"
+RIMFG_PRESENT_SOURCE "${RIMFG_PRESENT_SOURCE}")
+
+set(RIMFG_WINDOWED_PRESENT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/PresentHookWindowedFix.cpp")
+file(WRITE "${RIMFG_WINDOWED_PRESENT_SOURCE}" "${RIMFG_PRESENT_SOURCE}")
+
 add_library(RimFG.Native SHARED
   "${RIMFG_GATE_FIX_SOURCE}"
-  PresentHookOwnershipFix.cpp
+  "${RIMFG_WINDOWED_PRESENT_SOURCE}"
   OpticalFlowBackend.cpp
   GpuBudget.cpp
 )
