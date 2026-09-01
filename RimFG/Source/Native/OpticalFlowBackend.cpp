@@ -98,13 +98,16 @@ void CSMain(uint3 tid : SV_DispatchThreadID)
     float secondError = 1e20;
     int2 best = int2(0, 0);
 
+    // Flow is calculated on a half-resolution grid. A +/-8 search here covers
+    // roughly +/-16 full-resolution pixels between real frames, which is much
+    // more appropriate for RimWorld at 10-30 base FPS than the old +/-3 radius.
     [loop]
-    for (int dy = -3; dy <= 3; ++dy)
+    for (int dy = -8; dy <= 8; ++dy)
     {
         [loop]
-        for (int dx = -3; dx <= 3; ++dx)
+        for (int dx = -8; dx <= 8; ++dx)
         {
-            float e = PatchError(currentCenter, predictedPrevious + float2(dx, dy));
+            float e = PatchError(currentCenter, predictedPrevious + float2(dx * 2, dy * 2));
             if (e < bestError)
             {
                 secondError = bestError;
@@ -118,20 +121,21 @@ void CSMain(uint3 tid : SV_DispatchThreadID)
         }
     }
 
-    // Confidence is based on uniqueness of the best match. Occlusion edges and
-    // repeated/flat textures typically produce several similarly good matches;
-    // those vectors are attenuated toward zero instead of creating pawn double images.
+    // Confidence is based on uniqueness of the best match. Keep the rejection
+    // behavior conservative around flat/repeated textures, but do not suppress
+    // valid sprite motion as aggressively as the old low-radius search did.
     float uniqueness = saturate((secondError - bestError) / max(secondError, 0.0001));
     float contrast = saturate(LocalContrast(currentCenter) * 5.0);
-    float errorGate = 1.0 - smoothstep(0.22, 0.42, bestError);
+    float errorGate = 1.0 - smoothstep(0.28, 0.52, bestError);
     float confidence = uniqueness * contrast * errorGate;
 
-    // Require a meaningful confidence floor, then smoothly scale the vector.
-    float weight = smoothstep(0.10, 0.42, confidence);
-    float2 residual = float2(best) * weight;
+    float weight = smoothstep(0.06, 0.34, confidence);
 
-    // Tiny sub-pixel-like residuals are not useful on the half-res grid and tend
-    // to shimmer around sprite edges, so snap weak vectors to zero.
+    // 'best' is expressed in half-resolution flow-grid cells. Convert it back to
+    // full-resolution pixel displacement before publishing the vector. The old
+    // code forgot this x2 conversion, halving all local motion in generated frames.
+    float2 residual = float2(best) * 2.0 * weight;
+
     if (dot(residual, residual) < 0.20)
         residual = float2(0.0, 0.0);
 
