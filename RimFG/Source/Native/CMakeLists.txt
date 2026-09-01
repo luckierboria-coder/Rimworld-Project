@@ -59,6 +59,54 @@ string(REPLACE
 "            const bool hadHistoryBeforeConsume = g_havePreviousMetadata;\n            HWND window = nullptr;\n            if (!ConsumeSlot(index, window))\n            {\n                std::this_thread::sleep_for(std::chrono::milliseconds(2));\n                continue;\n            }\n            if (hadHistoryBeforeConsume) PublishBatch(window);\n            else g_nativeStage.store(static_cast<int>(NativeStage::HistoryPrimed), std::memory_order_release);"
 RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
 
+# True two-frame temporal interpolation. The earlier safety build only warped
+# CurrentFrame, so independently moving pawns remained frozen inside each FG
+# batch and jumped on the next real frame (slideshow effect).
+string(REPLACE
+"    constexpr int kOutputSets = 2;"
+"    constexpr int kOutputSets = 3;"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"    ComPtr<ID3D11Texture2D> g_current;\n    ComPtr<ID3D11ShaderResourceView> g_currentSrv;"
+"    ComPtr<ID3D11Texture2D> g_previous;\n    ComPtr<ID3D11ShaderResourceView> g_previousSrv;\n    ComPtr<ID3D11Texture2D> g_current;\n    ComPtr<ID3D11ShaderResourceView> g_currentSrv;"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"Texture2D<float4> CurrentFrame : register(t0);"
+"Texture2D<float4> PreviousFrame : register(t0);\nTexture2D<float4> CurrentFrame : register(t1);"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"    float f = saturate(BackwardFraction);\n    float safeZoom = max(ZoomScale, 0.001);\n    float z = pow(safeZoom, f);\n    float2 src = center + (p - center) / z + ImageShiftPixels * f;\n    OutputFrame[id.xy] = CurrentFrame.Load(int3(ClampCoord(src), 0));"
+"    float f = saturate(BackwardFraction);\n    float t = 1.0 - f;\n    float safeZoom = max(ZoomScale, 0.001);\n    float currentZ = pow(safeZoom, f);\n    float previousZ = pow(safeZoom, t);\n    float2 currentSrc = center + (p - center) / currentZ + ImageShiftPixels * f;\n    float2 previousSrc = center + (p - center) * previousZ - ImageShiftPixels * t;\n    float4 a = PreviousFrame.Load(int3(ClampCoord(previousSrc), 0));\n    float4 b = CurrentFrame.Load(int3(ClampCoord(currentSrc), 0));\n    OutputFrame[id.xy] = lerp(a, b, t);"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"        g_currentSrv.Reset(); g_current.Reset(); g_generatedUav.Reset(); g_generated.Reset();"
+"        g_previousSrv.Reset(); g_previous.Reset(); g_currentSrv.Reset(); g_current.Reset(); g_generatedUav.Reset(); g_generated.Reset();"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"        if (FAILED(g_workerDevice->CreateTexture2D(&in, nullptr, &g_current)) || !g_current ||\n            FAILED(g_workerDevice->CreateShaderResourceView(g_current.Get(), nullptr, &g_currentSrv)) || !g_currentSrv)\n        {\n            g_nativeStage.store(static_cast<int>(NativeStage::ErrorWorkerResource), std::memory_order_release);\n            return false;\n        }"
+"        if (FAILED(g_workerDevice->CreateTexture2D(&in, nullptr, &g_previous)) || !g_previous ||\n            FAILED(g_workerDevice->CreateShaderResourceView(g_previous.Get(), nullptr, &g_previousSrv)) || !g_previousSrv ||\n            FAILED(g_workerDevice->CreateTexture2D(&in, nullptr, &g_current)) || !g_current ||\n            FAILED(g_workerDevice->CreateShaderResourceView(g_current.Get(), nullptr, &g_currentSrv)) || !g_currentSrv)\n        {\n            g_nativeStage.store(static_cast<int>(NativeStage::ErrorWorkerResource), std::memory_order_release);\n            return false;\n        }"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"        g_workerContext->CopyResource(g_current.Get(), opened->texture.Get());\n        g_currentMetadata = s.metadata; g_currentQpc = s.qpc; window = s.sourceWindow;"
+"        if (g_havePreviousMetadata)\n            g_workerContext->CopyResource(g_previous.Get(), g_current.Get());\n        g_workerContext->CopyResource(g_current.Get(), opened->texture.Get());\n        g_currentMetadata = s.metadata; g_currentQpc = s.qpc; window = s.sourceWindow;"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"        ID3D11ShaderResourceView* srv = g_currentSrv.Get(); ID3D11UnorderedAccessView* uav = g_generatedUav.Get(); ID3D11Buffer* cb = g_motionConstants.Get();\n        g_workerContext->CSSetShader(g_interpolateCs.Get(), nullptr, 0); g_workerContext->CSSetShaderResources(0, 1, &srv);"
+"        ID3D11ShaderResourceView* srvs[2] = {g_previousSrv.Get(), g_currentSrv.Get()}; ID3D11UnorderedAccessView* uav = g_generatedUav.Get(); ID3D11Buffer* cb = g_motionConstants.Get();\n        g_workerContext->CSSetShader(g_interpolateCs.Get(), nullptr, 0); g_workerContext->CSSetShaderResources(0, 2, srvs);"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
+string(REPLACE
+"        ID3D11ShaderResourceView* ns = nullptr; ID3D11UnorderedAccessView* nu = nullptr; ID3D11Buffer* nb = nullptr;\n        g_workerContext->CSSetShaderResources(0, 1, &ns);"
+"        ID3D11ShaderResourceView* ns[2] = {nullptr, nullptr}; ID3D11UnorderedAccessView* nu = nullptr; ID3D11Buffer* nb = nullptr;\n        g_workerContext->CSSetShaderResources(0, 2, ns);"
+RIMFG_UAV_SAFE_SOURCE "${RIMFG_UAV_SAFE_SOURCE}")
+
 set(RIMFG_GATE_FIX_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/RimFGNativeUavSafeGateFix.cpp")
 file(WRITE "${RIMFG_GATE_FIX_SOURCE}" "${RIMFG_UAV_SAFE_SOURCE}")
 
