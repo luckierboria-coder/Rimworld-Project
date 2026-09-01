@@ -122,6 +122,28 @@ string(REPLACE
 "            if (g_presenterReady.load(std::memory_order_acquire) && g_outputSwapChain && g_outputDevice &&\n                g_compositionOwner == batch.sourceWindow && g_outputWidth == static_cast<UINT>(batch.width) &&\n                g_outputHeight == static_cast<UINT>(batch.height) && g_outputFormat == wanted)\n            {\n                g_monitorRefreshHz.store(QueryMonitorRefreshHz(batch.sourceWindow), std::memory_order_release);\n                return true;\n            }"
 RIMFG_PRESENT_SOURCE "${RIMFG_PRESENT_SOURCE}")
 
+# Presenter runs on its own thread, so DO_NOT_WAIT only creates avoidable holes in
+# the temporal sequence. Let DXGI/DWM back-pressure this thread instead of
+# dropping output while Unity keeps running independently.
+string(REPLACE
+"            const HRESULT hr = g_outputSwapChain->Present(0, DXGI_PRESENT_DO_NOT_WAIT);"
+"            const HRESULT hr = g_outputSwapChain->Present(0, 0);"
+RIMFG_PRESENT_SOURCE "${RIMFG_PRESENT_SOURCE}")
+
+# Do not abandon a partially displayed Prev->Current temporal segment whenever
+# a newer real frame arrives. Finish the active batch, then pick up the latest
+# available batch. This prevents repeatedly showing only the first few samples
+# of each motion segment (the observed slideshow cadence).
+string(REPLACE
+"                if (latest.batchId != active.batchId)\n                {\n                    if (active.batchId != 0 && cursor < active.frameCount)\n                    {\n                        g_stalePredictionCount.fetch_add(static_cast<std::uint64_t>(active.frameCount - cursor), std::memory_order_relaxed);\n                        ReclaimRemaining(active, cursor);\n                    }\n                    active = latest;\n                    cursor = 0;\n                }"
+"                if (active.batchId == 0)\n                {\n                    active = latest;\n                    cursor = 0;\n                }\n                else if (cursor >= active.frameCount && latest.batchId != active.batchId)\n                {\n                    active = latest;\n                    cursor = 0;\n                }"
+RIMFG_PRESENT_SOURCE "${RIMFG_PRESENT_SOURCE}")
+
+string(REPLACE
+"                // A newer batch may have arrived while sleeping. Reclaim the old\n                // unconsumed handles before switching ownership to the new batch.\n                latest = ReadLatestBatch();\n                if (latest.batchId != 0 && latest.batchId != active.batchId)\n                {\n                    if (cursor < active.frameCount)\n                    {\n                        g_stalePredictionCount.fetch_add(static_cast<std::uint64_t>(active.frameCount - cursor), std::memory_order_relaxed);\n                        ReclaimRemaining(active, cursor);\n                    }\n                    active = latest;\n                    cursor = 0;\n                    continue;\n                }"
+"                // Keep temporal ordering coherent: a newer batch is adopted only\n                // after the active Prev->Current sequence reaches its endpoint."
+RIMFG_PRESENT_SOURCE "${RIMFG_PRESENT_SOURCE}")
+
 set(RIMFG_WINDOWED_PRESENT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/PresentHookWindowedFix.cpp")
 file(WRITE "${RIMFG_WINDOWED_PRESENT_SOURCE}" "${RIMFG_PRESENT_SOURCE}")
 
