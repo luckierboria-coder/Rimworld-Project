@@ -199,6 +199,14 @@ namespace MedievalVehicleDraftAnimals
                     {
                         caravan.AddPawn(pawn, true);
                     }
+
+                    // Caravan.AddPawn does not register the pawn itself in WorldPawns. Vanilla
+                    // caravan creation does this explicitly after AddPawn. Without this step the
+                    // next Caravan.Tick removes the draft animal as an invalid non-world pawn.
+                    if (!pawn.IsWorldPawn())
+                    {
+                        Find.WorldPawns.PassToWorld(pawn);
+                    }
                 }
                 catch (Exception ex)
                 {
