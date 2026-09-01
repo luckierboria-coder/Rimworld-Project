@@ -57,7 +57,11 @@ namespace RimFGPresent
     int GetTargetOutputFps();
     double EstimatedBaseFps();
     double EstimatedOutputFps();
+    bool PresenterReady();
+    int MonitorRefreshHz();
 
+    std::uint64_t RealPresentCount();
     std::uint64_t GeneratedPresentCount();
     std::uint64_t SkippedPresentCount();
+    std::uint64_t FrameLatencyTimeoutCount();
 }
