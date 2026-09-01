@@ -12,12 +12,17 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <d3d11_4.h>
+#include <dcomp.h>
 #include <dxgi.h>
 #include <dxgi1_2.h>
 #include <dxgi1_3.h>
 #include <dxgi1_4.h>
 #include <MinHook.h>
 #include <wrl/client.h>
+
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
 
 using Microsoft::WRL::ComPtr;
 
@@ -27,21 +32,21 @@ namespace RimFGPresent
     {
         using PresentFn = HRESULT(__stdcall*)(IDXGISwapChain*, UINT, UINT);
         using Clock = std::chrono::steady_clock;
-        constexpr int kMaxHudRects = 8;
-        constexpr wchar_t kOutputWindowClass[] = L"RimFG_OutputWindow";
+        constexpr std::size_t kRealRingSize = 6;
 
         struct GeneratedSourceSlot
         {
-            ID3D11Texture2D* texture = nullptr;
             int width = 0;
             int height = 0;
             int hudCount = 0;
             std::uint32_t frameIndex = 0;
-            std::array<HudRectPx, kMaxHudRects> hud{};
+            std::array<HudRectPx, MaxHudRects> hud{};
         };
 
         struct RealFrameSlot
         {
+            ComPtr<ID3D11Device> device;
+            ComPtr<ID3D11DeviceContext> context;
             ComPtr<ID3D11Texture2D> snapshot;
             ComPtr<ID3D11Texture2D> composite;
             UINT width = 0;
@@ -49,6 +54,7 @@ namespace RimFGPresent
             DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
             std::uint64_t sequence = 0;
             Clock::time_point capturedAt{};
+            Clock::time_point publishedAt{};
             HWND sourceWindow = nullptr;
             GeneratedSourceSlot source{};
         };
@@ -66,81 +72,72 @@ namespace RimFGPresent
         alignas(64) std::array<GeneratedSourceSlot, 2> g_sourceSlots{};
         std::atomic<std::uint32_t> g_sourceSequence{0};
         std::atomic<bool> g_sourceAvailable{false};
+
+        std::atomic<std::uint64_t> g_realPresentCount{0};
         std::atomic<std::uint64_t> g_generatedPresentCount{0};
         std::atomic<std::uint64_t> g_skippedPresentCount{0};
+        std::atomic<std::uint64_t> g_frameLatencyTimeoutCount{0};
+        std::atomic<std::uint64_t> g_presentFailureCount{0};
+        std::atomic<std::uint64_t> g_stalePredictionCount{0};
+        std::atomic<std::uint64_t> g_ringBusyDropCount{0};
+        std::atomic<std::uint64_t> g_compositionFailureCount{0};
 
-        std::array<RealFrameSlot, 3> g_realSlots{};
-        ComPtr<ID3D11Device> g_asyncDevice;
-        ComPtr<ID3D11DeviceContext> g_asyncContext;
+        std::array<RealFrameSlot, kRealRingSize> g_realSlots{};
+        ComPtr<ID3D11Device> g_captureDevice;
+        ComPtr<ID3D11DeviceContext> g_captureContext;
         ComPtr<ID3D11Multithread> g_multithread;
-        UINT g_asyncWidth = 0;
-        UINT g_asyncHeight = 0;
-        DXGI_FORMAT g_asyncFormat = DXGI_FORMAT_UNKNOWN;
+        UINT g_captureWidth = 0;
+        UINT g_captureHeight = 0;
+        DXGI_FORMAT g_captureFormat = DXGI_FORMAT_UNKNOWN;
 
         std::thread g_presenterThread;
         std::mutex g_presenterMutex;
         std::condition_variable g_presenterCv;
         bool g_presenterStop = false;
-        std::uint64_t g_realSequence = 0;
+        std::uint64_t g_captureSequence = 0;
+        std::atomic<std::uint64_t> g_publishedSequence{0};
+        std::atomic<std::uint64_t> g_presenterReadingSequence{0};
+        std::atomic<double> g_realIntervalSeconds{1.0 / 30.0};
+        std::atomic<double> g_outputIntervalSeconds{0.0};
         Clock::time_point g_lastRealPresent{};
-        Clock::time_point g_latestRealTime{};
-        double g_realIntervalSeconds = 1.0 / 30.0;
-        double g_outputIntervalSeconds = 0.0;
         Clock::time_point g_lastOutputPresent{};
 
-        HWND g_outputWindow = nullptr;
-        HWND g_outputOwner = nullptr;
+        ComPtr<ID3D11Device> g_outputDevice;
         ComPtr<IDXGISwapChain1> g_outputSwapChain;
         ComPtr<IDXGISwapChain2> g_outputSwapChain2;
+        ComPtr<IDXGISwapChain3> g_outputSwapChain3;
+        ComPtr<IDCompositionDevice> g_dcompDevice;
+        ComPtr<IDCompositionTarget> g_dcompTarget;
+        ComPtr<IDCompositionVisual> g_dcompVisual;
         HANDLE g_frameLatencyWaitable = nullptr;
+        HANDLE g_pacingTimer = nullptr;
+        HWND g_compositionOwner = nullptr;
         UINT g_outputWidth = 0;
         UINT g_outputHeight = 0;
         DXGI_FORMAT g_outputFormat = DXGI_FORMAT_UNKNOWN;
-        bool g_outputVisible = false;
-        int g_monitorRefreshHz = 60;
+        std::atomic<bool> g_presenterReady{false};
+        bool g_compositionVisible = false;
+        std::atomic<int> g_monitorRefreshHz{60};
 
         LRESULT CALLBACK DummyWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         {
             return DefWindowProcW(hwnd, msg, wp, lp);
         }
 
-        LRESULT CALLBACK OutputWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
-        {
-            switch (msg)
-            {
-            case WM_NCHITTEST:
-                return HTTRANSPARENT;
-            case WM_MOUSEACTIVATE:
-                return MA_NOACTIVATE;
-            case WM_ERASEBKGND:
-                return 1;
-            case WM_CLOSE:
-                ShowWindow(hwnd, SW_HIDE);
-                return 0;
-            default:
-                return DefWindowProcW(hwnd, msg, wp, lp);
-            }
-        }
-
-        void PumpOutputMessages()
-        {
-            MSG msg{};
-            while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
-            {
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
-        }
-
         bool IsCurrentProcessWindow(HWND hwnd)
         {
-            if (!hwnd) return false;
+            if (!hwnd || !IsWindow(hwnd)) return false;
             DWORD pid = 0;
             GetWindowThreadProcessId(hwnd, &pid);
             if (pid != GetCurrentProcessId()) return false;
             RECT rc{};
             if (!GetClientRect(hwnd, &rc)) return false;
             return (rc.right - rc.left) >= 320 && (rc.bottom - rc.top) >= 240;
+        }
+
+        bool IsSourceWindowUsable(HWND hwnd)
+        {
+            return IsCurrentProcessWindow(hwnd) && IsWindowVisible(hwnd) && !IsIconic(hwnd);
         }
 
         bool IsTargetSwapChain(IDXGISwapChain* swapChain)
@@ -184,90 +181,115 @@ namespace RimFGPresent
             const UINT index = CurrentBackBufferIndex(swapChain);
             if (SUCCEEDED(swapChain->GetBuffer(index, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(out.GetAddressOf()))) && out)
                 return true;
+            out.Reset();
             return index != 0 && SUCCEEDED(swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(out.GetAddressOf()))) && out;
         }
 
-        void CopyHudRects(ID3D11DeviceContext* context, ID3D11Texture2D* realFrame, ID3D11Texture2D* composite, const GeneratedSourceSlot& source, UINT width, UINT height)
+        bool GetCurrentOutputBackBuffer(ComPtr<ID3D11Texture2D>& out)
+        {
+            out.Reset();
+            if (!g_outputSwapChain) return false;
+            const UINT index = g_outputSwapChain3 ? g_outputSwapChain3->GetCurrentBackBufferIndex() : 0;
+            if (SUCCEEDED(g_outputSwapChain->GetBuffer(index, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(out.GetAddressOf()))) && out)
+                return true;
+            out.Reset();
+            return index != 0 && SUCCEEDED(g_outputSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(out.GetAddressOf()))) && out;
+        }
+
+        bool SameCopyFamily(DXGI_FORMAT a, DXGI_FORMAT b)
+        {
+            if (a == b) return true;
+            const bool rgba8a = a == DXGI_FORMAT_R8G8B8A8_UNORM || a == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+            const bool rgba8b = b == DXGI_FORMAT_R8G8B8A8_UNORM || b == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+            if (rgba8a && rgba8b) return true;
+            const bool bgra8a = a == DXGI_FORMAT_B8G8R8A8_UNORM || a == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+            const bool bgra8b = b == DXGI_FORMAT_B8G8R8A8_UNORM || b == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+            return bgra8a && bgra8b;
+        }
+
+        DXGI_FORMAT OutputCompatibleFormat(DXGI_FORMAT format)
+        {
+            switch (format)
+            {
+            case DXGI_FORMAT_R8G8B8A8_UNORM:
+            case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+                return DXGI_FORMAT_R8G8B8A8_UNORM;
+            case DXGI_FORMAT_B8G8R8A8_UNORM:
+            case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+                return DXGI_FORMAT_B8G8R8A8_UNORM;
+            case DXGI_FORMAT_R10G10B10A2_UNORM:
+            case DXGI_FORMAT_R16G16B16A16_FLOAT:
+                return format;
+            default:
+                return DXGI_FORMAT_UNKNOWN;
+            }
+        }
+
+        void CopyProtectedRects(ID3D11DeviceContext* context, ID3D11Texture2D* realFrame, ID3D11Texture2D* composite, const GeneratedSourceSlot& source, UINT width, UINT height)
         {
             if (!context || !realFrame || !composite) return;
             for (int i = 0; i < source.hudCount; ++i)
             {
-                const auto& rect = source.hud[static_cast<std::size_t>(i)];
-                const LONG left = std::max<LONG>(0, static_cast<LONG>(rect.x));
-                const LONG top = std::max<LONG>(0, static_cast<LONG>(rect.y));
-                const LONG right = std::min<LONG>(static_cast<LONG>(width), static_cast<LONG>(rect.x + rect.width));
-                const LONG bottom = std::min<LONG>(static_cast<LONG>(height), static_cast<LONG>(rect.y + rect.height));
+                const HudRectPx& rect = source.hud[static_cast<std::size_t>(i)];
+                const LONG left = std::max<LONG>(0, static_cast<LONG>(std::floor(rect.x)));
+                const LONG top = std::max<LONG>(0, static_cast<LONG>(std::floor(rect.y)));
+                const LONG right = std::min<LONG>(static_cast<LONG>(width), static_cast<LONG>(std::ceil(rect.x + rect.width)));
+                const LONG bottom = std::min<LONG>(static_cast<LONG>(height), static_cast<LONG>(std::ceil(rect.y + rect.height)));
                 if (right <= left || bottom <= top) continue;
                 D3D11_BOX box{static_cast<UINT>(left), static_cast<UINT>(top), 0, static_cast<UINT>(right), static_cast<UINT>(bottom), 1};
                 context->CopySubresourceRegion(composite, 0, static_cast<UINT>(left), static_cast<UINT>(top), 0, realFrame, 0, &box);
             }
         }
 
-        void ReleaseOutputSwapChain()
+        void ResetRealSlot(RealFrameSlot& slot)
         {
-            g_outputSwapChainRaw.store(nullptr, std::memory_order_release);
-            g_frameLatencyWaitable = nullptr;
-            g_outputSwapChain2.Reset();
-            g_outputSwapChain.Reset();
-            g_outputWidth = 0;
-            g_outputHeight = 0;
-            g_outputFormat = DXGI_FORMAT_UNKNOWN;
+            slot.device.Reset();
+            slot.context.Reset();
+            slot.snapshot.Reset();
+            slot.composite.Reset();
+            slot.width = 0;
+            slot.height = 0;
+            slot.format = DXGI_FORMAT_UNKNOWN;
+            slot.sequence = 0;
+            slot.capturedAt = Clock::time_point{};
+            slot.publishedAt = Clock::time_point{};
+            slot.sourceWindow = nullptr;
+            slot.source = GeneratedSourceSlot{};
         }
 
-        void DestroyOutputWindow()
+        void ReleaseCaptureResources()
         {
-            ReleaseOutputSwapChain();
-            if (g_outputWindow)
-            {
-                DestroyWindow(g_outputWindow);
-                g_outputWindow = nullptr;
-            }
-            g_outputOwner = nullptr;
-            g_outputVisible = false;
-        }
-
-        void ReleaseAsyncResources()
-        {
-            for (auto& slot : g_realSlots)
-            {
-                slot.snapshot.Reset();
-                slot.composite.Reset();
-                slot.width = 0;
-                slot.height = 0;
-                slot.format = DXGI_FORMAT_UNKNOWN;
-                slot.sequence = 0;
-                slot.capturedAt = Clock::time_point{};
-                slot.sourceWindow = nullptr;
-                slot.source = GeneratedSourceSlot{};
-            }
+            for (RealFrameSlot& slot : g_realSlots) ResetRealSlot(slot);
             g_multithread.Reset();
-            g_asyncContext.Reset();
-            g_asyncDevice.Reset();
-            g_asyncWidth = 0;
-            g_asyncHeight = 0;
-            g_asyncFormat = DXGI_FORMAT_UNKNOWN;
+            g_captureContext.Reset();
+            g_captureDevice.Reset();
+            g_captureWidth = 0;
+            g_captureHeight = 0;
+            g_captureFormat = DXGI_FORMAT_UNKNOWN;
         }
 
-        bool EnsureAsyncResources(ID3D11Device* device, ID3D11Texture2D* backBuffer)
+        bool EnsureCaptureResources(ID3D11Device* device, ID3D11Texture2D* backBuffer)
         {
             if (!device || !backBuffer) return false;
             D3D11_TEXTURE2D_DESC desc{};
             backBuffer->GetDesc(&desc);
             if (!desc.Width || !desc.Height || desc.SampleDesc.Count != 1) return false;
 
-            if (g_asyncDevice.Get() == device && g_asyncContext &&
-                g_asyncWidth == desc.Width && g_asyncHeight == desc.Height && g_asyncFormat == desc.Format &&
-                g_realSlots[0].snapshot && g_realSlots[0].composite &&
-                g_realSlots[1].snapshot && g_realSlots[1].composite &&
-                g_realSlots[2].snapshot && g_realSlots[2].composite)
-                return true;
+            bool complete = g_captureDevice.Get() == device && g_captureContext &&
+                g_captureWidth == desc.Width && g_captureHeight == desc.Height && g_captureFormat == desc.Format;
+            if (complete)
+            {
+                for (const RealFrameSlot& slot : g_realSlots)
+                    complete = complete && slot.snapshot && slot.composite;
+            }
+            if (complete) return true;
 
-            ReleaseAsyncResources();
-            g_asyncDevice = device;
-            device->GetImmediateContext(&g_asyncContext);
-            if (!g_asyncContext) return false;
+            ReleaseCaptureResources();
+            g_captureDevice = device;
+            device->GetImmediateContext(&g_captureContext);
+            if (!g_captureContext) return false;
 
-            g_asyncContext.As(&g_multithread);
+            g_captureContext.As(&g_multithread);
             if (g_multithread)
                 g_multithread->SetMultithreadProtected(TRUE);
 
@@ -279,30 +301,20 @@ namespace RimFGPresent
             copy.CPUAccessFlags = 0;
             copy.MiscFlags = 0;
 
-            for (auto& slot : g_realSlots)
+            for (RealFrameSlot& slot : g_realSlots)
             {
                 if (FAILED(device->CreateTexture2D(&copy, nullptr, &slot.snapshot)) ||
                     FAILED(device->CreateTexture2D(&copy, nullptr, &slot.composite)))
                 {
-                    ReleaseAsyncResources();
+                    ReleaseCaptureResources();
                     return false;
                 }
             }
 
-            g_asyncWidth = desc.Width;
-            g_asyncHeight = desc.Height;
-            g_asyncFormat = desc.Format;
+            g_captureWidth = desc.Width;
+            g_captureHeight = desc.Height;
+            g_captureFormat = desc.Format;
             return true;
-        }
-
-        DXGI_FORMAT OutputCompatibleFormat(DXGI_FORMAT format)
-        {
-            switch (format)
-            {
-            case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM;
-            case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8A8_UNORM;
-            default: return format;
-            }
         }
 
         int QueryMonitorRefreshHz(HWND owner)
@@ -319,75 +331,70 @@ namespace RimFGPresent
             return hz >= 24 && hz <= 1000 ? hz : 60;
         }
 
-        bool RegisterOutputWindowClass()
+        void ReleaseCompositionResources()
         {
-            WNDCLASSEXW wc{};
-            wc.cbSize = sizeof(wc);
-            wc.lpfnWndProc = OutputWndProc;
-            wc.hInstance = GetModuleHandleW(nullptr);
-            wc.lpszClassName = kOutputWindowClass;
-            wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-            const ATOM atom = RegisterClassExW(&wc);
-            return atom != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+            g_presenterReady.store(false, std::memory_order_release);
+            g_outputSwapChainRaw.store(nullptr, std::memory_order_release);
+            g_frameLatencyWaitable = nullptr;
+            if (g_dcompVisual) g_dcompVisual->SetContent(nullptr);
+            if (g_dcompTarget) g_dcompTarget->SetRoot(nullptr);
+            if (g_dcompDevice) g_dcompDevice->Commit();
+            g_outputSwapChain3.Reset();
+            g_outputSwapChain2.Reset();
+            g_outputSwapChain.Reset();
+            g_dcompVisual.Reset();
+            g_dcompTarget.Reset();
+            g_dcompDevice.Reset();
+            g_outputDevice.Reset();
+            g_compositionOwner = nullptr;
+            g_outputWidth = 0;
+            g_outputHeight = 0;
+            g_outputFormat = DXGI_FORMAT_UNKNOWN;
+            g_compositionVisible = false;
         }
 
-        bool AlignOutputWindow(HWND owner, UINT width, UINT height)
+        bool SetCompositionVisible(bool visible)
         {
-            if (!g_outputWindow || !owner || !IsWindow(owner)) return false;
-            POINT topLeft{0, 0};
-            if (!ClientToScreen(owner, &topLeft)) return false;
-            const int w = static_cast<int>(width);
-            const int h = static_cast<int>(height);
-            return SetWindowPos(g_outputWindow, HWND_TOP, topLeft.x, topLeft.y, w, h,
-                SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOSENDCHANGING) != FALSE;
-        }
-
-        bool EnsureOutputWindow(HWND owner, UINT width, UINT height)
-        {
-            if (!owner || !width || !height) return false;
-            if (g_outputWindow && g_outputOwner != owner)
-                DestroyOutputWindow();
-
-            if (!g_outputWindow)
+            if (!g_dcompVisual || !g_dcompDevice) return false;
+            if (g_compositionVisible == visible) return true;
+            if (FAILED(g_dcompVisual->SetOpacity(visible ? 1.0f : 0.0f)) || FAILED(g_dcompDevice->Commit()))
             {
-                if (!RegisterOutputWindowClass()) return false;
-                const DWORD exStyle = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT;
-                g_outputWindow = CreateWindowExW(exStyle, kOutputWindowClass, L"RimFG Output", WS_POPUP,
-                    0, 0, static_cast<int>(width), static_cast<int>(height), owner, nullptr, GetModuleHandleW(nullptr), nullptr);
-                if (!g_outputWindow) return false;
-                g_outputOwner = owner;
+                g_compositionFailureCount.fetch_add(1, std::memory_order_relaxed);
+                return false;
             }
-            return AlignOutputWindow(owner, width, height);
+            g_compositionVisible = visible;
+            return true;
         }
 
-        bool EnsureOutputSwapChain(const RealFrameSlot& slot)
+        bool CreateCompositionOutput(const RealFrameSlot& slot)
         {
-            if (!g_asyncDevice || !g_asyncContext || !slot.sourceWindow || !slot.width || !slot.height)
-                return false;
-            if (!EnsureOutputWindow(slot.sourceWindow, slot.width, slot.height))
-                return false;
+            if (!slot.device || !slot.context || !slot.sourceWindow || !IsWindow(slot.sourceWindow)) return false;
+            const DXGI_FORMAT wanted = OutputCompatibleFormat(slot.format);
+            if (wanted == DXGI_FORMAT_UNKNOWN) return false;
 
-            const DXGI_FORMAT wantedFormat = OutputCompatibleFormat(slot.format);
-            if (g_outputSwapChain && g_outputWidth == slot.width && g_outputHeight == slot.height && g_outputFormat == wantedFormat)
-                return true;
-
-            ReleaseOutputSwapChain();
+            ReleaseCompositionResources();
 
             ComPtr<IDXGIDevice> dxgiDevice;
             ComPtr<IDXGIAdapter> adapter;
             ComPtr<IDXGIFactory2> factory;
-            if (FAILED(g_asyncDevice.As(&dxgiDevice)) || !dxgiDevice ||
-                FAILED(dxgiDevice->GetAdapter(&adapter)) || !adapter)
+            if (FAILED(slot.device.As(&dxgiDevice)) || !dxgiDevice ||
+                FAILED(dxgiDevice->GetAdapter(&adapter)) || !adapter ||
+                FAILED(adapter->GetParent(__uuidof(IDXGIFactory2), reinterpret_cast<void**>(factory.GetAddressOf()))) || !factory)
                 return false;
-            ComPtr<IDXGIFactory> baseFactory;
-            if (FAILED(adapter->GetParent(__uuidof(IDXGIFactory), reinterpret_cast<void**>(baseFactory.GetAddressOf()))) || !baseFactory ||
-                FAILED(baseFactory.As(&factory)) || !factory)
+
+            if (FAILED(DCompositionCreateDevice(dxgiDevice.Get(), __uuidof(IDCompositionDevice), reinterpret_cast<void**>(g_dcompDevice.GetAddressOf()))) || !g_dcompDevice ||
+                FAILED(g_dcompDevice->CreateTargetForHwnd(slot.sourceWindow, TRUE, &g_dcompTarget)) || !g_dcompTarget ||
+                FAILED(g_dcompDevice->CreateVisual(&g_dcompVisual)) || !g_dcompVisual)
+            {
+                g_compositionFailureCount.fetch_add(1, std::memory_order_relaxed);
+                ReleaseCompositionResources();
                 return false;
+            }
 
             DXGI_SWAP_CHAIN_DESC1 desc{};
             desc.Width = slot.width;
             desc.Height = slot.height;
-            desc.Format = wantedFormat;
+            desc.Format = wanted;
             desc.Stereo = FALSE;
             desc.SampleDesc.Count = 1;
             desc.SampleDesc.Quality = 0;
@@ -398,54 +405,122 @@ namespace RimFGPresent
             desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
             desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
-            if (FAILED(factory->CreateSwapChainForHwnd(g_asyncDevice.Get(), g_outputWindow, &desc, nullptr, nullptr, &g_outputSwapChain)) || !g_outputSwapChain)
+            HRESULT hr = factory->CreateSwapChainForComposition(slot.device.Get(), &desc, nullptr, &g_outputSwapChain);
+            if (FAILED(hr) || !g_outputSwapChain)
+            {
+                desc.Flags = 0;
+                hr = factory->CreateSwapChainForComposition(slot.device.Get(), &desc, nullptr, &g_outputSwapChain);
+            }
+            if (FAILED(hr) || !g_outputSwapChain)
+            {
+                g_compositionFailureCount.fetch_add(1, std::memory_order_relaxed);
+                ReleaseCompositionResources();
                 return false;
-            factory->MakeWindowAssociation(g_outputWindow, DXGI_MWA_NO_ALT_ENTER);
+            }
+
             g_outputSwapChain.As(&g_outputSwapChain2);
-            if (g_outputSwapChain2)
+            g_outputSwapChain.As(&g_outputSwapChain3);
+            if (g_outputSwapChain2 && (desc.Flags & DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT) != 0)
             {
                 g_outputSwapChain2->SetMaximumFrameLatency(1);
                 g_frameLatencyWaitable = g_outputSwapChain2->GetFrameLatencyWaitableObject();
             }
 
+            if (FAILED(g_dcompVisual->SetContent(g_outputSwapChain.Get())) ||
+                FAILED(g_dcompVisual->SetOpacity(0.0f)) ||
+                FAILED(g_dcompTarget->SetRoot(g_dcompVisual.Get())) ||
+                FAILED(g_dcompDevice->Commit()))
+            {
+                g_compositionFailureCount.fetch_add(1, std::memory_order_relaxed);
+                ReleaseCompositionResources();
+                return false;
+            }
+
+            g_outputDevice = slot.device;
             g_outputWidth = slot.width;
             g_outputHeight = slot.height;
-            g_outputFormat = wantedFormat;
+            g_outputFormat = wanted;
+            g_compositionOwner = slot.sourceWindow;
+            g_compositionVisible = false;
+            g_monitorRefreshHz.store(QueryMonitorRefreshHz(slot.sourceWindow), std::memory_order_release);
             g_outputSwapChainRaw.store(g_outputSwapChain.Get(), std::memory_order_release);
-            g_monitorRefreshHz = QueryMonitorRefreshHz(slot.sourceWindow);
+            g_presenterReady.store(true, std::memory_order_release);
             return true;
         }
 
-        bool CopyToOutputBackBuffer(ID3D11Texture2D* source)
+        bool EnsureCompositionOutput(const RealFrameSlot& slot)
         {
-            if (!source || !g_outputSwapChain || !g_asyncContext) return false;
+            const DXGI_FORMAT wanted = OutputCompatibleFormat(slot.format);
+            if (wanted == DXGI_FORMAT_UNKNOWN) return false;
+            if (g_presenterReady.load(std::memory_order_acquire) && g_outputSwapChain &&
+                g_outputDevice.Get() == slot.device.Get() && g_compositionOwner == slot.sourceWindow &&
+                g_outputWidth == slot.width && g_outputHeight == slot.height && g_outputFormat == wanted)
+                return true;
+            return CreateCompositionOutput(slot);
+        }
+
+        bool WaitUntilDeadline(Clock::time_point deadline)
+        {
+            const Clock::time_point now = Clock::now();
+            if (deadline <= now) return true;
+
+            if (!g_pacingTimer)
+                g_pacingTimer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+            if (!g_pacingTimer)
+            {
+                std::this_thread::sleep_until(deadline);
+                return true;
+            }
+
+            const auto remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline - now).count();
+            LARGE_INTEGER due{};
+            due.QuadPart = -std::max<LONGLONG>(1, static_cast<LONGLONG>(remaining / 100));
+            if (!SetWaitableTimerEx(g_pacingTimer, &due, 0, nullptr, nullptr, nullptr, 0))
+            {
+                std::this_thread::sleep_until(deadline);
+                return true;
+            }
+            WaitForSingleObject(g_pacingTimer, 1000);
+            return true;
+        }
+
+        bool FrameLatencyReady()
+        {
+            if (!g_frameLatencyWaitable) return true;
+            const DWORD result = WaitForSingleObject(g_frameLatencyWaitable, 2);
+            if (result == WAIT_OBJECT_0 || result == WAIT_ABANDONED) return true;
+            g_frameLatencyTimeoutCount.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+
+        bool CopyToOutputBackBuffer(const RealFrameSlot& slot, ID3D11Texture2D* source)
+        {
+            if (!source || !slot.context || !g_outputSwapChain) return false;
             ComPtr<ID3D11Texture2D> outputBackBuffer;
-            if (FAILED(g_outputSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(outputBackBuffer.GetAddressOf()))) || !outputBackBuffer)
-                return false;
+            if (!GetCurrentOutputBackBuffer(outputBackBuffer) || !outputBackBuffer) return false;
 
             D3D11_TEXTURE2D_DESC srcDesc{}, dstDesc{};
             source->GetDesc(&srcDesc);
             outputBackBuffer->GetDesc(&dstDesc);
-            if (srcDesc.Width != dstDesc.Width || srcDesc.Height != dstDesc.Height || srcDesc.SampleDesc.Count != 1 || dstDesc.SampleDesc.Count != 1)
+            if (srcDesc.Width != dstDesc.Width || srcDesc.Height != dstDesc.Height ||
+                srcDesc.SampleDesc.Count != 1 || dstDesc.SampleDesc.Count != 1 || !SameCopyFamily(srcDesc.Format, dstDesc.Format))
                 return false;
 
-            // UNORM/SRGB pairs are in the same DXGI format family and support GPU copy.
-            g_asyncContext->CopyResource(outputBackBuffer.Get(), source);
+            slot.context->CopyResource(outputBackBuffer.Get(), source);
             return true;
         }
 
-        bool PresentOutputTexture(ID3D11Texture2D* source)
+        bool PresentOutputTexture(const RealFrameSlot& slot, ID3D11Texture2D* source)
         {
-            if (!source || !g_outputSwapChain) return false;
-            if (g_frameLatencyWaitable)
-            {
-                const DWORD wait = WaitForSingleObject(g_frameLatencyWaitable, 20);
-                if (wait != WAIT_OBJECT_0 && wait != WAIT_ABANDONED)
-                    return false;
-            }
-            if (!CopyToOutputBackBuffer(source)) return false;
+            if (!source || !g_outputSwapChain || !CopyToOutputBackBuffer(slot, source)) return false;
             const HRESULT hr = g_outputSwapChain->Present(0, 0);
-            if (FAILED(hr)) return false;
+            if (FAILED(hr))
+            {
+                g_presentFailureCount.fetch_add(1, std::memory_order_relaxed);
+                if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
+                    ReleaseCompositionResources();
+                return false;
+            }
 
             const Clock::time_point now = Clock::now();
             if (g_lastOutputPresent.time_since_epoch().count() != 0)
@@ -453,8 +528,8 @@ namespace RimFGPresent
                 const double dt = std::chrono::duration<double>(now - g_lastOutputPresent).count();
                 if (dt > 0.0005 && dt < 0.5)
                 {
-                    if (g_outputIntervalSeconds <= 0.0) g_outputIntervalSeconds = dt;
-                    else g_outputIntervalSeconds += (dt - g_outputIntervalSeconds) * 0.12;
+                    const double previous = g_outputIntervalSeconds.load(std::memory_order_relaxed);
+                    g_outputIntervalSeconds.store(previous <= 0.0 ? dt : previous + (dt - previous) * 0.12, std::memory_order_relaxed);
                 }
             }
             g_lastOutputPresent = now;
@@ -463,25 +538,41 @@ namespace RimFGPresent
 
         bool PresentReal(const RealFrameSlot& slot)
         {
-            return slot.snapshot && PresentOutputTexture(slot.snapshot.Get());
+            return slot.snapshot && PresentOutputTexture(slot, slot.snapshot.Get());
         }
 
         bool PresentPrediction(const RealFrameSlot& slot, float fraction)
         {
-            if (!slot.snapshot || !slot.composite || !g_asyncContext) return false;
+            if (!slot.snapshot || !slot.composite || !slot.context || !slot.device) return false;
             PredictionGenerationCallback predictor = g_predictionCallback.load(std::memory_order_acquire);
             if (!predictor) return false;
+
             ID3D11Texture2D* predicted = predictor(fraction);
             if (!predicted) return false;
+            if (g_publishedSequence.load(std::memory_order_acquire) != slot.sequence)
+            {
+                g_stalePredictionCount.fetch_add(1, std::memory_order_relaxed);
+                return false;
+            }
+
+            ComPtr<ID3D11Device> predictedDevice;
+            predicted->GetDevice(&predictedDevice);
+            if (!predictedDevice || predictedDevice.Get() != slot.device.Get()) return false;
 
             D3D11_TEXTURE2D_DESC predDesc{};
             predicted->GetDesc(&predDesc);
-            if (predDesc.Width != slot.width || predDesc.Height != slot.height || predDesc.SampleDesc.Count != 1)
+            if (predDesc.Width != slot.width || predDesc.Height != slot.height || predDesc.SampleDesc.Count != 1 || !SameCopyFamily(predDesc.Format, slot.format))
                 return false;
 
-            g_asyncContext->CopyResource(slot.composite.Get(), predicted);
-            CopyHudRects(g_asyncContext.Get(), slot.snapshot.Get(), slot.composite.Get(), slot.source, slot.width, slot.height);
-            return PresentOutputTexture(slot.composite.Get());
+            slot.context->CopyResource(slot.composite.Get(), predicted);
+            CopyProtectedRects(slot.context.Get(), slot.snapshot.Get(), slot.composite.Get(), slot.source, slot.width, slot.height);
+
+            if (g_publishedSequence.load(std::memory_order_acquire) != slot.sequence)
+            {
+                g_stalePredictionCount.fetch_add(1, std::memory_order_relaxed);
+                return false;
+            }
+            return PresentOutputTexture(slot, slot.composite.Get());
         }
 
         std::uint64_t CaptureRealFrameSlot(IDXGISwapChain* swapChain, Clock::time_point now)
@@ -500,16 +591,27 @@ namespace RimFGPresent
             if (FAILED(swapChain->GetDesc(&chainDesc)) || !chainDesc.OutputWindow) return 0;
 
             std::lock_guard<std::mutex> lock(g_presenterMutex);
-            if (!EnsureAsyncResources(device.Get(), backBuffer.Get())) return 0;
+            if (!EnsureCaptureResources(device.Get(), backBuffer.Get())) return 0;
 
-            const std::uint64_t next = g_realSequence + 1u;
-            RealFrameSlot& slot = g_realSlots[next % g_realSlots.size()];
-            g_asyncContext->CopyResource(slot.snapshot.Get(), backBuffer.Get());
+            const std::uint64_t next = g_captureSequence + 1u;
+            const std::uint64_t reading = g_presenterReadingSequence.load(std::memory_order_acquire);
+            if (reading != 0 && (reading % kRealRingSize) == (next % kRealRingSize))
+            {
+                g_ringBusyDropCount.fetch_add(1, std::memory_order_relaxed);
+                return 0;
+            }
+
+            g_captureSequence = next;
+            RealFrameSlot& slot = g_realSlots[next % kRealRingSize];
+            slot.device = device;
+            slot.context = g_captureContext;
+            g_captureContext->CopyResource(slot.snapshot.Get(), backBuffer.Get());
             slot.width = backDesc.Width;
             slot.height = backDesc.Height;
             slot.format = backDesc.Format;
             slot.sequence = next;
             slot.capturedAt = now;
+            slot.publishedAt = Clock::time_point{};
             slot.sourceWindow = chainDesc.OutputWindow;
             slot.source = ReadLatestSource();
             return next;
@@ -520,46 +622,44 @@ namespace RimFGPresent
             if (!sequence) return;
             {
                 std::lock_guard<std::mutex> lock(g_presenterMutex);
+                RealFrameSlot& slot = g_realSlots[sequence % kRealRingSize];
+                if (slot.sequence != sequence) return;
+                slot.publishedAt = now;
                 if (g_lastRealPresent.time_since_epoch().count() != 0)
                 {
                     const double seconds = std::chrono::duration<double>(now - g_lastRealPresent).count();
                     if (seconds >= 1.0 / 1000.0 && seconds <= 0.5)
-                        g_realIntervalSeconds += (seconds - g_realIntervalSeconds) * 0.20;
+                    {
+                        const double previous = g_realIntervalSeconds.load(std::memory_order_relaxed);
+                        g_realIntervalSeconds.store(previous + (seconds - previous) * 0.20, std::memory_order_relaxed);
+                    }
                 }
                 g_lastRealPresent = now;
-                g_latestRealTime = now;
-                g_realSequence = sequence;
+                g_publishedSequence.store(sequence, std::memory_order_release);
             }
             g_presenterCv.notify_all();
         }
 
-        bool CopyLatestRealSlot(RealFrameSlot& out, Clock::time_point& latestRealTime)
+        bool CopyLatestRealSlot(RealFrameSlot& out)
         {
+            const std::uint64_t sequence = g_publishedSequence.load(std::memory_order_acquire);
+            if (!sequence) return false;
             std::lock_guard<std::mutex> lock(g_presenterMutex);
-            if (!g_realSequence) return false;
-            const RealFrameSlot& slot = g_realSlots[g_realSequence % g_realSlots.size()];
-            if (slot.sequence != g_realSequence || !slot.snapshot) return false;
+            const RealFrameSlot& slot = g_realSlots[sequence % kRealRingSize];
+            if (slot.sequence != sequence || !slot.snapshot || !slot.context || !slot.device) return false;
             out = slot;
-            latestRealTime = g_latestRealTime;
             return true;
-        }
-
-        void SetOutputVisible(bool visible)
-        {
-            if (!g_outputWindow) return;
-            if (visible == g_outputVisible) return;
-            ShowWindow(g_outputWindow, visible ? SW_SHOWNOACTIVATE : SW_HIDE);
-            g_outputVisible = visible;
         }
 
         void PresenterMain()
         {
             std::uint64_t lastDisplayedRealSequence = 0;
             Clock::time_point nextOutput{};
+            Clock::time_point nextRefreshQuery{};
+            int lastEffectiveFps = 0;
 
-            for (;;)
+            while (true)
             {
-                PumpOutputMessages();
                 {
                     std::lock_guard<std::mutex> lock(g_presenterMutex);
                     if (g_presenterStop) break;
@@ -567,78 +667,126 @@ namespace RimFGPresent
 
                 const PresentMode mode = static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire));
                 RealFrameSlot slot;
-                Clock::time_point latestRealTime{};
-                if (mode == PresentMode::Disabled || !CopyLatestRealSlot(slot, latestRealTime))
+                if (mode == PresentMode::Disabled || !CopyLatestRealSlot(slot))
                 {
-                    SetOutputVisible(false);
+                    if (g_dcompVisual) SetCompositionVisible(false);
+                    nextOutput = Clock::time_point{};
                     std::unique_lock<std::mutex> lock(g_presenterMutex);
-                    g_presenterCv.wait_for(lock, std::chrono::milliseconds(20), [&] { return g_presenterStop || g_realSequence != 0; });
+                    g_presenterCv.wait_for(lock, std::chrono::milliseconds(20), [&] { return g_presenterStop || g_publishedSequence.load(std::memory_order_acquire) != 0; });
                     continue;
                 }
 
-                const double baseFps = 1.0 / std::max(1.0 / 1000.0, g_realIntervalSeconds);
+                if (!IsSourceWindowUsable(slot.sourceWindow))
+                {
+                    if (g_dcompVisual) SetCompositionVisible(false);
+                    nextOutput = Clock::time_point{};
+                    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+                    continue;
+                }
+
+                const double baseFps = 1.0 / std::max(1.0 / 1000.0, g_realIntervalSeconds.load(std::memory_order_relaxed));
                 const int targetFps = std::max(1, g_targetOutputFps.load(std::memory_order_acquire));
                 if (static_cast<double>(targetFps) <= baseFps + 0.5)
                 {
-                    SetOutputVisible(false);
+                    if (g_dcompVisual) SetCompositionVisible(false);
                     nextOutput = Clock::time_point{};
                     std::this_thread::sleep_for(std::chrono::milliseconds(4));
                     continue;
                 }
 
-                if (!EnsureOutputSwapChain(slot))
+                if (!EnsureCompositionOutput(slot))
                 {
-                    SetOutputVisible(false);
+                    g_compositionFailureCount.fetch_add(1, std::memory_order_relaxed);
                     g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    nextOutput = Clock::time_point{};
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
                     continue;
                 }
 
-                AlignOutputWindow(slot.sourceWindow, slot.width, slot.height);
-                const int effectiveHz = std::max(1, std::min(targetFps, std::max(24, g_monitorRefreshHz)));
-                const auto period = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / static_cast<double>(effectiveHz)));
                 const Clock::time_point now = Clock::now();
-                if (nextOutput.time_since_epoch().count() == 0 || now > nextOutput + period * 3)
-                    nextOutput = now;
-                if (now < nextOutput)
+                if (nextRefreshQuery.time_since_epoch().count() == 0 || now >= nextRefreshQuery)
                 {
-                    std::this_thread::sleep_until(nextOutput);
+                    g_monitorRefreshHz.store(QueryMonitorRefreshHz(slot.sourceWindow), std::memory_order_release);
+                    nextRefreshQuery = now + std::chrono::seconds(1);
+                }
+                const int monitorHz = std::max(24, g_monitorRefreshHz.load(std::memory_order_acquire));
+                const int effectiveFps = std::max(1, std::min(targetFps, monitorHz));
+                const auto period = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / static_cast<double>(effectiveFps)));
+
+                if (nextOutput.time_since_epoch().count() == 0 || effectiveFps != lastEffectiveFps || now > nextOutput + period * 3)
+                    nextOutput = now;
+                lastEffectiveFps = effectiveFps;
+
+                WaitUntilDeadline(nextOutput);
+                nextOutput += period;
+
+                {
+                    std::lock_guard<std::mutex> lock(g_presenterMutex);
+                    if (g_presenterStop) break;
+                }
+                if (static_cast<PresentMode>(g_presentMode.load(std::memory_order_acquire)) == PresentMode::Disabled)
+                    continue;
+                if (!FrameLatencyReady())
+                {
+                    g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
                     continue;
                 }
 
-                // Re-sample immediately before the output slot so a newly arrived real
-                // frame wins over prediction without changing the fixed output clock.
-                CopyLatestRealSlot(slot, latestRealTime);
+                if (!CopyLatestRealSlot(slot) || !EnsureCompositionOutput(slot))
+                {
+                    g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
+                    continue;
+                }
 
+                g_presenterReadingSequence.store(slot.sequence, std::memory_order_release);
                 bool presented = false;
+                bool generatedAttempt = false;
+
                 if (slot.sequence != lastDisplayedRealSequence)
                 {
                     presented = PresentReal(slot);
                     if (presented)
+                    {
                         lastDisplayedRealSequence = slot.sequence;
+                        g_realPresentCount.fetch_add(1, std::memory_order_relaxed);
+                    }
                 }
                 else
                 {
-                    const double age = std::max(0.0, std::chrono::duration<double>(Clock::now() - latestRealTime).count());
-                    const double fractionD = age / std::max(1.0 / 1000.0, g_realIntervalSeconds);
-                    const float fraction = static_cast<float>(std::max(0.02, std::min(0.999999, fractionD)));
+                    generatedAttempt = true;
+                    const Clock::time_point basis = slot.publishedAt.time_since_epoch().count() != 0 ? slot.publishedAt : slot.capturedAt;
+                    const double age = std::max(0.0, std::chrono::duration<double>(Clock::now() - basis).count());
+                    const double interval = std::max(1.0 / 1000.0, g_realIntervalSeconds.load(std::memory_order_relaxed));
+                    const float fraction = static_cast<float>(std::max(0.02, std::min(0.999999, age / interval)));
                     presented = PresentPrediction(slot, fraction);
                     if (presented)
                         g_generatedPresentCount.fetch_add(1, std::memory_order_relaxed);
-                    else
-                        g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
                 }
 
-                if (presented)
-                    SetOutputVisible(true);
+                g_presenterReadingSequence.store(0, std::memory_order_release);
 
-                nextOutput += period;
-                if (Clock::now() > nextOutput + period)
-                    nextOutput = Clock::now() + period;
+                if (presented)
+                    SetCompositionVisible(true);
+                else
+                {
+                    g_skippedPresentCount.fetch_add(1, std::memory_order_relaxed);
+                    if (!generatedAttempt)
+                        g_presentFailureCount.fetch_add(1, std::memory_order_relaxed);
+                }
+
+                const Clock::time_point after = Clock::now();
+                if (after > nextOutput + period)
+                    nextOutput = after + period;
             }
 
-            SetOutputVisible(false);
-            DestroyOutputWindow();
+            g_presenterReadingSequence.store(0, std::memory_order_release);
+            if (g_dcompVisual) SetCompositionVisible(false);
+            ReleaseCompositionResources();
+            if (g_pacingTimer)
+            {
+                CloseHandle(g_pacingTimer);
+                g_pacingTimer = nullptr;
+            }
         }
 
         HRESULT __stdcall HookPresent(IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
@@ -664,8 +812,8 @@ namespace RimFGPresent
                     capturedSequence = CaptureRealFrameSlot(swapChain, Clock::now());
             }
 
-            // RimWorld/Unity owns this Present completely. RimFG never injects another
-            // Present into the Unity swapchain anymore.
+            // Unity owns its own Present. RimFG never injects a generated frame into
+            // the Unity swapchain; output is a DirectComposition visual instead.
             const HRESULT hr = g_originalPresent ? g_originalPresent(swapChain, syncInterval, flags) : E_FAIL;
 
             if (target && mode != PresentMode::Disabled && (flags & DXGI_PRESENT_TEST) == 0 && SUCCEEDED(hr) && capturedSequence)
@@ -745,11 +893,13 @@ namespace RimFGPresent
         {
             std::lock_guard<std::mutex> lock(g_presenterMutex);
             g_presenterStop = false;
-            g_realSequence = 0;
+            g_captureSequence = 0;
+            g_publishedSequence.store(0, std::memory_order_release);
+            g_presenterReadingSequence.store(0, std::memory_order_release);
             g_lastRealPresent = Clock::time_point{};
-            g_latestRealTime = Clock::time_point{};
-            g_outputIntervalSeconds = 0.0;
             g_lastOutputPresent = Clock::time_point{};
+            g_realIntervalSeconds.store(1.0 / 30.0, std::memory_order_release);
+            g_outputIntervalSeconds.store(0.0, std::memory_order_release);
         }
         g_presenterThread = std::thread(PresenterMain);
         g_installed.store(true, std::memory_order_release);
@@ -766,7 +916,7 @@ namespace RimFGPresent
         if (g_presenterThread.joinable()) g_presenterThread.join();
 
         ClearGeneratedFrameSource();
-        ReleaseAsyncResources();
+        ReleaseCaptureResources();
         g_captureCallback.store(nullptr, std::memory_order_release);
         g_predictionCallback.store(nullptr, std::memory_order_release);
 
@@ -778,7 +928,6 @@ namespace RimFGPresent
 
         g_originalPresent = nullptr;
         g_unitySwapChain.store(nullptr, std::memory_order_release);
-        g_outputSwapChainRaw.store(nullptr, std::memory_order_release);
         g_unityDevice = nullptr;
     }
 
@@ -788,6 +937,8 @@ namespace RimFGPresent
 
     void SetPresentMode(PresentMode mode)
     {
+        // The old VSync2x path blocked Unity's Present and is intentionally retired.
+        if (mode == PresentMode::VSync2x) mode = PresentMode::ImmediateValidation;
         g_presentMode.store(static_cast<int>(mode), std::memory_order_release);
         g_presenterCv.notify_all();
     }
@@ -805,12 +956,11 @@ namespace RimFGPresent
         }
 
         const std::uint32_t next = g_sourceSequence.load(std::memory_order_relaxed) + 1u;
-        auto& slot = g_sourceSlots[next & 1u];
-        slot.texture = generatedFrame;
+        GeneratedSourceSlot& slot = g_sourceSlots[next & 1u];
         slot.width = width;
         slot.height = height;
         slot.frameIndex = frameIndex;
-        slot.hudCount = std::max(0, std::min(hudRectCount, kMaxHudRects));
+        slot.hudCount = std::max(0, std::min(hudRectCount, MaxHudRects));
         if (hudRects)
             for (int i = 0; i < slot.hudCount; ++i)
                 slot.hud[static_cast<std::size_t>(i)] = hudRects[i];
@@ -834,15 +984,22 @@ namespace RimFGPresent
     }
 
     int GetTargetOutputFps() { return g_targetOutputFps.load(std::memory_order_acquire); }
-    double EstimatedBaseFps() { return 1.0 / std::max(1.0 / 1000.0, g_realIntervalSeconds); }
+    double EstimatedBaseFps() { return 1.0 / std::max(1.0 / 1000.0, g_realIntervalSeconds.load(std::memory_order_acquire)); }
     double EstimatedOutputFps()
     {
-        if (g_outputIntervalSeconds > 0.0005)
-            return 1.0 / g_outputIntervalSeconds;
-        return 0.0;
+        const double interval = g_outputIntervalSeconds.load(std::memory_order_acquire);
+        return interval > 0.0005 ? 1.0 / interval : 0.0;
     }
+    bool PresenterReady() { return g_presenterReady.load(std::memory_order_acquire); }
+    int MonitorRefreshHz() { return g_monitorRefreshHz.load(std::memory_order_acquire); }
+    std::uint64_t RealPresentCount() { return g_realPresentCount.load(std::memory_order_acquire); }
     std::uint64_t GeneratedPresentCount() { return g_generatedPresentCount.load(std::memory_order_acquire); }
     std::uint64_t SkippedPresentCount() { return g_skippedPresentCount.load(std::memory_order_acquire); }
+    std::uint64_t FrameLatencyTimeoutCount() { return g_frameLatencyTimeoutCount.load(std::memory_order_acquire); }
+    std::uint64_t PresentFailureCount() { return g_presentFailureCount.load(std::memory_order_acquire); }
+    std::uint64_t StalePredictionCount() { return g_stalePredictionCount.load(std::memory_order_acquire); }
+    std::uint64_t RingBusyDropCount() { return g_ringBusyDropCount.load(std::memory_order_acquire); }
+    std::uint64_t CompositionFailureCount() { return g_compositionFailureCount.load(std::memory_order_acquire); }
 }
 
 extern "C" __declspec(dllexport) int __cdecl RimFG_StartPresentHook() { return RimFGPresent::Initialize(nullptr) ? 1 : 0; }
@@ -858,5 +1015,13 @@ extern "C" __declspec(dllexport) void __cdecl RimFG_SetTargetOutputFps(int fps) 
 extern "C" __declspec(dllexport) int __cdecl RimFG_GetTargetOutputFps() { return RimFGPresent::GetTargetOutputFps(); }
 extern "C" __declspec(dllexport) double __cdecl RimFG_GetEstimatedBaseFps() { return RimFGPresent::EstimatedBaseFps(); }
 extern "C" __declspec(dllexport) double __cdecl RimFG_GetEstimatedOutputFps() { return RimFGPresent::EstimatedOutputFps(); }
+extern "C" __declspec(dllexport) int __cdecl RimFG_IsPresenterReady() { return RimFGPresent::PresenterReady() ? 1 : 0; }
+extern "C" __declspec(dllexport) int __cdecl RimFG_GetMonitorRefreshHz() { return RimFGPresent::MonitorRefreshHz(); }
+extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetRealPresentCount() { return RimFGPresent::RealPresentCount(); }
 extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetGeneratedPresentCount() { return RimFGPresent::GeneratedPresentCount(); }
 extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetSkippedPresentCount() { return RimFGPresent::SkippedPresentCount(); }
+extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetFrameLatencyTimeoutCount() { return RimFGPresent::FrameLatencyTimeoutCount(); }
+extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetPresentFailureCount() { return RimFGPresent::PresentFailureCount(); }
+extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetStalePredictionCount() { return RimFGPresent::StalePredictionCount(); }
+extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetRingBusyDropCount() { return RimFGPresent::RingBusyDropCount(); }
+extern "C" __declspec(dllexport) unsigned long long __cdecl RimFG_GetCompositionFailureCount() { return RimFGPresent::CompositionFailureCount(); }
