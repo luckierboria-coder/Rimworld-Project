@@ -4,23 +4,26 @@ using System.Threading;
 using HarmonyLib;
 using RimWorld;
 using Verse;
-using Verse.AI;
 
 namespace RimMTRC2T2
 {
     /// <summary>
-    /// RC2-T2 Stage 4A: conservative DoBill hard-negative gate.
+    /// RC2-T2 Stage 4A hotfix: conservative DoBill hard-negative gate.
+    ///
+    /// IMPORTANT: the gate runs at HasJobOnThing, not JobOnThing. This keeps
+    /// JobGiver_Work's CanGiveJob/JobOnX contract synchronized: a target rejected by
+    /// the hard-negative check is never reported as a viable target in the first place.
     ///
     /// The gate is intentionally narrow:
-    /// - only WorkGiver_DoBill.JobOnThing;
+    /// - only WorkGiver_DoBill.HasJobOnThing;
     /// - only while the current JobGiver_Work package has already spent >=16ms;
     /// - only when the target is an IBillGiver with a live BillStack;
     /// - only when BillStack.AnyShouldDoNow is definitively false.
     ///
-    /// Every unknown/maybe-positive case falls through to the original method. Ingredient
-    /// selection, reservations, reachability, Performance Fish prepatches and final Job
-    /// construction remain authoritative. If a foreign Harmony patch owns JobOnThing,
-    /// Stage 4A fails closed and does not install.
+    /// Every unknown/maybe-positive case falls through to the original method.
+    /// JobOnThing, ingredient selection, reservations, reachability, Performance Fish
+    /// prepatches and final Job construction remain authoritative. If a foreign Harmony
+    /// patch owns HasJobOnThing, Stage 4A fails closed and does not install.
     /// </summary>
     [StaticConstructorOnStartup]
     internal static class Stage4DoBillGate
@@ -53,28 +56,29 @@ namespace RimMTRC2T2
 
             try
             {
-                MethodInfo target = FindJobOnThing();
+                MethodInfo target = FindHasJobOnThing();
                 if (target == null)
                 {
-                    disabledReason = "JobOnThing-not-found";
+                    disabledReason = "HasJobOnThing-not-found";
+                    HookReport();
                     return;
                 }
 
                 if (HasUnsafeForeignPatch(target))
                 {
                     disabledReason = "foreign-Harmony-authority";
-                    Log.Message("[RimMT] RC2-T2 Stage 4A DoBill gate disabled: foreign Harmony authority detected on WorkGiver_DoBill.JobOnThing. Vanilla/mod authority retained.");
+                    Log.Message("[RimMT] RC2-T2 Stage 4A DoBill gate disabled: foreign Harmony authority detected on WorkGiver_DoBill.HasJobOnThing. Vanilla/mod authority retained.");
                     HookReport();
                     return;
                 }
 
                 Harmony.Patch(target,
-                    prefix: new HarmonyMethod(typeof(Stage4DoBillGate), nameof(JobOnThingPrefix)) { priority = Priority.First });
+                    prefix: new HarmonyMethod(typeof(Stage4DoBillGate), nameof(HasJobOnThingPrefix)) { priority = Priority.First });
                 patched = true;
-                disabledReason = "active";
+                disabledReason = "active-synchronized";
                 HookReport();
 
-                Log.Message("[RimMT] RC2-T2 Stage 4A DoBill Hard-Negative Gate installed: after a live JobPackage reaches >=16ms, an IBillGiver with BillStack.AnyShouldDoNow=false is rejected before JobOnThing. Unknown/positive cases remain original-authority; ingredient search is untouched.");
+                Log.Message("[RimMT] RC2-T2 Stage 4A DoBill Hard-Negative Gate hotfix installed at HasJobOnThing: after a live JobPackage reaches >=16ms, an IBillGiver with BillStack.AnyShouldDoNow=false is rejected before target selection. JobOnThing is untouched, keeping CanGiveJob/JobOnX synchronized.");
             }
             catch (Exception ex)
             {
@@ -85,13 +89,13 @@ namespace RimMTRC2T2
             }
         }
 
-        private static MethodInfo FindJobOnThing()
+        private static MethodInfo FindHasJobOnThing()
         {
             MethodInfo[] methods = typeof(WorkGiver_DoBill).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             for (int i = 0; i < methods.Length; i++)
             {
                 MethodInfo method = methods[i];
-                if (method == null || method.Name != "JobOnThing" || method.ReturnType != typeof(Job)) continue;
+                if (method == null || method.Name != "HasJobOnThing" || method.ReturnType != typeof(bool)) continue;
                 ParameterInfo[] ps = method.GetParameters();
                 if (ps.Length < 2) continue;
                 bool hasPawn = false;
@@ -106,7 +110,7 @@ namespace RimMTRC2T2
             return null;
         }
 
-        public static bool JobOnThingPrefix(object[] __args, ref Job __result)
+        public static bool HasJobOnThingPrefix(object[] __args, ref bool __result)
         {
             Interlocked.Increment(ref observed);
 
@@ -153,7 +157,7 @@ namespace RimMTRC2T2
                     return true;
                 }
 
-                __result = null;
+                __result = false;
                 Interlocked.Increment(ref hardNegativeSkips);
                 return false;
             }
@@ -204,6 +208,7 @@ namespace RimMTRC2T2
             Log.Message("[RimMT] RC2-T2 Stage 4A DoBill Gate report: patched=" + patched +
                 ", admissionMs=" + AdmissionMs.ToString("F0") +
                 ", state=" + disabledReason +
+                ", hook=HasJobOnThing-synchronized" +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", pre16Bypass=" + Interlocked.Read(ref pre16Bypass) +
                 ", nonBillGiverBypass=" + Interlocked.Read(ref nonBillGiverBypass) +
