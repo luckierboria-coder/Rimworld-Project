@@ -30,6 +30,12 @@ namespace RimFG
                 Log.Warning("[RimFG] Explicit native load failed: " + loadError);
 
             Settings = GetSettings<RimFGSettings>();
+            if (Settings.presentMode == PresentMode.VSync2x)
+            {
+                Settings.presentMode = PresentMode.ImmediateValidation;
+                Settings.Write();
+                Log.Message("[RimFG] Retired legacy VSync2x setting migrated to the non-blocking target presenter.");
+            }
         }
 
         public override string SettingsCategory() => "RimFG";
@@ -42,10 +48,8 @@ namespace RimFG
 
             if (listing.RadioButton("Disabled — native game Present only", Settings.presentMode == PresentMode.Disabled))
                 SetMode(PresentMode.Disabled);
-            if (listing.RadioButton("Target pacing — generate frames toward the selected output FPS", Settings.presentMode == PresentMode.ImmediateValidation))
+            if (listing.RadioButton("Target pacing — DirectComposition presenter", Settings.presentMode == PresentMode.ImmediateValidation))
                 SetMode(PresentMode.ImmediateValidation);
-            if (listing.RadioButton("VSync 2× — legacy validation mode", Settings.presentMode == PresentMode.VSync2x))
-                SetMode(PresentMode.VSync2x);
 
             listing.GapLine();
             listing.Label("Target output FPS: " + Settings.targetOutputFps.ToString("F0"));
@@ -56,8 +60,6 @@ namespace RimFG
             float newLogValue = listing.Slider(logValue, 0f, 6f);
             float newTarget = Mathf.Pow(10f, newLogValue);
 
-            // Snap near common display rates while still allowing the slider to span
-            // all the way from 1 FPS to 1,000,000 FPS on a useful logarithmic scale.
             float[] common = { 30f, 45f, 60f, 75f, 90f, 120f, 144f, 165f, 240f, 360f, 480f, 1000f };
             float best = newTarget;
             float bestRelative = 1f;
@@ -85,10 +87,10 @@ namespace RimFG
                 catch { }
             }
 
-            listing.Label("Variable-ratio FG has no fixed 2× or 3× multiplier cap. RimFG divides each real-frame interval into as many prediction points as the selected target requires. GPU/DXGI/display throughput still determines how many generated frames can actually reach the screen.");
+            listing.Label("RimFG has no fixed 2×/3× prediction multiplier cap. Visible output is physically capped by the active monitor refresh rate; requesting more never makes the RimWorld thread wait.");
 
             listing.GapLine();
-            listing.Label("Live GPU telemetry");
+            listing.Label("Live presenter / GPU telemetry");
             try
             {
                 if (!NativeInterop.EnsureNativeLoaded(out string loadError))
@@ -101,22 +103,35 @@ namespace RimFG
                     double gpuMs = NativeInterop.RimFG_GetGpuFrameGenerationMs();
                     GpuQualityTier tier = (GpuQualityTier)NativeInterop.RimFG_GetGpuQualityTier();
                     NativeStage stage = (NativeStage)NativeInterop.RimFG_GetNativeStage();
+                    ulong real = NativeInterop.RimFG_GetRealPresentCount();
                     ulong generated = NativeInterop.RimFG_GetGeneratedPresentCount();
                     ulong skipped = NativeInterop.RimFG_GetSkippedPresentCount();
+                    ulong waitTo = NativeInterop.RimFG_GetFrameLatencyTimeoutCount();
+                    ulong presentFail = NativeInterop.RimFG_GetPresentFailureCount();
+                    ulong stale = NativeInterop.RimFG_GetStalePredictionCount();
+                    ulong ringBusy = NativeInterop.RimFG_GetRingBusyDropCount();
+                    ulong compFail = NativeInterop.RimFG_GetCompositionFailureCount();
                     int swapchain = NativeInterop.RimFG_HasUnitySwapChain();
+                    int presenter = NativeInterop.RimFG_IsPresenterReady();
+                    int monitorHz = NativeInterop.RimFG_GetMonitorRefreshHz();
                     double baseFps = NativeInterop.RimFG_GetEstimatedBaseFps();
+                    double outputFps = NativeInterop.RimFG_GetEstimatedOutputFps();
                     int targetFps = NativeInterop.RimFG_GetTargetOutputFps();
                     double ratio = baseFps > 0.0 ? targetFps / baseFps : 0.0;
 
                     listing.Label("Native: loaded");
                     listing.Label("Generation stage: " + DescribeStage(stage));
-                    listing.Label("Estimated real/base FPS: " + (baseFps > 0.0 ? baseFps.ToString("F1") : "warming up"));
-                    listing.Label("Target output FPS: " + targetFps);
-                    listing.Label("Requested FG ratio: " + (ratio > 0.0 ? ratio.ToString("F2") + "×" : "warming up"));
-                    listing.Label("FG GPU EMA: " + (gpuMs > 0.0 ? gpuMs.ToString("F2") + " ms / generated frame" : "warming up"));
-                    listing.Label("Quality tier: " + tier);
-                    listing.Label("Generated Presents: " + generated + "   Skipped: " + skipped);
-                    listing.Label("DXGI swapchain: " + (swapchain != 0 ? "captured" : "not captured yet"));
+                    listing.Label("Base FPS: " + (baseFps > 0.0 ? baseFps.ToString("F1") : "warming up") +
+                        "   Actual output: " + (outputFps > 0.0 ? outputFps.ToString("F1") : "warming up"));
+                    listing.Label("Target: " + targetFps + "   Monitor: " + monitorHz + " Hz   Requested ratio: " +
+                        (ratio > 0.0 ? ratio.ToString("F2") + "×" : "warming up"));
+                    listing.Label("DirectComposition presenter: " + (presenter != 0 ? "ready" : "not ready") +
+                        "   Unity swapchain: " + (swapchain != 0 ? "captured" : "not captured"));
+                    listing.Label("FG GPU EMA: " + (gpuMs > 0.0 ? gpuMs.ToString("F2") + " ms / generated frame" : "warming up") +
+                        "   Quality: " + tier);
+                    listing.Label("Shown — Real: " + real + "   FG: " + generated + "   Skipped: " + skipped);
+                    listing.Label("Failures — Wait: " + waitTo + "   Present: " + presentFail + "   Stale: " + stale +
+                        "   Ring: " + ringBusy + "   DComp: " + compFail);
                 }
             }
             catch (System.Exception ex)
@@ -125,7 +140,8 @@ namespace RimFG
             }
 
             listing.GapLine();
-            listing.Label("RimFG never waits for VBlank on the RimWorld thread. If prediction or DXGI submission cannot keep up with the requested target, generated frames are dropped instead of stalling TPS.");
+            listing.Label("Pawn name labels and major UI regions are copied from the matching real frame instead of being warped. Player.log also receives a per-cause PresenterDiag summary every five seconds.");
+            listing.Label("RimFG never waits for VBlank or the presenter mutex on the RimWorld Present path. If the presenter is busy, the FG opportunity is dropped instead of stalling TPS.");
             listing.End();
         }
 
@@ -137,7 +153,7 @@ namespace RimFG
                 case NativeStage.BackbufferSeen: return "backbuffer captured — preparing temporal history";
                 case NativeStage.HistoryPrimed: return "history primed — waiting for second real frame";
                 case NativeStage.Generated: return "variable-fraction prediction active";
-                case NativeStage.DuplicateFallback: return "Present path active — compute unavailable, GPU duplicate fallback";
+                case NativeStage.DuplicateFallback: return "compute unavailable — GPU duplicate fallback";
                 case NativeStage.ErrorNoDevice: return "ERROR: D3D11 device/context unavailable";
                 case NativeStage.ErrorBadBackbuffer: return "ERROR: unsupported backbuffer size/MSAA state";
                 case NativeStage.ErrorHistoryTexture: return "ERROR: history texture creation failed";
@@ -150,6 +166,7 @@ namespace RimFG
 
         private static void SetMode(PresentMode mode)
         {
+            if (mode == PresentMode.VSync2x) mode = PresentMode.ImmediateValidation;
             Settings.presentMode = mode;
             Settings.Write();
             try
