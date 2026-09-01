@@ -5,6 +5,7 @@ using System.Threading;
 using HarmonyLib;
 using RimWorld;
 using Verse;
+using Verse.AI;
 
 namespace RimMTRC2T2
 {
@@ -184,7 +185,6 @@ namespace RimMTRC2T2
                         reject = probeReject[i];
                         if (reject)
                         {
-                            // Re-run only to obtain reason telemetry; gameplay decision is unchanged.
                             IsHardNegative(thing, pawn, out reason);
                         }
                     }
@@ -216,8 +216,6 @@ namespace RimMTRC2T2
             }
         }
 
-        // Reasons: 1 null/map, 2 forbidden, 3 reserve, 4 corpse policy,
-        // 5 PUAH/Vanilla fast-haul predicate, 6 already at terminal priority.
         private static bool IsHardNegative(Thing thing, Pawn pawn, out int reason)
         {
             reason = 0;
