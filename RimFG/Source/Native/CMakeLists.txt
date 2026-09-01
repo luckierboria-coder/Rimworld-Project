@@ -36,7 +36,7 @@ add_library(RimFG.Native SHARED
 )
 
 target_compile_features(RimFG.Native PRIVATE cxx_std_17)
-target_compile_definitions(RimFG.Native PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_definitions(RimFG.Native PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
 target_include_directories(RimFG.Native PRIVATE "${UNITY_PLUGIN_API_DIR}")
 target_link_libraries(RimFG.Native PRIVATE d3d11 dxgi d3dcompiler minhook)
 
