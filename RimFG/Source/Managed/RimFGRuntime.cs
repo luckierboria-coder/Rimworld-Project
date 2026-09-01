@@ -1,4 +1,5 @@
 using System;
+using RimWorld;
 using UnityEngine;
 using Verse;
 
@@ -37,18 +38,24 @@ namespace RimFG
         private bool nativeReadyLogged;
         private bool generatedLogged;
         private bool swapChainLogged;
-        private bool injectedPresentLogged;
+        private bool firstGeneratedPresentLogged;
         private uint frameIndex;
         private int appliedTargetFps = -1;
         private PresentMode appliedPresentMode = (PresentMode)(-1);
 
         private float nextTelemetryAt;
-        private ulong previousGeneratedPresents;
-        private ulong previousSkippedPresents;
         private float previousTelemetryAt;
         private int consecutiveNoOutputWindows;
+        private ulong previousRealPresents;
+        private ulong previousGeneratedPresents;
+        private ulong previousSkippedPresents;
+        private ulong previousLatencyTimeouts;
+        private ulong previousPresentFailures;
+        private ulong previousStalePredictions;
+        private ulong previousRingBusyDrops;
+        private ulong previousCompositionFailures;
 
-        private readonly HudRect[] hudRects = new HudRect[8];
+        private readonly HudRect[] hudRects = new HudRect[NativeInterop.MaxHudRects];
         private int hudRectCount;
 
         private void Awake()
@@ -70,18 +77,30 @@ namespace RimFG
                     Log.Warning("[RimFG] DXGI Present hook did not initialize; frame generation is disabled.");
 
                 ApplyConfiguredState(force: true);
-                nextTelemetryAt = Time.realtimeSinceStartup + TelemetryIntervalSeconds;
-                previousTelemetryAt = Time.realtimeSinceStartup;
-                previousGeneratedPresents = NativeInterop.RimFG_GetGeneratedPresentCount();
-                previousSkippedPresents = NativeInterop.RimFG_GetSkippedPresentCount();
-                Log.Message("[RimFG] Dedicated presenter armed. Unity swapchain is capture-only; generated frames are presented through RimFG's independent output swapchain.");
-                Log.Message("[RimFG] Diagnostics enabled: presenter effectiveness summary will be written to Player.log every 5 seconds while RimFG is active.");
+                ResetTelemetryBaselines();
+                Log.Message("[RimFG] DirectComposition presenter armed. Unity swapchain is capture-only; RimFG does not create an input overlay window.");
+                Log.Message("[RimFG] Diagnostics enabled: presenter effectiveness summary is written to Player.log every 5 seconds while RimFG is active.");
             }
             catch (Exception ex)
             {
                 nativeAvailable = false;
                 Log.Warning("[RimFG] Native bridge unavailable: " + ex);
             }
+        }
+
+        private void ResetTelemetryBaselines()
+        {
+            float now = Time.realtimeSinceStartup;
+            nextTelemetryAt = now + TelemetryIntervalSeconds;
+            previousTelemetryAt = now;
+            previousRealPresents = NativeInterop.RimFG_GetRealPresentCount();
+            previousGeneratedPresents = NativeInterop.RimFG_GetGeneratedPresentCount();
+            previousSkippedPresents = NativeInterop.RimFG_GetSkippedPresentCount();
+            previousLatencyTimeouts = NativeInterop.RimFG_GetFrameLatencyTimeoutCount();
+            previousPresentFailures = NativeInterop.RimFG_GetPresentFailureCount();
+            previousStalePredictions = NativeInterop.RimFG_GetStalePredictionCount();
+            previousRingBusyDrops = NativeInterop.RimFG_GetRingBusyDropCount();
+            previousCompositionFailures = NativeInterop.RimFG_GetCompositionFailureCount();
         }
 
         private void LateUpdate()
@@ -93,7 +112,7 @@ namespace RimFG
 
             Camera cam = Camera.main;
             Vector3 cameraPos = cam != null ? cam.transform.position : Vector3.zero;
-            BuildHudRects(Screen.width, Screen.height);
+            BuildProtectedRects(Screen.width, Screen.height);
 
             var metadata = new FrameMetadata
             {
@@ -130,10 +149,10 @@ namespace RimFG
                     swapChainLogged = true;
                     Log.Message("[RimFG] RimWorld DXGI swapchain captured.");
                 }
-                if (!injectedPresentLogged && NativeInterop.RimFG_GetGeneratedPresentCount() > 0UL)
+                if (!firstGeneratedPresentLogged && NativeInterop.RimFG_GetGeneratedPresentCount() > 0UL)
                 {
-                    injectedPresentLogged = true;
-                    Log.Message("[RimFG] First generated frame reached the dedicated presenter swapchain.");
+                    firstGeneratedPresentLogged = true;
+                    Log.Message("[RimFG] First generated frame reached the DirectComposition presenter.");
                 }
 
                 EmitTelemetryIfDue();
@@ -144,6 +163,13 @@ namespace RimFG
                 try { NativeInterop.RimFG_SetPresentMode((int)PresentMode.Disabled); } catch { }
                 Log.Warning("[RimFG] Native bridge disabled after runtime error: " + ex);
             }
+        }
+
+        private static ulong Delta(ulong current, ref ulong previous)
+        {
+            ulong result = current >= previous ? current - previous : 0UL;
+            previous = current;
+            return result;
         }
 
         private void EmitTelemetryIfDue()
@@ -159,41 +185,53 @@ namespace RimFG
             double baseFps = NativeInterop.RimFG_GetEstimatedBaseFps();
             double outputFps = NativeInterop.RimFG_GetEstimatedOutputFps();
             int targetFps = NativeInterop.RimFG_GetTargetOutputFps();
-            ulong generated = NativeInterop.RimFG_GetGeneratedPresentCount();
-            ulong skipped = NativeInterop.RimFG_GetSkippedPresentCount();
-            ulong generatedDelta = generated >= previousGeneratedPresents ? generated - previousGeneratedPresents : 0UL;
-            ulong skippedDelta = skipped >= previousSkippedPresents ? skipped - previousSkippedPresents : 0UL;
-            previousGeneratedPresents = generated;
-            previousSkippedPresents = skipped;
+            int monitorHz = NativeInterop.RimFG_GetMonitorRefreshHz();
+            bool presenterReady = NativeInterop.RimFG_IsPresenterReady() != 0;
+            bool unitySwapchain = NativeInterop.RimFG_HasUnitySwapChain() != 0;
+            bool predictionReady = NativeInterop.RimFG_HasGeneratedFrame() != 0;
 
-            double generatedPerSecond = generatedDelta / (double)elapsed;
-            double skippedPerSecond = skippedDelta / (double)elapsed;
+            double realPerSecond = Delta(NativeInterop.RimFG_GetRealPresentCount(), ref previousRealPresents) / (double)elapsed;
+            double generatedPerSecond = Delta(NativeInterop.RimFG_GetGeneratedPresentCount(), ref previousGeneratedPresents) / (double)elapsed;
+            double skippedPerSecond = Delta(NativeInterop.RimFG_GetSkippedPresentCount(), ref previousSkippedPresents) / (double)elapsed;
+            double waitTimeoutPerSecond = Delta(NativeInterop.RimFG_GetFrameLatencyTimeoutCount(), ref previousLatencyTimeouts) / (double)elapsed;
+            double presentFailPerSecond = Delta(NativeInterop.RimFG_GetPresentFailureCount(), ref previousPresentFailures) / (double)elapsed;
+            double stalePerSecond = Delta(NativeInterop.RimFG_GetStalePredictionCount(), ref previousStalePredictions) / (double)elapsed;
+            double ringBusyPerSecond = Delta(NativeInterop.RimFG_GetRingBusyDropCount(), ref previousRingBusyDrops) / (double)elapsed;
+            double compositionFailPerSecond = Delta(NativeInterop.RimFG_GetCompositionFailureCount(), ref previousCompositionFailures) / (double)elapsed;
+
             double gpuMs = NativeInterop.RimFG_GetGpuFrameGenerationMs();
             int stage = NativeInterop.RimFG_GetNativeStage();
             int quality = NativeInterop.RimFG_GetGpuQualityTier();
-            bool unitySwapchain = NativeInterop.RimFG_HasUnitySwapChain() != 0;
-            bool hasGeneratedFrame = NativeInterop.RimFG_HasGeneratedFrame() != 0;
 
-            string verdict = ClassifyPresenter(baseFps, outputFps, targetFps, generatedPerSecond, skippedPerSecond, unitySwapchain, hasGeneratedFrame);
+            string verdict = ClassifyPresenter(
+                baseFps, outputFps, targetFps, monitorHz, realPerSecond, generatedPerSecond,
+                skippedPerSecond, waitTimeoutPerSecond, presentFailPerSecond, stalePerSecond,
+                ringBusyPerSecond, compositionFailPerSecond, unitySwapchain, predictionReady, presenterReady);
 
             Log.Message(
                 "[RimFG][PresenterDiag] " +
                 "base=" + baseFps.ToString("F1") + "fps, " +
-                "target=" + targetFps + "fps, " +
+                "target=" + targetFps + "fps, monitor=" + monitorHz + "Hz, " +
                 "actualOutput=" + outputFps.ToString("F1") + "fps, " +
-                "generated=" + generatedPerSecond.ToString("F1") + "/s, " +
+                "realShown=" + realPerSecond.ToString("F1") + "/s, " +
+                "fgShown=" + generatedPerSecond.ToString("F1") + "/s, " +
                 "skipped=" + skippedPerSecond.ToString("F1") + "/s, " +
+                "waitTO=" + waitTimeoutPerSecond.ToString("F1") + "/s, " +
+                "presentFail=" + presentFailPerSecond.ToString("F1") + "/s, " +
+                "stale=" + stalePerSecond.ToString("F1") + "/s, " +
+                "ringBusy=" + ringBusyPerSecond.ToString("F1") + "/s, " +
+                "compFail=" + compositionFailPerSecond.ToString("F1") + "/s, " +
                 "gpuFG=" + gpuMs.ToString("F2") + "ms, " +
                 "stage=" + stage + ", quality=" + quality + ", " +
-                "unitySwapchain=" + (unitySwapchain ? "yes" : "no") + ", " +
-                "prediction=" + (hasGeneratedFrame ? "ready" : "not-ready") + ", " +
+                "presenter=" + (presenterReady ? "ready" : "not-ready") + ", " +
+                "protectedRects=" + hudRectCount + ", " +
                 "verdict=" + verdict + ".");
 
             if (targetFps > baseFps + 1.0 && outputFps < 1.0)
             {
                 consecutiveNoOutputWindows++;
                 if (consecutiveNoOutputWindows == 2)
-                    Log.Warning("[RimFG][PresenterDiag] Dedicated presenter has produced no measurable output for 10 seconds even though FG is requested. This points to the output swapchain/window/present path rather than the prediction generator.");
+                    Log.Warning("[RimFG][PresenterDiag] No measurable presenter output for 10 seconds while FG is requested. Use the per-cause counters in the preceding PresenterDiag lines to identify composition, Present, pacing, stale-frame, or ring-pressure failure.");
             }
             else
             {
@@ -205,27 +243,39 @@ namespace RimFG
             double baseFps,
             double outputFps,
             int targetFps,
+            int monitorHz,
+            double realPerSecond,
             double generatedPerSecond,
             double skippedPerSecond,
+            double waitTimeoutPerSecond,
+            double presentFailPerSecond,
+            double stalePerSecond,
+            double ringBusyPerSecond,
+            double compositionFailPerSecond,
             bool unitySwapchain,
-            bool hasGeneratedFrame)
+            bool predictionReady,
+            bool presenterReady)
         {
-            if (!unitySwapchain)
-                return "NO_UNITY_SWAPCHAIN";
-            if (!hasGeneratedFrame)
-                return "PREDICTION_NOT_READY";
-            if (targetFps <= baseFps + 0.5)
-                return "FG_NOT_NEEDED_AT_CURRENT_BASE_FPS";
-            if (outputFps < 1.0)
-                return generatedPerSecond > 0.1 ? "GENERATED_BUT_OUTPUT_CLOCK_NOT_MEASURABLE" : "DEDICATED_PRESENTER_NOT_OUTPUTTING";
-            if (generatedPerSecond < 0.1)
-                return "OUTPUT_ACTIVE_BUT_NO_GENERATED_FRAMES";
+            if (!unitySwapchain) return "NO_UNITY_SWAPCHAIN";
+            if (!predictionReady) return "PREDICTION_NOT_READY";
+            if (targetFps <= baseFps + 0.5) return "FG_NOT_NEEDED_AT_CURRENT_BASE_FPS";
+            if (compositionFailPerSecond > 0.1) return "DIRECTCOMPOSITION_FAILURE";
+            if (!presenterReady) return "COMPOSITION_PRESENTER_NOT_READY";
+            if (presentFailPerSecond > 0.1) return "DXGI_PRESENT_FAILURE";
+            if (ringBusyPerSecond > 1.0) return "REAL_FRAME_RING_PRESSURE";
+            if (stalePerSecond > Math.Max(2.0, generatedPerSecond * 0.25)) return "STALE_PREDICTION_PRESSURE";
+            if (waitTimeoutPerSecond > Math.Max(2.0, generatedPerSecond * 0.25)) return "FRAME_LATENCY_BOUND";
+            if (outputFps < 1.0) return "PRESENTER_NOT_OUTPUTTING";
+            if (generatedPerSecond < 0.1 && targetFps > baseFps + 1.0) return "OUTPUT_ACTIVE_BUT_NO_GENERATED_FRAMES";
 
-            double desired = Math.Min(targetFps, 1000);
+            double desired = Math.Max(1.0, Math.Min(targetFps, Math.Max(24, monitorHz)));
             if (outputFps >= desired * 0.90)
-                return skippedPerSecond > generatedPerSecond * 0.25 ? "OUTPUT_NEAR_TARGET_WITH_HIGH_DROP_RATE" : "OUTPUT_NEAR_TARGET";
-            if (skippedPerSecond > generatedPerSecond)
-                return "PRESENTER_DROP_BOUND";
+            {
+                if (skippedPerSecond > Math.Max(2.0, generatedPerSecond * 0.25))
+                    return "OUTPUT_NEAR_TARGET_WITH_HIGH_DROP_RATE";
+                return "OUTPUT_NEAR_TARGET";
+            }
+            if (realPerSecond + generatedPerSecond < desired * 0.70) return "OUTPUT_SLOT_UNDERRUN";
             return "OUTPUT_BELOW_TARGET";
         }
 
@@ -233,6 +283,9 @@ namespace RimFG
         {
             RimFGSettings settings = RimFGMod.Settings;
             PresentMode mode = settings != null ? settings.presentMode : PresentMode.ImmediateValidation;
+            if (mode == PresentMode.VSync2x)
+                mode = PresentMode.ImmediateValidation;
+
             int targetFps = settings != null ? Mathf.RoundToInt(settings.targetOutputFps) : 60;
             targetFps = Mathf.Clamp(targetFps, 1, 1000000000);
 
@@ -251,36 +304,98 @@ namespace RimFG
             }
         }
 
-        private void AddHudRect(float x, float y, float width, float height, int screenWidth, int screenHeight)
+        private void AddPhysicalRect(float x, float y, float width, float height, int physicalWidth, int physicalHeight)
         {
             if (hudRectCount >= hudRects.Length || width <= 0f || height <= 0f)
                 return;
 
-            float left = Mathf.Clamp(x, 0f, screenWidth);
-            float top = Mathf.Clamp(y, 0f, screenHeight);
-            float right = Mathf.Clamp(x + width, 0f, screenWidth);
-            float bottom = Mathf.Clamp(y + height, 0f, screenHeight);
+            float left = Mathf.Clamp(x, 0f, physicalWidth);
+            float top = Mathf.Clamp(y, 0f, physicalHeight);
+            float right = Mathf.Clamp(x + width, 0f, physicalWidth);
+            float bottom = Mathf.Clamp(y + height, 0f, physicalHeight);
             if (right <= left || bottom <= top)
                 return;
 
             hudRects[hudRectCount++] = new HudRect(left, top, right - left, bottom - top);
         }
 
-        private void BuildHudRects(int width, int height)
+        private void AddUiRect(float x, float y, float width, float height, int physicalWidth, int physicalHeight)
         {
-            hudRectCount = 0;
-            if (width <= 0 || height <= 0)
+            float scale = Mathf.Max(0.01f, Prefs.UIScale);
+            AddPhysicalRect(x * scale, y * scale, width * scale, height * scale, physicalWidth, physicalHeight);
+        }
+
+        private static bool PawnNameIsDrawn(Pawn pawn)
+        {
+            if (pawn == null || !pawn.Spawned || pawn.Map == null || pawn.Map.fogGrid.IsFogged(pawn.Position))
+                return false;
+            if (pawn.RaceProps.Humanlike)
+                return true;
+
+            AnimalNameDisplayMode mode = Prefs.AnimalNameMode;
+            if (mode == AnimalNameDisplayMode.None)
+                return false;
+            if (mode == AnimalNameDisplayMode.TameAll)
+                return pawn.Name != null;
+            if (mode == AnimalNameDisplayMode.TameNamed)
+                return pawn.Name != null && !pawn.Name.Numerical;
+            return false;
+        }
+
+        private void AddPawnLabelRects(int physicalWidth, int physicalHeight)
+        {
+            Map map = Find.CurrentMap;
+            if (map == null || map.mapPawns == null)
                 return;
 
-            AddHudRect(0f, 0f, width, Mathf.Min(150f, height * 0.14f), width, height);
-            float bottomHeight = Mathf.Min(260f, height * 0.25f);
-            AddHudRect(0f, height - bottomHeight, width, bottomHeight, width, height);
+            var pawns = map.mapPawns.AllPawnsSpawned;
+            for (int i = 0; i < pawns.Count && hudRectCount < hudRects.Length; ++i)
+            {
+                Pawn pawn = pawns[i];
+                if (!PawnNameIsDrawn(pawn))
+                    continue;
+
+                Vector2 pos = GenMapUI.LabelDrawPosFor(pawn, -0.6f);
+                if (!pawn.RaceProps.Humanlike)
+                    pos.y -= 4f;
+
+                int labelChars = pawn.LabelShort != null ? pawn.LabelShort.Length : 0;
+                float labelWidth = Mathf.Clamp(28f + labelChars * 8f, 44f, 320f);
+                const float horizontalPad = 10f;
+                const float topPad = 6f;
+                const float protectedHeight = 28f;
+
+                float left = pos.x - labelWidth * 0.5f - horizontalPad;
+                float top = pos.y - topPad;
+
+                if (left > UI.screenWidth + 32f || left + labelWidth + horizontalPad * 2f < -32f ||
+                    top > UI.screenHeight + 32f || top + protectedHeight < -32f)
+                    continue;
+
+                AddUiRect(left, top, labelWidth + horizontalPad * 2f, protectedHeight, physicalWidth, physicalHeight);
+            }
+        }
+
+        private void BuildProtectedRects(int physicalWidth, int physicalHeight)
+        {
+            hudRectCount = 0;
+            if (physicalWidth <= 0 || physicalHeight <= 0)
+                return;
+
+            int uiWidth = Math.Max(1, UI.screenWidth);
+            int uiHeight = Math.Max(1, UI.screenHeight);
+
+            float topHeight = Mathf.Min(150f, uiHeight * 0.14f);
+            AddUiRect(0f, 0f, uiWidth, topHeight, physicalWidth, physicalHeight);
+
+            float bottomHeight = Mathf.Min(260f, uiHeight * 0.25f);
+            AddUiRect(0f, uiHeight - bottomHeight, uiWidth, bottomHeight, physicalWidth, physicalHeight);
 
             if (Find.CurrentMap != null)
             {
-                float paneWidth = Mathf.Min(520f, width * 0.24f);
-                float paneHeight = Mathf.Min(620f, height * 0.54f);
-                AddHudRect(0f, height - bottomHeight - paneHeight, paneWidth, paneHeight, width, height);
+                float paneWidth = Mathf.Min(520f, uiWidth * 0.24f);
+                float paneHeight = Mathf.Min(620f, uiHeight * 0.54f);
+                AddUiRect(0f, uiHeight - bottomHeight - paneHeight, paneWidth, paneHeight, physicalWidth, physicalHeight);
             }
 
             WindowStack stack = Find.WindowStack;
@@ -292,9 +407,11 @@ namespace RimFG
                     Window window = windows[i];
                     if (window == null) continue;
                     Rect rect = window.windowRect;
-                    AddHudRect(rect.xMin - 4f, rect.yMin - 4f, rect.width + 8f, rect.height + 8f, width, height);
+                    AddUiRect(rect.xMin - 6f, rect.yMin - 6f, rect.width + 12f, rect.height + 12f, physicalWidth, physicalHeight);
                 }
             }
+
+            AddPawnLabelRects(physicalWidth, physicalHeight);
         }
 
         private void OnDestroy()
