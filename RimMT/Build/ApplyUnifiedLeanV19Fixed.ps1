@@ -15,5 +15,13 @@ if (-not $text.Contains($bad)) {
     throw 'V19 transform runner repair anchor not found.'
 }
 $text = $text.Replace($bad, '')
+
+$privateCapture = '        private sealed class ProfileCaptureState'
+$internalCapture = '        internal sealed class ProfileCaptureState'
+if (-not $text.Contains($privateCapture)) {
+    throw 'V19 ProfileCaptureState accessibility repair anchor not found.'
+}
+$text = $text.Replace($privateCapture, $internalCapture)
+
 Set-Content $tempPath $text -Encoding UTF8
 & $tempPath
