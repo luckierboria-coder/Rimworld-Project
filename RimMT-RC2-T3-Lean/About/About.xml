@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT RC2-T3 Lean</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt.rc2t3lean</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li>
+    <li><packageId>allen.rimmt</packageId><displayName>RimMT</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>allen.rimmt</li>
+    <li>allen.rimmt.s53composite</li>
+  </loadAfter>
+  <description>RC2-T3 Lean convergence layer for RimMT 1.5. Removes RC2-T2 tail-only diagnostic Harmony patches after startup, suppresses the low-yield parallel WorkPrefilter path, keeps production S5.1/S5.3/Stage3/DoBill authority intact, and only attempts Stage4D pruning when a patch can be identified unambiguously as cleaning/path/opportunity-specific. Fail-closed: ambiguous or unknown production patches are left untouched.</description>
+</ModMetaData>
