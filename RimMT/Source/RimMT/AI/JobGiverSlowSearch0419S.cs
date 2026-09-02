@@ -14,7 +14,8 @@ namespace RimMT
     /// Once the current JobPackage has already spent 32ms, later >=16 ThingRequest searches and
     /// explicit custom enumerables may use nearest-first validator-first/live-CanReach rescue.
     /// V0.9.2 records route totals plus validator identity only for genuinely heavy calls (>=64
-    /// validator rejects), so diagnostics do not become a new hot path.
+    /// validator rejects). Runtime Tune additionally resolves the captured WorkGiver_Scanner only
+    /// on those heavy calls, with FieldInfo cached per compiler-generated closure type.
     /// </summary>
     internal static class JobGiverSlowSearch0419S
     {
@@ -25,6 +26,7 @@ namespace RimMT
         private const int MaxSourceCount = 16384;
         private const int HeavyRejectThreshold = 64;
         private const int MaxHeavyValidatorKeys = 24;
+        private const int MaxHeavyWorkGiverKeys = 64;
         private static readonly long TailRescueThresholdTicks = Math.Max(1L, Stopwatch.Frequency * TailRescueThresholdMs / 1000L);
 
         [ThreadStatic] private static Candidate[] candidateScratch;
@@ -47,8 +49,12 @@ namespace RimMT
         private static long customTailReachRejected;
         private static long heavyValidatorCalls;
         private static long heavyValidatorRejects;
+        private static long heavyWorkGiverResolved;
+        private static long heavyWorkGiverUnresolved;
         private static long failures;
         private static readonly Dictionary<string, HeavyValidatorStats> HeavyValidators = new Dictionary<string, HeavyValidatorStats>();
+        private static readonly Dictionary<string, HeavyValidatorStats> HeavyWorkGivers = new Dictionary<string, HeavyValidatorStats>();
+        private static readonly Dictionary<Type, FieldInfo> ScannerFieldCache = new Dictionary<Type, FieldInfo>();
 
         internal static void Apply(Harmony harmony)
         {
@@ -65,7 +71,7 @@ namespace RimMT
                     count++;
                 }
                 patched = count > 0;
-                Log.Message("[RimMT] Unified S4 slow-search rescue active on " + count + " ClosestThingReachable overload(s); heavy validator-tail attribution is thresholded and on-demand.");
+                Log.Message("[RimMT] Unified S4 slow-search rescue active on " + count + " ClosestThingReachable overload(s); heavy validator-tail attribution is thresholded and resolves WorkGiver identity only on >=64-reject calls.");
             }
             catch (Exception ex)
             {
@@ -242,24 +248,92 @@ namespace RimMT
             if (validatorRejects < HeavyRejectThreshold || validator == null) return;
             heavyValidatorCalls++;
             heavyValidatorRejects += validatorRejects;
-            if (HeavyValidators.Count >= MaxHeavyValidatorKeys) return;
+            RecordHeavyValidatorIdentity(validator, validatorRejects);
+            RecordHeavyWorkGiverIdentity(validator, validatorRejects);
+        }
 
+        private static void RecordHeavyValidatorIdentity(Predicate<Thing> validator, int rejects)
+        {
+            if (HeavyValidators.Count >= MaxHeavyValidatorKeys) return;
             try
             {
                 MethodInfo method = validator.Method;
                 string owner = method == null || method.DeclaringType == null ? "<unknown>" : method.DeclaringType.FullName;
                 string name = method == null ? "<unknown>" : method.Name;
-                string key = owner + "." + name;
-                HeavyValidatorStats stats;
-                if (!HeavyValidators.TryGetValue(key, out stats))
-                {
-                    stats = new HeavyValidatorStats();
-                    HeavyValidators[key] = stats;
-                }
-                stats.Calls++;
-                stats.Rejects += validatorRejects;
+                AddHeavyStat(HeavyValidators, owner + "." + name, rejects);
             }
             catch { }
+        }
+
+        private static void RecordHeavyWorkGiverIdentity(Predicate<Thing> validator, int rejects)
+        {
+            try
+            {
+                object target = validator.Target;
+                if (target == null)
+                {
+                    heavyWorkGiverUnresolved++;
+                    return;
+                }
+
+                Type targetType = target.GetType();
+                FieldInfo scannerField;
+                if (!ScannerFieldCache.TryGetValue(targetType, out scannerField))
+                {
+                    scannerField = ResolveScannerField(targetType);
+                    ScannerFieldCache[targetType] = scannerField;
+                }
+
+                WorkGiver_Scanner scanner = scannerField == null ? null : scannerField.GetValue(target) as WorkGiver_Scanner;
+                if (scanner == null)
+                {
+                    heavyWorkGiverUnresolved++;
+                    return;
+                }
+
+                heavyWorkGiverResolved++;
+                if (HeavyWorkGivers.Count >= MaxHeavyWorkGiverKeys &&
+                    (scanner.def == null || !HeavyWorkGivers.ContainsKey(scanner.def.defName)))
+                    return;
+
+                string defName = scanner.def == null || string.IsNullOrEmpty(scanner.def.defName)
+                    ? scanner.GetType().FullName
+                    : scanner.def.defName;
+                AddHeavyStat(HeavyWorkGivers, defName, rejects);
+            }
+            catch
+            {
+                heavyWorkGiverUnresolved++;
+            }
+        }
+
+        private static FieldInfo ResolveScannerField(Type targetType)
+        {
+            if (targetType == null) return null;
+            FieldInfo[] fields = targetType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            FieldInfo fallback = null;
+            for (int i = 0; i < fields.Length; i++)
+            {
+                FieldInfo field = fields[i];
+                if (typeof(WorkGiver_Scanner).IsAssignableFrom(field.FieldType))
+                    return field;
+                if (fallback == null && typeof(WorkGiver).IsAssignableFrom(field.FieldType))
+                    fallback = field;
+            }
+            return fallback;
+        }
+
+        private static void AddHeavyStat(Dictionary<string, HeavyValidatorStats> table, string key, int rejects)
+        {
+            if (string.IsNullOrEmpty(key)) key = "<unknown>";
+            HeavyValidatorStats stats;
+            if (!table.TryGetValue(key, out stats))
+            {
+                stats = new HeavyValidatorStats();
+                table[key] = stats;
+            }
+            stats.Calls++;
+            stats.Rejects += rejects;
         }
 
         private static Candidate[] EnsureScratch(int required, int preserveCount)
@@ -285,7 +359,8 @@ namespace RimMT
 
         internal static string Summary()
         {
-            string heavy = BuildHeavyValidatorSummary();
+            string heavy = BuildTopSummary(HeavyValidators);
+            string workGivers = BuildTopSummary(HeavyWorkGivers);
             return "S4 slow-search: patched=" + patched + ", enabled=" + enabled +
                    ", observed=" + observed +
                    ", staticLargeEligible=" + staticLargeEligible +
@@ -300,26 +375,48 @@ namespace RimMT
                    ", heavyValidatorCalls=" + heavyValidatorCalls +
                    ", heavyValidatorRejects=" + heavyValidatorRejects +
                    ", heavyValidators=" + heavy +
+                   ", heavyWorkGivers=" + workGivers +
+                   ", heavyWorkGiverResolved=" + heavyWorkGiverResolved +
+                   ", heavyWorkGiverUnresolved=" + heavyWorkGiverUnresolved +
                    ", failures=" + failures +
                    ", staticThreshold=" + LargeSearchThreshold + ", tailThresholdMs=" + TailRescueThresholdMs +
                    ", tailMinSource=" + TailMinSourceCount + ".";
         }
 
-        private static string BuildHeavyValidatorSummary()
+        private static string BuildTopSummary(Dictionary<string, HeavyValidatorStats> table)
         {
-            if (HeavyValidators.Count == 0) return "none";
-            string bestKey = null;
-            long bestRejects = -1;
-            long bestCalls = 0;
-            foreach (KeyValuePair<string, HeavyValidatorStats> pair in HeavyValidators)
+            if (table.Count == 0) return "none";
+            string k1 = null, k2 = null, k3 = null;
+            HeavyValidatorStats s1 = null, s2 = null, s3 = null;
+            foreach (KeyValuePair<string, HeavyValidatorStats> pair in table)
             {
-                HeavyValidatorStats stats = pair.Value;
-                if (stats == null || stats.Rejects <= bestRejects) continue;
-                bestKey = pair.Key;
-                bestRejects = stats.Rejects;
-                bestCalls = stats.Calls;
+                HeavyValidatorStats s = pair.Value;
+                if (s == null) continue;
+                if (s1 == null || s.Rejects > s1.Rejects)
+                {
+                    k3 = k2; s3 = s2;
+                    k2 = k1; s2 = s1;
+                    k1 = pair.Key; s1 = s;
+                }
+                else if (s2 == null || s.Rejects > s2.Rejects)
+                {
+                    k3 = k2; s3 = s2;
+                    k2 = pair.Key; s2 = s;
+                }
+                else if (s3 == null || s.Rejects > s3.Rejects)
+                {
+                    k3 = pair.Key; s3 = s;
+                }
             }
-            return bestKey == null ? "none" : bestKey + "(calls=" + bestCalls + ", rejects=" + bestRejects + ")";
+            string result = FormatHeavy(k1, s1);
+            if (s2 != null) result += "; " + FormatHeavy(k2, s2);
+            if (s3 != null) result += "; " + FormatHeavy(k3, s3);
+            return result;
+        }
+
+        private static string FormatHeavy(string key, HeavyValidatorStats stats)
+        {
+            return (key ?? "<unknown>") + "(calls=" + stats.Calls + ", rejects=" + stats.Rejects + ")";
         }
 
         private enum RescueRoute { StaticLarge, TailList, CustomTail }
