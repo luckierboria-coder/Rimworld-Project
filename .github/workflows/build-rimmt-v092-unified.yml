@@ -26,7 +26,7 @@ jobs:
 
       - name: Apply Unified Lean V19 transforms
         shell: pwsh
-        run: ./RimMT/Build/ApplyUnifiedLeanV19Transforms.ps1
+        run: ./RimMT/Build/ApplyUnifiedLeanV19Fixed.ps1
 
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
