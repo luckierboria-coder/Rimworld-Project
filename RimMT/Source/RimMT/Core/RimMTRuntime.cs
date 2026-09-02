@@ -44,7 +44,7 @@ namespace RimMT
             FeatureGate.Register("parallel.haulGlobal", true, "Direct JobGiver_Haul global accelerator");
             FeatureGate.Register("parallel.jobPartition", true, "Persistent-map search fabric / candidate partition production path");
             FeatureGate.Register(JobGiverSlowSearch0419S.FeatureId, true, "Validated slow-search tail rescue");
-            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "ReachProfile with rolling mismatch fuse");
+            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "ReachProfile V0.4.17 sliced topology + local-first mismatch fuse");
             FeatureGate.Register(RetiredRegionFeature, false, "Retired: insufficient production yield");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe / not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe / not implemented");
@@ -122,7 +122,7 @@ namespace RimMT
                 HaulWorkAccelerator.MarkCompatibilityReady();
                 GlobalHaulAccelerator.MarkCompatibilityReady();
                 AdaptiveGenClosestAssist.MarkCompatibilityReady();
-                AggressiveReachabilityProfiles.MarkCompatibilityReady();
+                AggressiveReachabilityProfilesV17.MarkCompatibilityReady();
                 Log.Message("[RimMT] Unified Lean compatibility scan complete. Runtime profiling remains external/on-demand.");
 
                 RimMTDiagnostics.LogRuntimeReport();
