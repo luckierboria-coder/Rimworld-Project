@@ -27,19 +27,26 @@ jobs:
           Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Dubwise56/Dubs-Bad-Hygiene/master/1.5/Assemblies/BadHygiene.dll' -OutFile 'inspect/BadHygiene.dll'
       - name: Install ILSpy
         run: dotnet tool install --global ilspycmd
-      - name: Decompile target type
+      - name: Decompile target types
         shell: pwsh
         run: |
-          ilspycmd -t DubsBadHygiene.JobGiver_DrinkWater inspect/BadHygiene.dll -o inspect/decompiled
-          Get-ChildItem inspect/decompiled -Recurse
-          $f = Get-ChildItem inspect/decompiled -Recurse -Filter '*.cs' | Select-Object -First 1
-          if ($null -eq $f) { throw 'No decompiled C# generated.' }
+          Remove-Item inspect/decompiled -Recurse -Force -ErrorAction SilentlyContinue
+          ilspycmd -t DubsBadHygiene.JobGiver_DrinkWater inspect/BadHygiene.dll -o inspect/decompiled/drink
+          $f = Get-ChildItem inspect/decompiled/drink -Recurse -Filter '*.cs' | Select-Object -First 1
+          if ($null -eq $f) { throw 'JobGiver_DrinkWater decompile failed.' }
           Copy-Item $f.FullName 'inspect/JobGiver_DrinkWater.cs' -Force
+
+          ilspycmd -t DubsBadHygiene.ClosestSanitation inspect/BadHygiene.dll -o inspect/decompiled/sanitation
+          $s = Get-ChildItem inspect/decompiled/sanitation -Recurse -Filter '*.cs' | Select-Object -First 1
+          if ($null -eq $s) { throw 'ClosestSanitation decompile failed.' }
+          Copy-Item $s.FullName 'inspect/ClosestSanitation.cs' -Force
       - name: Commit inspection output
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add inspect/JobGiver_DrinkWater.cs
-          git commit -m 'Inspect DBH JobGiver_DrinkWater [skip ci]'
+          git add inspect/JobGiver_DrinkWater.cs inspect/ClosestSanitation.cs
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m 'Inspect DBH sanitation selector [skip ci]'
           git push origin HEAD:dbh-animal-water-source-fix
