@@ -1,0 +1,81 @@
+name: Build VOE Outpost Recovery V3
+
+on:
+  push:
+    branches: [ voe-outpost-recovery-v3 ]
+    paths:
+      - 'VOE-Caravan-Needs-Recovery-1.5/**'
+      - '.github/workflows/build-voe-outpost-recovery-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: voe-outpost-recovery-v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore VOE-Caravan-Needs-Recovery-1.5/Source/VOECaravanNeedsRecovery.csproj
+
+      - name: Build Release
+        run: dotnet build VOE-Caravan-Needs-Recovery-1.5/Source/VOECaravanNeedsRecovery.csproj --configuration Release --no-restore
+
+      - name: Stage assembly and package
+        shell: pwsh
+        run: |
+          $dll = 'VOE-Caravan-Needs-Recovery-1.5\Source\bin\Release\net472\VOECaravanNeedsFreeze.dll'
+          if (!(Test-Path $dll)) { throw 'VOECaravanNeedsFreeze.dll was not produced.' }
+
+          New-Item -ItemType Directory -Force -Path 'VOE-Caravan-Needs-Recovery-1.5\1.5\Assemblies' | Out-Null
+          Copy-Item $dll 'VOE-Caravan-Needs-Recovery-1.5\1.5\Assemblies\VOECaravanNeedsFreeze.dll' -Force
+
+          $bytes = [IO.File]::ReadAllBytes('VOE-Caravan-Needs-Recovery-1.5\1.5\Assemblies\VOECaravanNeedsFreeze.dll')
+          $ascii = [Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($needle in @('VOECaravanNeedsRecovery', 'PawnNeedsTrackerTickRecoveryPatch', 'CaravanTrySatisfyPawnsNeedsRecoveryPatch', '16.6% per in-game hour')) {
+            if (!$ascii.Contains($needle)) { throw "Compiled DLL missing symbol/string: $needle" }
+          }
+
+          $stage = 'build\VOE-Caravan-Needs-Recovery-1.5'
+          Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'VOE-Caravan-Needs-Recovery-1.5\About' $stage -Recurse -Force
+          Copy-Item 'VOE-Caravan-Needs-Recovery-1.5\1.5' $stage -Recurse -Force
+          Copy-Item 'VOE-Caravan-Needs-Recovery-1.5\CHANGELOG-V3.txt' $stage -Force
+          New-Item -ItemType Directory -Force -Path "$stage\Source" | Out-Null
+          Copy-Item 'VOE-Caravan-Needs-Recovery-1.5\Source\VOECaravanNeedsRecovery.cs' "$stage\Source\VOECaravanNeedsRecovery.cs" -Force
+          Copy-Item 'VOE-Caravan-Needs-Recovery-1.5\Source\VOECaravanNeedsRecovery.csproj' "$stage\Source\VOECaravanNeedsRecovery.csproj" -Force
+
+          New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
+          Compress-Archive -Path $stage -DestinationPath 'artifacts\VOE-Caravan-Needs-Recovery-1.5-V3.zip' -Force
+
+      - name: Commit build artifact
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add artifacts/VOE-Caravan-Needs-Recovery-1.5-V3.zip
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'Artifact unchanged; nothing to commit.'
+            exit 0
+          }
+          git commit -m 'Build VOE outpost recovery V3 artifact [skip ci]'
+          git push origin HEAD:voe-outpost-recovery-v3
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VOE-Caravan-Needs-Recovery-1.5-V3
+          path: artifacts/VOE-Caravan-Needs-Recovery-1.5-V3.zip
+          if-no-files-found: error

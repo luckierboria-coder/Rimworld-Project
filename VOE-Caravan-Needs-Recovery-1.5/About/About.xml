@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>VOE Caravan Needs Recovery</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>Allen.VOE.CaravanNeedsFreeze</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>vanillaexpanded.outposts</packageId>
+      <displayName>Vanilla Outposts Expanded</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2688941031</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>vanillaexpanded.outposts</li>
+    <li>MrHydralisk.VOEAdditionalOutposts</li>
+    <li>SmashPhil.VehicleFramework</li>
+  </loadAfter>
+  <description>When a normal or Vehicle Framework caravan is stopped on a VOE-compatible Outpost_* tile, every standard Pawn Need recovers at 16.6 percentage points per in-game hour, capped at 100%. Ordinary need ticking and caravan auto-satisfaction are suppressed while the recovery effect is active, so food and drugs are not consumed by the vanilla caravan need handler during the stay. Recovery stops immediately once the caravan starts moving or leaves the outpost state. Health and hediff progression are unchanged. Package ID is kept compatible with the previous VOE Caravan Needs Freeze versions.</description>
+</ModMetaData>

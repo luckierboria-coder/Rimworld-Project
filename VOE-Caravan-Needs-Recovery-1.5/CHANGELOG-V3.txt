@@ -1,0 +1,19 @@
+VOE Caravan Needs Recovery - V3 (RimWorld 1.5)
+
+New behavior:
+- A caravan stopped on any VOE-compatible Outpost_* tile no longer merely freezes Pawn Needs.
+- Every Pawn Need recovers by 16.6 percentage points per in-game hour (0.166 / 2500 ticks).
+- Recovery is percentage-based, so Needs with MaxLevel other than 1.0 recover at the same relative rate.
+- Recovery is capped at 100%.
+- Normal caravan need satisfaction is suppressed while recovery is active to avoid double recovery and inventory food/drug consumption.
+- Leaving the recovery state immediately restores normal Need ticking.
+
+Compatibility:
+- Vanilla Outposts Expanded.
+- VOE: Additional Outposts and other Outpost_* extensions.
+- Normal caravans.
+- Vehicle Framework vehicle caravans through Vehicle Framework's Caravan compatibility layer, including boarded passengers exposed through CaravanUtility/GetCaravan.
+
+Not changed:
+- Health/Hediff progression is not modified.
+- Non-Need systems such as psyfocus are not modified.
