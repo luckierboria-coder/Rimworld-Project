@@ -16,10 +16,7 @@ namespace RimMT
     /// PersistentMapSearchFabric worker. The main thread never waits: first sighting falls through
     /// to S5.1/Vanilla, later synchronized snapshots can prove the closest candidate with a dynamic
     /// live-check budget. Validator, Reachability and final Thing result remain live main-thread work.
-    ///
-    /// Unified Lean overhead rule: steady-state hits allocate nothing. Membership arrays are created
-    /// only when a new source is registered; later calls validate the live collection directly against
-    /// the retained membership array.
+    /// Steady-state hits allocate nothing; bypass reasons are counted without logging or allocation.
     /// </summary>
     internal static class DoBillTailFabric092
     {
@@ -33,7 +30,6 @@ namespace RimMT
         private static bool patched;
         private static int failureLogs;
 
-        // Prefix is main-thread-only, so these diagnostic counters intentionally avoid Interlocked.
         private static long observed;
         private static long tailEligible;
         private static long registrations;
@@ -46,6 +42,11 @@ namespace RimMT
         private static long liveChecks;
         private static long candidatesVisited;
         private static long stateResets;
+        private static long invalidMemberBypass;
+        private static long pawnBypass;
+        private static long unspawnedBypass;
+        private static long invalidPositionBypass;
+        private static long countMismatchBypass;
 
         internal static void Apply(Harmony harmony)
         {
@@ -114,8 +115,12 @@ namespace RimMT
             {
                 int count = collection.Count;
                 int hash;
-                if (!TryValidateAndHash(collection, map, count, out hash))
+                ValidationFailure failure;
+                if (!TryValidateAndHash(collection, map, count, out hash, out failure))
+                {
+                    CountValidationFailure(failure);
                     return true;
+                }
 
                 SourceKey key = new SourceKey(map.uniqueID, count, hash);
                 SourceState state;
@@ -123,10 +128,11 @@ namespace RimMT
                 {
                     Thing[] members;
                     if (!TryCaptureMembers(collection, map, count, out members))
+                    {
+                        invalidMemberBypass++;
                         return true;
+                    }
 
-                    // Bound retained diagnostic/search state. Clearing only forces later calls to
-                    // re-register; it never changes the authoritative result of the current call.
                     if (States.Count >= MaxTrackedStates)
                     {
                         States.Clear();
@@ -141,7 +147,7 @@ namespace RimMT
                         return true;
                     }
                     registrations++;
-                    return true; // never wait for worker publication
+                    return true;
                 }
 
                 PersistentMapSearchFabric.SourceSnapshot snapshot;
@@ -188,21 +194,57 @@ namespace RimMT
             }
         }
 
-        private static bool TryValidateAndHash(ICollection<Thing> collection, Map map, int expectedCount, out int hash)
+        private static bool TryValidateAndHash(ICollection<Thing> collection, Map map, int expectedCount, out int hash, out ValidationFailure failure)
         {
             hash = 17;
+            failure = ValidationFailure.None;
             int seen = 0;
             foreach (Thing thing in collection)
             {
-                if (seen++ >= expectedCount || thing == null || !(thing is IBillGiver) || thing is Pawn ||
-                    !thing.Spawned || thing.MapHeld != map)
+                if (seen++ >= expectedCount)
+                {
+                    failure = ValidationFailure.CountMismatch;
                     return false;
+                }
+                if (thing == null || !(thing is IBillGiver))
+                {
+                    failure = ValidationFailure.InvalidMember;
+                    return false;
+                }
+                if (thing is Pawn)
+                {
+                    failure = ValidationFailure.Pawn;
+                    return false;
+                }
+                if (!thing.Spawned || thing.MapHeld != map)
+                {
+                    failure = ValidationFailure.Unspawned;
+                    return false;
+                }
 
                 IntVec3 pos = thing.Position;
-                if (!pos.IsValid || !pos.InBounds(map)) return false;
+                if (!pos.IsValid || !pos.InBounds(map))
+                {
+                    failure = ValidationFailure.InvalidPosition;
+                    return false;
+                }
                 unchecked { hash = hash * 31 + thing.thingIDNumber; }
             }
-            return seen == expectedCount;
+            if (seen == expectedCount) return true;
+            failure = ValidationFailure.CountMismatch;
+            return false;
+        }
+
+        private static void CountValidationFailure(ValidationFailure failure)
+        {
+            switch (failure)
+            {
+                case ValidationFailure.Pawn: pawnBypass++; break;
+                case ValidationFailure.Unspawned: unspawnedBypass++; break;
+                case ValidationFailure.InvalidPosition: invalidPositionBypass++; break;
+                case ValidationFailure.CountMismatch: countMismatchBypass++; break;
+                default: invalidMemberBypass++; break;
+            }
         }
 
         private static bool TryCaptureMembers(ICollection<Thing> collection, Map map, int expectedCount, out Thing[] members)
@@ -264,12 +306,19 @@ namespace RimMT
                 ", accelerated=" + accelerated +
                 ", broadBypass=" + broadBypass +
                 ", liveFallback=" + liveFallback +
+                ", validationBypass=[invalidMember=" + invalidMemberBypass +
+                ", pawn=" + pawnBypass +
+                ", unspawned=" + unspawnedBypass +
+                ", invalidPosition=" + invalidPositionBypass +
+                ", countMismatch=" + countMismatchBypass + "]" +
                 ", liveChecks=" + liveChecks +
                 ", candidatesVisited=" + candidatesVisited +
                 ", retainedStates=" + States.Count +
                 ", stateResets=" + stateResets +
                 ", currentLiveCap=" + DynamicLiveCap() + ".";
         }
+
+        private enum ValidationFailure { None, InvalidMember, Pawn, Unspawned, InvalidPosition, CountMismatch }
 
         private sealed class SourceState
         {
