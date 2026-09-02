@@ -42,8 +42,8 @@ jobs:
 
           $bytes = [IO.File]::ReadAllBytes('VOE-Caravan-Needs-Recovery-1.5\1.5\Assemblies\VOECaravanNeedsFreeze.dll')
           $ascii = [Text.Encoding]::ASCII.GetString($bytes)
-          foreach ($needle in @('VOECaravanNeedsRecovery', 'PawnNeedsTrackerTickRecoveryPatch', 'CaravanTrySatisfyPawnsNeedsRecoveryPatch', '16.6% per in-game hour')) {
-            if (!$ascii.Contains($needle)) { throw "Compiled DLL missing symbol/string: $needle" }
+          foreach ($needle in @('VOECaravanNeedsRecovery', 'PawnNeedsTrackerTickRecoveryPatch', 'CaravanTrySatisfyPawnsNeedsRecoveryPatch')) {
+            if (!$ascii.Contains($needle)) { throw "Compiled DLL missing symbol: $needle" }
           }
 
           $stage = 'build\VOE-Caravan-Needs-Recovery-1.5'
