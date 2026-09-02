@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using Verse;
 
@@ -41,11 +42,13 @@ namespace RimMT
         private long productionFailures;
         private long productionParallelBatches;
 
-        // These two sampling accumulators are written only by RimMTRuntime.OnMainThreadFrame.
-        // Keeping them non-atomic removes two locked RMW operations per rendered frame while all
-        // actual worker-owned counters below remain Interlocked/Volatile.
+        // Frame sampling is retained only as a coarse instantaneous diagnostic. Real utilization is
+        // measured by integrating worker busy time around production actions, which correctly counts
+        // short jobs that start and finish between two rendered-frame samples.
         private long productionConcurrencySamples;
         private long productionActiveWorkerSamples;
+        private long productionBusyTicks;
+        private long productionFirstStartTimestamp;
 
         public int WorkerCount { get { return workers.Length; } }
         public int Pending { get { return Volatile.Read(ref pending); } }
@@ -85,6 +88,39 @@ namespace RimMT
             {
                 if (workers.Length <= 0) return 0.0;
                 return ProductionAverageActiveWorkers * 100.0 / workers.Length;
+            }
+        }
+        public double ProductionBusyMilliseconds
+        {
+            get { return Interlocked.Read(ref productionBusyTicks) * 1000.0 / Stopwatch.Frequency; }
+        }
+        public double ProductionBusyWindowMilliseconds
+        {
+            get
+            {
+                long first = Interlocked.Read(ref productionFirstStartTimestamp);
+                if (first <= 0L) return 0.0;
+                long elapsed = Stopwatch.GetTimestamp() - first;
+                return elapsed <= 0L ? 0.0 : elapsed * 1000.0 / Stopwatch.Frequency;
+            }
+        }
+        public double ProductionBusyAverageWorkers
+        {
+            get
+            {
+                long first = Interlocked.Read(ref productionFirstStartTimestamp);
+                if (first <= 0L) return 0.0;
+                long elapsed = Stopwatch.GetTimestamp() - first;
+                if (elapsed <= 0L) return 0.0;
+                return Interlocked.Read(ref productionBusyTicks) / (double)elapsed;
+            }
+        }
+        public double ProductionBusyUtilizationPercent
+        {
+            get
+            {
+                if (workers.Length <= 0) return 0.0;
+                return ProductionBusyAverageWorkers * 100.0 / workers.Length;
             }
         }
 
@@ -242,10 +278,13 @@ namespace RimMT
                 int active = Interlocked.Increment(ref activeWorkers);
                 UpdatePeak(ref peakActiveWorkers, active);
 
+                long productionStart = 0L;
                 if (item.Production)
                 {
                     int productionActive = Interlocked.Increment(ref productionActiveWorkers);
                     UpdatePeak(ref productionPeakActiveWorkers, productionActive);
+                    productionStart = Stopwatch.GetTimestamp();
+                    Interlocked.CompareExchange(ref productionFirstStartTimestamp, productionStart, 0L);
                 }
 
                 try
@@ -263,6 +302,11 @@ namespace RimMT
                 }
                 finally
                 {
+                    if (item.Production && productionStart != 0L)
+                    {
+                        long elapsed = Stopwatch.GetTimestamp() - productionStart;
+                        if (elapsed > 0L) Interlocked.Add(ref productionBusyTicks, elapsed);
+                    }
                     if (backgroundSlot) Interlocked.Decrement(ref activeBackgroundWorkers);
                     if (item.Production)
                     {
