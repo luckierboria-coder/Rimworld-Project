@@ -13,7 +13,7 @@ namespace Allen.VOECaravanNeedsFreeze
         static VOECaravanNeedsRecoveryBootstrap()
         {
             new Harmony("Allen.VOE.CaravanNeedsFreeze").PatchAll();
-            Log.Message("[VOE Caravan Needs Recovery] Loaded for RimWorld 1.5. Outpost recovery rate: 16.6% per in-game hour (V3.1).");
+            Log.Message("[VOE Caravan Needs Recovery] Loaded for RimWorld 1.5. Outpost recovery rate: 16.6% per in-game hour (V3.2 low-overhead).");
         }
     }
 
@@ -23,15 +23,16 @@ namespace Allen.VOECaravanNeedsFreeze
         private const float NeedGainPerHour = 0.166f;
         private const float TicksPerHour = 2500f;
         private const float NeedGainPerTick = NeedGainPerHour / TicksPerHour;
+        private const int RecoveryApplyIntervalTicks = 150;
         private const int OutpostCacheLifetimeTicks = 250;
 
         private static readonly Dictionary<int, bool> outpostTileCache = new Dictionary<int, bool>();
+        private static readonly Dictionary<Caravan, int> lastRecoveryTick = new Dictionary<Caravan, int>();
         private static int cacheTick = -999999;
 
         public static bool ShouldRecover(Pawn pawn)
         {
-            // Fast path: almost every Pawn in an active colony is spawned on a map.
-            // Avoid all world/caravan work for those Pawns.
+            // Hot-path fast exit: map Pawns never need any world/caravan lookup.
             if (pawn == null || pawn.Dead || pawn.Destroyed || pawn.Spawned)
             {
                 return false;
@@ -48,7 +49,7 @@ namespace Allen.VOECaravanNeedsFreeze
                 return false;
             }
 
-            // This stays uncached so starting to move disables recovery immediately.
+            // Never cache movement state: recovery must stop immediately when travel resumes.
             if (caravan.pather != null && caravan.pather.MovingNow)
             {
                 return false;
@@ -57,46 +58,84 @@ namespace Allen.VOECaravanNeedsFreeze
             return IsVOEOutpostTile(caravan.Tile);
         }
 
-        public static void RecoverAllNeeds(Pawn_NeedsTracker tracker, Pawn pawn, int delta)
+        public static void ClearRecoveryClock(Caravan caravan)
         {
-            if (tracker == null || pawn == null || delta <= 0)
+            if (caravan != null)
+            {
+                lastRecoveryTick.Remove(caravan);
+            }
+        }
+
+        public static void RecoverCaravanNeeds(Caravan caravan)
+        {
+            if (caravan == null)
             {
                 return;
             }
 
-            float gain = delta * NeedGainPerTick;
+            int now = Find.TickManager != null ? Find.TickManager.TicksGame : 0;
+            int previous;
+            if (!lastRecoveryTick.TryGetValue(caravan, out previous))
+            {
+                lastRecoveryTick[caravan] = now;
+                return;
+            }
+
+            int elapsedTicks = now - previous;
+            if (elapsedTicks < RecoveryApplyIntervalTicks)
+            {
+                return;
+            }
+
+            lastRecoveryTick[caravan] = now;
+            float gain = elapsedTicks * NeedGainPerTick;
             if (gain <= 0f)
             {
                 return;
             }
 
-            List<Need> needs = tracker.AllNeeds;
-            if (needs == null)
+            List<Pawn> pawns = caravan.PawnsListForReading;
+            if (pawns == null)
             {
                 return;
             }
 
-            for (int i = 0; i < needs.Count; i++)
+            for (int p = 0; p < pawns.Count; p++)
             {
-                Need need = needs[i];
-                if (need == null || need.MaxLevel <= 0f)
+                Pawn pawn = pawns[p];
+                if (pawn == null || pawn.Dead || pawn.Destroyed || pawn.needs == null)
                 {
                     continue;
                 }
 
-                try
+                List<Need> needs = pawn.needs.AllNeeds;
+                if (needs == null)
                 {
-                    float pct = need.CurLevelPercentage;
-                    if (float.IsNaN(pct) || float.IsInfinity(pct) || pct >= 1f)
+                    continue;
+                }
+
+                for (int i = 0; i < needs.Count; i++)
+                {
+                    Need need = needs[i];
+                    if (need == null || need.MaxLevel <= 0f)
                     {
                         continue;
                     }
 
-                    need.CurLevelPercentage = Math.Min(1f, pct + gain);
-                }
-                catch (Exception ex)
-                {
-                    Log.ErrorOnce("[VOE Caravan Needs Recovery] Failed to recover need " + need.def?.defName + " for " + pawn.ToStringSafe() + ": " + ex, 78124531 ^ need.GetHashCode());
+                    try
+                    {
+                        float pct = need.CurLevelPercentage;
+                        if (float.IsNaN(pct) || float.IsInfinity(pct) || pct >= 1f)
+                        {
+                            continue;
+                        }
+
+                        need.CurLevelPercentage = Math.Min(1f, pct + gain);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.ErrorOnce("[VOE Caravan Needs Recovery] Failed to recover need " + need.def?.defName + " for " + pawn.ToStringSafe() + ": " + ex, 78124531 ^ need.GetHashCode());
+                    }
                 }
             }
         }
@@ -144,25 +183,24 @@ namespace Allen.VOECaravanNeedsFreeze
         }
     }
 
-    [HarmonyPatch(typeof(Pawn_NeedsTracker), nameof(Pawn_NeedsTracker.NeedsTrackerTickInterval))]
-    public static class PawnNeedsTrackerTickIntervalRecoveryPatch
+    // RimWorld 1.5: this is the already-proven V2 freeze hook.
+    // It does no recovery work; it only suppresses normal NeedInterval decay while the caravan rests at an Outpost.
+    [HarmonyPatch(typeof(Pawn_NeedsTracker), "NeedsTrackerTick")]
+    public static class PawnNeedsTrackerFreezePatch
     {
         [HarmonyPrefix]
         [HarmonyPriority(Priority.First)]
-        public static bool Prefix(Pawn_NeedsTracker __instance, Pawn ___pawn, int delta)
+        public static bool Prefix(Pawn ___pawn)
         {
-            if (!VOECaravanNeedsRecoveryUtility.ShouldRecover(___pawn))
-            {
-                return true;
-            }
-
-            VOECaravanNeedsRecoveryUtility.RecoverAllNeeds(__instance, ___pawn, delta);
-            return false;
+            return !VOECaravanNeedsRecoveryUtility.ShouldRecover(___pawn);
         }
     }
 
-    [HarmonyPatch(typeof(Caravan_NeedsTracker), nameof(Caravan_NeedsTracker.TrySatisfyPawnsNeeds))]
-    public static class CaravanTrySatisfyPawnsNeedsRecoveryPatch
+    // RimWorld 1.5 Caravan.Tick calls Caravan_NeedsTracker.NeedsTrackerTick().
+    // Recovery is applied in one batch per caravan, at most once per 150 ticks.
+    // Returning false also suppresses vanilla caravan auto-satisfaction/food-drug consumption while resting at the Outpost.
+    [HarmonyPatch(typeof(Caravan_NeedsTracker), "NeedsTrackerTick")]
+    public static class CaravanNeedsTrackerRecoveryPatch
     {
         private static readonly System.Reflection.FieldInfo CaravanField = AccessTools.Field(typeof(Caravan_NeedsTracker), "caravan");
 
@@ -171,7 +209,14 @@ namespace Allen.VOECaravanNeedsFreeze
         public static bool Prefix(Caravan_NeedsTracker __instance)
         {
             Caravan caravan = CaravanField != null ? CaravanField.GetValue(__instance) as Caravan : null;
-            return !VOECaravanNeedsRecoveryUtility.ShouldRecover(caravan);
+            if (!VOECaravanNeedsRecoveryUtility.ShouldRecover(caravan))
+            {
+                VOECaravanNeedsRecoveryUtility.ClearRecoveryClock(caravan);
+                return true;
+            }
+
+            VOECaravanNeedsRecoveryUtility.RecoverCaravanNeeds(caravan);
+            return false;
         }
     }
 }
