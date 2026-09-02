@@ -2,7 +2,7 @@ name: Build RimMT V0.9.2 Unified Lean
 
 on:
   push:
-    branches: [ rimmt-v0.9.2-unified-lean ]
+    branches: [ rimmt-v0.9.2-unified-lean, rimmt-v0.9.2-reach-budget-v171 ]
     paths:
       - 'RimMT/**'
       - '.github/workflows/build-rimmt-v092-unified.yml'
@@ -62,3 +62,4 @@ jobs:
           name: RimMT-V0.9.2-Unified-Lean
           path: build/RimMT_V0.9.2_Unified_Lean.zip
           if-no-files-found: error
+

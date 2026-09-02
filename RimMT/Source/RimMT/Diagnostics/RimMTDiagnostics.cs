@@ -27,7 +27,7 @@ namespace RimMT
             sb.AppendLine(MainThreadDispatcher.Summary());
             AppendLoad(sb);
             sb.AppendLine("Text cache: hits=" + TextMetricCache.Hits + ", misses=" + TextMetricCache.Misses);
-            sb.AppendLine("Production policy: diagnostics=external; PathSnapshot=OFF; WorkPrefilter=OFF; ReachNoCache=OFF; OverlayCache=OFF; S5.1 admission=16ms; S4 tail=32ms + heavy WorkGiver attribution; RC2 Stage3 >=128; DoBill=persistent incremental membership + live readiness + zero-yield-sleeping worker-tail fabric; ReachProfile=V0.4.17 sliced topology + local-first fuse; S5.3 mature pruners; CommonSense=ingredientExpand memo only.");
+            sb.AppendLine("Production policy: diagnostics=external; PathSnapshot=OFF; WorkPrefilter=OFF; ReachNoCache=OFF; OverlayCache=OFF; S5.1 admission=16ms; S4 tail=32ms + heavy WorkGiver attribution; RC2 Stage3 >=128; DoBill=persistent incremental membership + live readiness + zero-yield-sleeping worker-tail fabric; ReachProfile=V0.4.17.1 bounded capture + endpoint guard + local-first fuse; S5.3 mature pruners; CommonSense=ingredientExpand memo only.");
 
             sb.AppendLine("--- Production path counters ---");
             sb.AppendLine(PersistentMapSearchFabric.Summary());

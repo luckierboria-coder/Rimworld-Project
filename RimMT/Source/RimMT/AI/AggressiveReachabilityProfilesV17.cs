@@ -12,7 +12,7 @@ using Verse.AI;
 namespace RimMT
 {
     /// <summary>
-    /// V0.4.17 keeps the proven JS1.1 profile semantics but changes two production-cost boundaries:
+    /// V0.4.17.1 keeps the proven JS1.1 profile semantics but changes two production-cost boundaries:
     /// 1) map topology capture is incremental and frame-budgeted instead of monolithic; and
     /// 2) parity mismatches quarantine the affected profile slot first. A global soft fuse now
     /// requires mismatch density across multiple independent slots, while the emergency hard fuse
@@ -38,7 +38,19 @@ namespace RimMT
         private const int EmergencyWindowSamples = 256;
         private const int EmergencyMismatchLimit = 16;
 
-        private const int SliceCheckMask = 63;
+        private const int SliceCheckMask = 15;
+        private const int MaxTouchCells = 256;
+        // Shared across maps and pawns: a miss must not start an unbounded burst of captures.
+        // Individual Region.Allows calls are not interruptible; this is an admission budget.
+        private static long captureBudgetFrame = -1;
+        private static long captureFrameTicks;
+        private static long captureBudgetBypasses;
+        private static long captureFrameTicksMax;
+        private static long touchEndpointRejected;
+        private static long touchBoundsBypasses;
+        private static long componentOverflowBypasses;
+        private static long startRegionUnknown;
+        private static long staleShadowSamples;
 
         private static readonly ConditionalWeakTable<Map, MapState> MapStates =
             new ConditionalWeakTable<Map, MapState>();
@@ -131,7 +143,7 @@ namespace RimMT
                 if (target == null)
                 {
                     FeatureGate.Suppress(FeatureId, "Reachability.CanReach target not found");
-                    Log.Warning("[RimMT] parallel.reachProfile V0.4.17 unavailable: Reachability.CanReach target not found.");
+                    Log.Warning("[RimMT] parallel.reachProfile V0.4.17.1 unavailable: Reachability.CanReach target not found.");
                     return;
                 }
 
@@ -142,12 +154,12 @@ namespace RimMT
                 postfix.priority = Priority.First;
                 harmony.Patch(target, prefix: prefix, postfix: postfix);
 
-                Log.Message("[RimMT] parallel.reachProfile V0.4.17 installed: topology capture is frame-sliced with adaptive budgets; mismatch handling is local-slot-first with multi-slot global soft fuse; emergency hard fuse remains 16/256.");
+                Log.Message("[RimMT] parallel.reachProfile V0.4.17.1 installed: topology capture is frame-sliced with adaptive budgets; mismatch handling is local-slot-first with multi-slot global soft fuse; emergency hard fuse remains 16/256.");
             }
             catch (Exception ex)
             {
-                FeatureGate.Suppress(FeatureId, "reachability profile V0.4.17 patch failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] parallel.reachProfile V0.4.17 patch failed; Vanilla Reachability remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
+                FeatureGate.Suppress(FeatureId, "reachability profile V0.4.17.1 patch failed: " + ex.GetType().Name);
+                Log.Warning("[RimMT] parallel.reachProfile V0.4.17.1 patch failed; Vanilla Reachability remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -270,13 +282,13 @@ namespace RimMT
                 if (predicted) Interlocked.Increment(ref predictedReachable);
                 else Interlocked.Increment(ref predictedUnreachable);
 
-                int validated = Volatile.Read(ref slot.ValidatedMatches);
-                int serial = Interlocked.Increment(ref slot.PredictionSerial);
+                int validated = Volatile.Read(ref profile.ValidatedMatches);
+                int serial = Interlocked.Increment(ref profile.PredictionSerial);
                 bool probation = reachFuseMode == ReachFuseMode.Probation;
                 bool sample = probation || validated < WarmupSamples || (serial & SampleMask) == 0;
                 if (sample)
                 {
-                    __state = new ReachSampleState(true, predicted, slot, profile.RegionGeneration);
+                    __state = new ReachSampleState(true, predicted, slot, profile);
                     Interlocked.Increment(ref shadowSamples);
                     if (probation) probationForcedShadow++;
                     return true;
@@ -290,7 +302,7 @@ namespace RimMT
             catch (Exception ex)
             {
                 CircuitBreaker.RecordFailure(FeatureId, ex);
-                Log.Warning("[RimMT] parallel.reachProfile V0.4.17 query failure; this call falls back to Vanilla. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] parallel.reachProfile V0.4.17.1 query failure; this call falls back to Vanilla. " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
             finally
@@ -302,12 +314,19 @@ namespace RimMT
         public static void Postfix(bool __result, ReachSampleState __state)
         {
             if (!__state.Active || __state.Slot == null) return;
+            // A worker can publish a replacement while Vanilla is evaluating a sampled call.
+            // Never credit that sample to (or quarantine) a different profile.
+            if (!ReferenceEquals(Volatile.Read(ref __state.Slot.Published), __state.Profile))
+            {
+                Interlocked.Increment(ref staleShadowSamples);
+                return;
+            }
 
             bool mismatch = __result != __state.Predicted;
             if (!mismatch)
             {
                 Interlocked.Increment(ref shadowMatches);
-                Interlocked.Increment(ref __state.Slot.ValidatedMatches);
+                Interlocked.Increment(ref __state.Profile.ValidatedMatches);
                 ObserveRollingSample(false, __state.Slot);
                 return;
             }
@@ -316,7 +335,7 @@ namespace RimMT
             if (__state.Predicted) Interlocked.Increment(ref mismatchReachableToFalse);
             else Interlocked.Increment(ref mismatchUnreachableToTrue);
 
-            Interlocked.Exchange(ref __state.Slot.ValidatedMatches, 0);
+            Interlocked.Exchange(ref __state.Profile.ValidatedMatches, 0);
             Interlocked.Exchange(ref __state.Slot.DisabledUntilFrame, RimMTRuntime.MainThreadFrames + MismatchCooldownFrames);
             Volatile.Write(ref __state.Slot.Published, null);
             Interlocked.Increment(ref localSlotQuarantines);
@@ -334,7 +353,7 @@ namespace RimMT
             probationMatches = 0;
             ClearGlobalWindow();
             ClearEmergencyWindow();
-            Log.Message("[RimMT] ReachProfile V0.4.17 global cooldown ended; entering 256-sample forced-live probation.");
+            Log.Message("[RimMT] ReachProfile V0.4.17.1 global cooldown ended; entering 256-sample forced-live probation.");
         }
 
         private static void ObserveRollingSample(bool mismatch, ProfileSlot slot)
@@ -354,8 +373,8 @@ namespace RimMT
                 reachFuseMode = ReachFuseMode.HardFused;
                 hardFuses++;
                 FeatureGate.Suppress(FeatureId,
-                    "V0.4.17 emergency ReachProfile hard fuse: " + emergencyWindowMismatches + "/" + emergencyWindowCount + " sampled mismatches");
-                Log.Warning("[RimMT] ReachProfile HARD FUSE V0.4.17: " + emergencyWindowMismatches + "/" + emergencyWindowCount + " mismatches in the emergency sample window. Vanilla Reachability is authoritative for the rest of this run.");
+                    "V0.4.17.1 emergency ReachProfile hard fuse: " + emergencyWindowMismatches + "/" + emergencyWindowCount + " sampled mismatches");
+                Log.Warning("[RimMT] ReachProfile HARD FUSE V0.4.17.1: " + emergencyWindowMismatches + "/" + emergencyWindowCount + " mismatches in the emergency sample window. Vanilla Reachability is authoritative for the rest of this run.");
                 return;
             }
 
@@ -376,7 +395,7 @@ namespace RimMT
                     probationPasses++;
                     ClearGlobalWindow();
                     ClearEmergencyWindow();
-                    Log.Message("[RimMT] ReachProfile V0.4.17 probation passed 256 clean live-shadow samples; profile authority restored.");
+                    Log.Message("[RimMT] ReachProfile V0.4.17.1 probation passed 256 clean live-shadow samples; profile authority restored.");
                 }
                 return;
             }
@@ -401,7 +420,7 @@ namespace RimMT
             softFuses++;
             ClearGlobalWindow();
             ClearEmergencyWindow();
-            Log.Warning("[RimMT] ReachProfile SOFT FUSE V0.4.17: " + reason + ". Global profile authority is bypassed for 3600 main-thread frames; affected slots are already quarantined independently.");
+            Log.Warning("[RimMT] ReachProfile SOFT FUSE V0.4.17.1: " + reason + ". Global profile authority is bypassed for 3600 main-thread frames; affected slots are already quarantined independently.");
         }
 
         private static void PushGlobalWindow(bool mismatch, ProfileSlot slot)
@@ -503,6 +522,16 @@ namespace RimMT
             long now = RimMTRuntime.MainThreadFrames;
             long last = Interlocked.Read(ref slot.LastScheduleFrame);
             if (last != 0 && now - last < BuildCooldownFrames) return;
+            if (captureBudgetFrame != now)
+            {
+                captureBudgetFrame = now;
+                captureFrameTicks = 0;
+            }
+            if (captureFrameTicks >= TopologySliceBudgetTicks())
+            {
+                Interlocked.Increment(ref captureBudgetBypasses);
+                return;
+            }
             if (Interlocked.CompareExchange(ref slot.BuildScheduled, 1, 0) != 0) return;
 
             TopologySnapshot topology = EnsureTopology(map, mapState);
@@ -549,6 +578,8 @@ namespace RimMT
                 Interlocked.Increment(ref profileCaptures);
                 Interlocked.Add(ref profileCaptureTicks, elapsed);
                 UpdateMax(ref profileCaptureTicksMax, elapsed);
+                captureFrameTicks += elapsed;
+                UpdateMax(ref captureFrameTicksMax, captureFrameTicks);
             }
 
             long generationAfter = Interlocked.Read(ref mapState.RegionGeneration);
@@ -761,29 +792,40 @@ namespace RimMT
                     case TopologyBuildPhase.Adjacency:
                         while (build.RegionCursor < build.Regions.Count)
                         {
-                            int i = build.RegionCursor++;
+                            int i = build.RegionCursor;
                             Region region = build.Regions[i];
                             if (region == null || !region.valid) return TopologyAdvanceResult.Stale;
-                            List<int> adjacency = new List<int>(4);
-                            build.Adjacency[i] = adjacency;
+                            List<int> adjacency = build.Adjacency[i];
+                            if (adjacency == null)
+                            {
+                                adjacency = new List<int>(4);
+                                build.Adjacency[i] = adjacency;
+                                build.AdjacencySeen.Clear();
+                                build.AdjacencyLinkCursor = 0;
+                            }
                             List<RegionLink> links = region.links;
                             if (links != null)
                             {
-                                for (int li = 0; li < links.Count; li++)
+                                while (build.AdjacencyLinkCursor < links.Count)
                                 {
-                                    RegionLink link = links[li];
-                                    if (link == null) continue;
-                                    for (int side = 0; side < 2; side++)
+                                    RegionLink link = links[build.AdjacencyLinkCursor++];
+                                    if (link != null)
                                     {
-                                        Region other = link.regions[side];
-                                        if (other == null || ReferenceEquals(other, region) || !other.valid) continue;
-                                        int otherIndex;
-                                        if (!build.RegionIndex.TryGetValue(other, out otherIndex)) continue;
-                                        if (!adjacency.Contains(otherIndex)) adjacency.Add(otherIndex);
+                                        for (int side = 0; side < 2; side++)
+                                        {
+                                            Region other = link.regions[side];
+                                            if (other == null || ReferenceEquals(other, region) || !other.valid) continue;
+                                            int otherIndex;
+                                            if (!build.RegionIndex.TryGetValue(other, out otherIndex)) continue;
+                                            if (build.AdjacencySeen.Add(otherIndex)) adjacency.Add(otherIndex);
+                                        }
                                     }
+                                    if ((build.AdjacencyLinkCursor & SliceCheckMask) == 0 && BudgetSpent(sliceStart, budgetTicks))
+                                        return TopologyAdvanceResult.Pending;
                                 }
                             }
-                            if ((build.RegionCursor & 15) == 0 && BudgetSpent(sliceStart, budgetTicks))
+                            build.RegionCursor++;
+                            if (BudgetSpent(sliceStart, budgetTicks))
                                 return TopologyAdvanceResult.Pending;
                         }
                         build.EdgeOffsets = new int[build.Regions.Count + 1];
@@ -823,6 +865,9 @@ namespace RimMT
                             }
                             build.FlattenRegion++;
                             build.FlattenLocal = 0;
+                            // Isolated regions have no edges, so EdgeWrite never advances.
+                            if ((build.FlattenRegion & SliceCheckMask) == 0 && BudgetSpent(sliceStart, budgetTicks))
+                                return TopologyAdvanceResult.Pending;
                         }
                         build.Phase = TopologyBuildPhase.Complete;
                         break;
@@ -920,8 +965,6 @@ namespace RimMT
                     context.Key, context.CellRegion, context.DistrictByRegion, context.EdgeOffsets, context.Edges,
                     components, context.DestinationAllowed);
 
-                Interlocked.Exchange(ref slot.ValidatedMatches, 0);
-                Interlocked.Exchange(ref slot.PredictionSerial, 0);
                 Volatile.Write(ref slot.Published, profile);
                 Interlocked.Increment(ref buildsPublished);
             }
@@ -1012,7 +1055,7 @@ namespace RimMT
             double avgQueryUs = q == 0 ? 0.0 : (Interlocked.Read(ref queryTicks) * 1000000.0 / Stopwatch.Frequency) / q;
             double maxQueryUs = Interlocked.Read(ref queryTicksMax) * 1000000.0 / Stopwatch.Frequency;
 
-            return "Aggressive reachability profile V0.4.17 sliced/local-first: compatibilityReady=" + compatibilityReady +
+            return "Aggressive reachability profile V0.4.17.1 sliced/local-first: compatibilityReady=" + compatibilityReady +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", eligible=" + Interlocked.Read(ref eligible) +
                 ", priorPrefixOwned=" + Interlocked.Read(ref priorPrefixOwned) +
@@ -1069,6 +1112,13 @@ namespace RimMT
                 ", warmupSamples=" + WarmupSamples +
                 ", sampleEvery=" + (SampleMask + 1) +
                 ", maxProfileAgeFrames=" + MaxProfileAgeFrames +
+                ", captureBudgetBypasses=" + Interlocked.Read(ref captureBudgetBypasses) +
+                ", maxCaptureFrameUs=" + (Interlocked.Read(ref captureFrameTicksMax) * 1000000.0 / Stopwatch.Frequency).ToString("F2") +
+                ", touchEndpointRejected=" + Interlocked.Read(ref touchEndpointRejected) +
+                ", touchBoundsBypasses=" + Interlocked.Read(ref touchBoundsBypasses) +
+                ", componentOverflowBypasses=" + Interlocked.Read(ref componentOverflowBypasses) +
+                ", startRegionUnknown=" + Interlocked.Read(ref startRegionUnknown) +
+                ", staleShadowSamples=" + Interlocked.Read(ref staleShadowSamples) +
                 ", avgProfileCaptureUs=" + avgCaptureUs.ToString("F2") +
                 ", maxProfileCaptureUs=" + maxCaptureUs.ToString("F2") +
                 ", avgWorkerBuildUs=" + avgBuildUs.ToString("F2") +
@@ -1083,14 +1133,14 @@ namespace RimMT
             internal readonly bool Active;
             internal readonly bool Predicted;
             internal readonly ProfileSlot Slot;
-            internal readonly long RegionGeneration;
+            internal readonly ProfileSnapshot Profile;
 
-            internal ReachSampleState(bool active, bool predicted, ProfileSlot slot, long generation)
+            internal ReachSampleState(bool active, bool predicted, ProfileSlot slot, ProfileSnapshot profile)
             {
                 Active = active;
                 Predicted = predicted;
                 Slot = slot;
-                RegionGeneration = generation;
+                Profile = profile;
             }
         }
 
@@ -1137,8 +1187,6 @@ namespace RimMT
             internal int BuildScheduled;
             internal long LastScheduleFrame;
             internal long DisabledUntilFrame;
-            internal int ValidatedMatches;
-            internal int PredictionSerial;
             internal ProfileSnapshot Published;
         }
 
@@ -1193,6 +1241,8 @@ namespace RimMT
             internal readonly Dictionary<District, int> DistrictIndex = new Dictionary<District, int>(ReferenceEqualityComparer<District>.Instance);
             internal int[] DistrictByRegion;
             internal List<int>[] Adjacency;
+            internal readonly HashSet<int> AdjacencySeen = new HashSet<int>();
+            internal int AdjacencyLinkCursor;
             internal int[] EdgeOffsets;
             internal int[] Edges;
             internal TopologyBuildPhase Phase;
@@ -1280,6 +1330,9 @@ namespace RimMT
 
         internal sealed class ProfileSnapshot
         {
+            // Validation belongs to the exact published snapshot, not its reusable slot.
+            internal int ValidatedMatches;
+            internal int PredictionSerial;
             internal readonly int MapId;
             internal readonly int Width;
             internal readonly int Height;
@@ -1328,21 +1381,35 @@ namespace RimMT
 
                 int[] seedRegions = rootRegionScratch ?? (rootRegionScratch = new int[16]);
                 int seedCount = GatherStartRegions(start, map, traverseParams, seedRegions);
-                if (seedCount == 0) return Prediction.Unreachable;
+                if (seedCount == 0)
+                {
+                    Interlocked.Increment(ref startRegionUnknown);
+                    return Prediction.Unknown;
+                }
 
                 int[] rootComponents = rootComponentScratch ?? (rootComponentScratch = new int[32]);
                 int rootComponentCount = 0;
                 for (int i = 0; i < seedCount; i++)
                 {
                     int region = seedRegions[i];
-                    AddUniqueComponent(components[region], rootComponents, ref rootComponentCount);
+                    if (!AddUniqueComponent(components[region], rootComponents, ref rootComponentCount))
+                    {
+                        Interlocked.Increment(ref componentOverflowBypasses);
+                        return Prediction.Unknown;
+                    }
                     int from = edgeOffsets[region];
                     int to = edgeOffsets[region + 1];
                     for (int e = from; e < to; e++)
                     {
                         int next = edges[e];
                         if (next >= 0 && next < components.Length)
-                            AddUniqueComponent(components[next], rootComponents, ref rootComponentCount);
+                        {
+                            if (!AddUniqueComponent(components[next], rootComponents, ref rootComponentCount))
+                            {
+                                Interlocked.Increment(ref componentOverflowBypasses);
+                                return Prediction.Unknown;
+                            }
+                        }
                     }
                 }
 
@@ -1353,6 +1420,15 @@ namespace RimMT
                 if (dest.HasThing && dest.Thing != null) rect = dest.Thing.OccupiedRect().ExpandedBy(1);
                 else rect = new CellRect(dest.Cell.x - 1, dest.Cell.z - 1, 3, 3);
 
+                long touchWidth = (long)rect.maxX - rect.minX + 1;
+                long touchHeight = (long)rect.maxZ - rect.minZ + 1;
+                if (touchWidth <= 0 || touchHeight <= 0 || touchWidth > MaxTouchCells ||
+                    touchHeight > MaxTouchCells || touchWidth * touchHeight > MaxTouchCells)
+                {
+                    Interlocked.Increment(ref touchBoundsBypasses);
+                    return Prediction.Unknown;
+                }
+
                 for (int z = rect.minZ; z <= rect.maxZ; z++)
                 {
                     for (int x = rect.minX; x <= rect.maxX; x++)
@@ -1361,7 +1437,16 @@ namespace RimMT
                         int region = cellRegion[x + z * Width];
                         if (region < 0 || region >= destinationAllowed.Length || !destinationAllowed[region]) continue;
                         Prediction p = RegionReachability(region, seedRegions, seedCount, rootComponents, rootComponentCount);
-                        if (p == Prediction.Reachable) return Prediction.Reachable;
+                        if (p == Prediction.Reachable)
+                        {
+                            // Expanded bounds alone do not prove a legal Touch endpoint:
+                            // blocked diagonal corners and target-specific rules still apply.
+                            if (ReachabilityImmediate.CanReachImmediate(new IntVec3(x, 0, z), dest,
+                                map, peMode, traverseParams.pawn)) return Prediction.Reachable;
+                            Interlocked.Increment(ref touchEndpointRejected);
+                            // A rejected coarse endpoint is ambiguous, not proof of no path.
+                            return Prediction.Unknown;
+                        }
                     }
                 }
                 return Prediction.Unreachable;
@@ -1416,11 +1501,13 @@ namespace RimMT
                 if (count < output.Length) output[count++] = region;
             }
 
-            private static void AddUniqueComponent(int component, int[] output, ref int count)
+            private static bool AddUniqueComponent(int component, int[] output, ref int count)
             {
-                if (component <= 0) return;
-                for (int i = 0; i < count; i++) if (output[i] == component) return;
-                if (count < output.Length) output[count++] = component;
+                if (component <= 0) return true;
+                for (int i = 0; i < count; i++) if (output[i] == component) return true;
+                if (count >= output.Length) return false;
+                output[count++] = component;
+                return true;
             }
         }
 

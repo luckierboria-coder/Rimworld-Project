@@ -38,6 +38,13 @@ namespace RimMT
 
         private static long observed;
         private static long tailEligible;
+        private static long thresholdBypass;
+        private static long invalidQueryBypass;
+        private static long definedRequestBypass;
+        private static long regionPolicyBypass;
+        private static long nonCollectionBypass;
+        private static long smallSetBypass;
+        private static long largeSetBypass;
         private static long registrations;
         private static long registrationRejected;
         private static long snapshotHits;
@@ -109,16 +116,32 @@ namespace RimMT
             observed++;
             long scopeStart = JobGiverGlobalNearest04181.CurrentScopeStartTicks;
             if (scopeStart <= 0L || Stopwatch.GetTimestamp() - scopeStart < TailThresholdTicks)
+            {
+                thresholdBypass++;
                 return true;
+            }
 
-            if (map == null || map.Disposed || !root.IsValid || !root.InBounds(map) ||
-                !thingReq.IsUndefined || traversableRegionTypes != RegionType.Set_Passable || ignoreEntirelyForbiddenRegions ||
-                (!(searchRegionsMax < 0) && !forceAllowGlobalSearch))
+            if (map == null || map.Disposed || !root.IsValid || !root.InBounds(map))
+            {
+                invalidQueryBypass++;
                 return true;
+            }
+            if (!thingReq.IsUndefined)
+            {
+                definedRequestBypass++;
+                return true;
+            }
+            if (traversableRegionTypes != RegionType.Set_Passable || ignoreEntirelyForbiddenRegions ||
+                (!(searchRegionsMax < 0) && !forceAllowGlobalSearch))
+            {
+                regionPolicyBypass++;
+                return true;
+            }
 
             ICollection<Thing> collection = customGlobalSearchSet as ICollection<Thing>;
-            if (collection == null || collection.Count < MinCount || collection.Count > MaxCount)
-                return true;
+            if (collection == null) { nonCollectionBypass++; return true; }
+            if (collection.Count < MinCount) { smallSetBypass++; return true; }
+            if (collection.Count > MaxCount) { largeSetBypass++; return true; }
 
             tailEligible++;
             if (ShouldColdBypass())
@@ -348,6 +371,13 @@ namespace RimMT
                 ", coldMode=" + coldMode +
                 ", observed=" + observed +
                 ", tailEligible=" + tailEligible +
+                ", admissionBypass=[threshold=" + thresholdBypass +
+                ", invalidQuery=" + invalidQueryBypass +
+                ", definedRequest=" + definedRequestBypass +
+                ", regionPolicy=" + regionPolicyBypass +
+                ", nonCollection=" + nonCollectionBypass +
+                ", smallSet=" + smallSetBypass +
+                ", largeSet=" + largeSetBypass + "]" +
                 ", registrations=" + registrations +
                 ", registrationRejected=" + registrationRejected +
                 ", snapshotHits=" + snapshotHits +
