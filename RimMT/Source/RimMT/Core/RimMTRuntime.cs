@@ -123,6 +123,10 @@ namespace RimMT
                 AdaptiveGenClosestAssist.MarkCompatibilityReady();
                 AggressiveReachabilityProfiles.MarkCompatibilityReady();
                 Log.Message("[RimMT] Unified Lean compatibility scan complete. Runtime profiling remains external/on-demand.");
+
+                // One-shot production status only. This reads counters after the compatibility
+                // scan and adds no recurring Harmony/profiler work to normal gameplay.
+                RimMTDiagnostics.LogRuntimeReport();
             }
         }
     }
