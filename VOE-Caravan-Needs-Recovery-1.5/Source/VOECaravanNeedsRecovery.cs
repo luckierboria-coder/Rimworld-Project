@@ -23,13 +23,15 @@ namespace Allen.VOECaravanNeedsFreeze
         private const float NeedGainPerHour = 0.166f;
         private const float TicksPerHour = 2500f;
         private const float NeedGainPerTick = NeedGainPerHour / TicksPerHour;
-        private const int OutpostCacheLifetimeTicks = 60;
+        private const int OutpostCacheLifetimeTicks = 250;
 
         private static readonly Dictionary<int, bool> outpostTileCache = new Dictionary<int, bool>();
         private static int cacheTick = -999999;
 
         public static bool ShouldRecover(Pawn pawn)
         {
+            // Fast path: almost every Pawn in an active colony is spawned on a map.
+            // Avoid all world/caravan work for those Pawns.
             if (pawn == null || pawn.Dead || pawn.Destroyed || pawn.Spawned)
             {
                 return false;
@@ -46,6 +48,7 @@ namespace Allen.VOECaravanNeedsFreeze
                 return false;
             }
 
+            // This stays uncached so starting to move disables recovery immediately.
             if (caravan.pather != null && caravan.pather.MovingNow)
             {
                 return false;
