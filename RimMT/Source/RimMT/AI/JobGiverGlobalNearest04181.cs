@@ -3,321 +3,260 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
-using System.Threading;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using RimWorld;
 using Verse;
 
 namespace RimMT
 {
-    // V0.4.18.1: attack the measured JobGiver -> GenClosest.ClosestThing_Global hotspot directly.
-    //
-    // Vanilla ClosestThing_Global (when priorityGetter == null) only evaluates the validator for
-    // a candidate whose squared distance is better than the best valid distance seen so far.
-    // Therefore a stable nearest-first ordering is result-equivalent for a pure predicate and can
-    // dramatically reduce expensive Reachability/HasJob validator calls after the first valid
-    // nearby target is found. JobGiver validators are predicates by contract; RimMT keeps this
-    // optimization scoped strictly inside JobGiver_Work.TryIssueJobPackage to avoid changing
-    // validator call order for unrelated gameplay systems.
-    //
-    // S4 adds only one piece of scope metadata here: the root JobPackage start timestamp. Tail
-    // Rescue reads that timestamp but does not add another JobGiver Harmony detour.
+    /// <summary>
+    /// Unified JobGiver global-nearest layer.
+    /// Combines the validated V0.4.18.1 nearest-first transformation with the useful part of JS2:
+    /// exact source+root search plans that live only for one synchronous TryIssueJobPackage call.
+    /// Every plan reuse revalidates source membership, spawn state and position. No state survives
+    /// the package and no final validator/Reachability decision is cached.
+    /// </summary>
     internal static class JobGiverGlobalNearest04181
     {
         private const int MinSourceCount = 64;
         private const int MaxSourceCount = 16384;
+        private const int MaxPlansPerPackage = 64;
+        private const int MaxPrefixesPerPlan = 16;
 
-        [ThreadStatic]
-        private static int jobGiverDepth;
+        [ThreadStatic] private static int jobGiverDepth;
+        [ThreadStatic] private static long jobGiverStartTicks;
+        [ThreadStatic] private static PackageContext current;
 
-        [ThreadStatic]
-        private static long jobGiverStartTicks;
-
-        private static volatile bool globalPatched;
-        private static volatile bool reachablePatched;
-
-        private static long jobGiverScopes;
-        private static long globalObserved;
-        private static long reachableObserved;
-        private static long outsideScope;
-        private static long priorityBypass;
-        private static long nonListBypass;
-        private static long smallBypass;
-        private static long tooLargeBypass;
-        private static long nullElementBypass;
-        private static long typeBypass;
-        private static long invalidPositionBypass;
-        private static long reordered;
-        private static long reorderedReachable;
-        private static long sourceCandidates;
-        private static long keptCandidates;
-        private static long skippedUnspawned;
-        private static long skippedOutOfRange;
-        private static long sortTicks;
-        private static long maxSortTicks;
-        private static long maxSourceCount;
-        private static long failures;
-
-        internal static bool InJobGiverScope
-        {
-            get { return jobGiverDepth > 0; }
-        }
-
-        internal static long CurrentScopeStartTicks
-        {
-            get { return jobGiverDepth > 0 ? jobGiverStartTicks : 0L; }
-        }
+        internal static bool InJobGiverScope { get { return jobGiverDepth > 0; } }
+        internal static long CurrentScopeStartTicks { get { return jobGiverDepth > 0 ? jobGiverStartTicks : 0L; } }
 
         internal static void Apply(Harmony harmony)
         {
-            if (harmony == null)
-                return;
-
+            if (harmony == null) return;
             try
             {
                 MethodBase jobGiver = AccessTools.Method(typeof(JobGiver_Work), "TryIssueJobPackage");
-                if (jobGiver == null)
-                {
-                    Log.Warning("[RimMT] V0.4.18.1 JobGiver nearest-first unavailable: JobGiver_Work.TryIssueJobPackage not found.");
-                    return;
-                }
+                if (jobGiver == null) return;
 
-                HarmonyMethod enter = new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(JobGiverPrefix));
-                enter.priority = Priority.First;
-                HarmonyMethod exit = new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(JobGiverFinalizer));
-                exit.priority = Priority.Last;
-                harmony.Patch(jobGiver, prefix: enter, finalizer: exit);
+                harmony.Patch(jobGiver,
+                    prefix: new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(JobGiverPrefix)) { priority = Priority.First },
+                    finalizer: new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(JobGiverFinalizer)) { priority = Priority.Last });
 
-                MethodBase[] methods = typeof(GenClosest).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                bool global = false;
+                bool reachable = false;
+                MethodInfo[] methods = typeof(GenClosest).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
                 for (int i = 0; i < methods.Length; i++)
                 {
-                    MethodBase method = methods[i];
-                    if (method == null)
-                        continue;
-
+                    MethodInfo method = methods[i];
+                    if (method == null) continue;
                     ParameterInfo[] p = method.GetParameters();
-                    if (string.Equals(method.Name, "ClosestThing_Global", StringComparison.Ordinal) && p.Length == 5 && p[0].ParameterType == typeof(IntVec3))
+                    if (method.Name == "ClosestThing_Global" && p.Length == 5 && p[0].ParameterType == typeof(IntVec3))
                     {
-                        HarmonyMethod prefix = new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(GlobalPrefix));
-                        prefix.priority = Priority.First + 75;
-                        harmony.Patch(method, prefix: prefix);
-                        globalPatched = true;
+                        harmony.Patch(method, prefix: new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(GlobalPrefix)) { priority = Priority.First + 75 });
+                        global = true;
                     }
-                    else if (string.Equals(method.Name, "ClosestThing_Global_Reachable", StringComparison.Ordinal) && p.Length == 8 && p[0].ParameterType == typeof(IntVec3))
+                    else if (method.Name == "ClosestThing_Global_Reachable" && p.Length == 8 && p[0].ParameterType == typeof(IntVec3))
                     {
-                        HarmonyMethod prefix = new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(GlobalReachablePrefix));
-                        prefix.priority = Priority.First + 75;
-                        harmony.Patch(method, prefix: prefix);
-                        reachablePatched = true;
+                        harmony.Patch(method, prefix: new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(GlobalReachablePrefix)) { priority = Priority.First + 75 });
+                        reachable = true;
                     }
                 }
 
-                Log.Message("[RimMT] V0.4.18.1 JobGiver global nearest-first active: ClosestThing_Global=" + globalPatched +
-                    ", ClosestThing_Global_Reachable=" + reachablePatched +
-                    ". Only priorityGetter=null calls inside JobGiver_Work are reordered; Vanilla validator/Reachability/final choice remains authoritative.");
+                Log.Message("[RimMT] Unified nearest-first + JS2 package-local search-plan reuse active: global=" + global + ", reachable=" + reachable + ".");
             }
             catch (Exception ex)
             {
-                Interlocked.Increment(ref failures);
-                Log.Warning("[RimMT] V0.4.18.1 JobGiver global nearest-first patch failed; Vanilla search order remains. " +
-                    ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] Unified nearest-first install failed closed: " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
-        public static void JobGiverPrefix()
+        public static void JobGiverPrefix(Pawn __0)
         {
             if (jobGiverDepth == 0)
+            {
                 jobGiverStartTicks = Stopwatch.GetTimestamp();
+                current = new PackageContext(__0);
+            }
             jobGiverDepth++;
-            Interlocked.Increment(ref jobGiverScopes);
         }
 
         public static Exception JobGiverFinalizer(Exception __exception)
         {
-            if (jobGiverDepth > 0)
+            if (jobGiverDepth > 0) jobGiverDepth--;
+            if (jobGiverDepth == 0)
             {
-                jobGiverDepth--;
-                if (jobGiverDepth == 0)
-                    jobGiverStartTicks = 0L;
+                jobGiverStartTicks = 0L;
+                current = null;
             }
             return __exception;
         }
 
         public static void GlobalPrefix(object[] __args)
         {
-            Interlocked.Increment(ref globalObserved);
-            if (__args == null || __args.Length < 5)
-                return;
-            TryReorder(__args, 0, 1, 2, 4, false);
+            if (__args != null && __args.Length >= 5)
+                TryReorder(__args, 0, 1, 2, 4);
         }
 
         public static void GlobalReachablePrefix(object[] __args)
         {
-            Interlocked.Increment(ref reachableObserved);
-            if (__args == null || __args.Length < 8)
-                return;
-            TryReorder(__args, 0, 2, 5, 7, true);
+            if (__args != null && __args.Length >= 8)
+                TryReorder(__args, 0, 2, 5, 7);
         }
 
-        private static void TryReorder(object[] args, int centerIndex, int setIndex, int maxDistanceIndex, int priorityIndex, bool reachable)
+        private static void TryReorder(object[] args, int centerIndex, int setIndex, int maxDistanceIndex, int priorityIndex)
         {
-            if (!InJobGiverScope || !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
-            {
-                Interlocked.Increment(ref outsideScope);
-                return;
-            }
-
-            if (args[priorityIndex] != null)
-            {
-                Interlocked.Increment(ref priorityBypass);
-                return;
-            }
+            if (!InJobGiverScope || !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing) return;
+            if (args[priorityIndex] != null) return;
 
             IList source = args[setIndex] as IList;
-            if (source == null)
-            {
-                Interlocked.Increment(ref nonListBypass);
-                return;
-            }
+            if (source == null) return;
 
-            int count = source.Count;
-            if (count < MinSourceCount)
-            {
-                Interlocked.Increment(ref smallBypass);
-                return;
-            }
-            if (count > MaxSourceCount)
-            {
-                Interlocked.Increment(ref tooLargeBypass);
-                return;
-            }
+            int count;
+            try { count = source.Count; }
+            catch { return; }
+            if (count < MinSourceCount || count > MaxSourceCount) return;
 
+            IntVec3 center;
+            float maxDistance;
             try
             {
-                IntVec3 center = (IntVec3)args[centerIndex];
-                float maxDistance = Convert.ToSingle(args[maxDistanceIndex]);
-                double maxDistanceSquared = (double)maxDistance * maxDistance;
+                center = (IntVec3)args[centerIndex];
+                maxDistance = Convert.ToSingle(args[maxDistanceIndex]);
+            }
+            catch { return; }
+            if (float.IsNaN(maxDistance) || maxDistance < 0f) return;
+
+            PackageContext context = current;
+            if (context == null) return;
+
+            PlanKey key = new PlanKey(source, center.x, center.z);
+            SearchPlan plan;
+            if (context.Plans.TryGetValue(key, out plan))
+            {
+                if (!ValidatePlan(source, plan))
+                {
+                    context.Plans.Remove(key);
+                    plan = null;
+                }
+            }
+
+            if (plan == null)
+            {
+                if (context.Plans.Count >= MaxPlansPerPackage) return;
+                plan = BuildPlan(source, center, count);
+                if (plan == null) return;
+                context.Plans[key] = plan;
+            }
+
+            Thing[] prefix;
+            if (!plan.Prefixes.TryGetValue(maxDistance, out prefix))
+            {
+                prefix = BuildPrefix(plan, maxDistance);
+                if (plan.Prefixes.Count < MaxPrefixesPerPlan)
+                    plan.Prefixes[maxDistance] = prefix;
+            }
+
+            args[setIndex] = prefix;
+        }
+
+        private static SearchPlan BuildPlan(IList source, IntVec3 center, int count)
+        {
+            try
+            {
+                Thing[] members = new Thing[count];
+                bool[] spawned = new bool[count];
+                IntVec3[] positions = new IntVec3[count];
                 Candidate[] candidates = new Candidate[count];
                 int kept = 0;
-                long localUnspawned = 0;
-                long localOutOfRange = 0;
 
                 for (int i = 0; i < count; i++)
                 {
-                    object raw = source[i];
-                    if (raw == null)
-                    {
-                        Interlocked.Increment(ref nullElementBypass);
-                        return;
-                    }
+                    Thing thing = source[i] as Thing;
+                    if (thing == null) return null;
+                    members[i] = thing;
+                    spawned[i] = thing.Spawned;
+                    positions[i] = thing.Position;
+                    if (!spawned[i] || !positions[i].IsValid) continue;
 
-                    Thing thing = raw as Thing;
-                    if (thing == null)
-                    {
-                        Interlocked.Increment(ref typeBypass);
-                        return;
-                    }
-
-                    if (!thing.Spawned)
-                    {
-                        localUnspawned++;
-                        continue;
-                    }
-
-                    IntVec3 pos = thing.Position;
-                    if (!pos.IsValid)
-                    {
-                        Interlocked.Increment(ref invalidPositionBypass);
-                        return;
-                    }
-
-                    long dx = (long)pos.x - center.x;
-                    long dz = (long)pos.z - center.z;
-                    long distanceSquared = dx * dx + dz * dz;
-                    if (distanceSquared > maxDistanceSquared)
-                    {
-                        localOutOfRange++;
-                        continue;
-                    }
-
-                    candidates[kept++] = new Candidate(thing, distanceSquared, i);
+                    long dx = (long)positions[i].x - center.x;
+                    long dz = (long)positions[i].z - center.z;
+                    candidates[kept++] = new Candidate(thing, dx * dx + dz * dz, i);
                 }
 
-                long started = Stopwatch.GetTimestamp();
-                if (kept > 1)
-                    Array.Sort(candidates, 0, kept, CandidateComparer.Instance);
-                long elapsed = Stopwatch.GetTimestamp() - started;
-
-                Thing[] ordered = new Thing[kept];
-                for (int i = 0; i < kept; i++)
-                    ordered[i] = candidates[i].Thing;
-
-                args[setIndex] = ordered;
-                Interlocked.Increment(ref reordered);
-                if (reachable)
-                    Interlocked.Increment(ref reorderedReachable);
-                Interlocked.Add(ref sourceCandidates, count);
-                Interlocked.Add(ref keptCandidates, kept);
-                Interlocked.Add(ref skippedUnspawned, localUnspawned);
-                Interlocked.Add(ref skippedOutOfRange, localOutOfRange);
-                Interlocked.Add(ref sortTicks, elapsed);
-                UpdateMax(ref maxSortTicks, elapsed);
-                UpdateMax(ref maxSourceCount, count);
+                if (kept > 1) Array.Sort(candidates, 0, kept, CandidateComparer.Instance);
+                Candidate[] ordered = new Candidate[kept];
+                Array.Copy(candidates, ordered, kept);
+                return new SearchPlan(members, spawned, positions, ordered);
             }
-            catch (Exception ex)
+            catch { return null; }
+        }
+
+        private static bool ValidatePlan(IList source, SearchPlan plan)
+        {
+            if (source == null || plan == null) return false;
+            int count;
+            try { count = source.Count; }
+            catch { return false; }
+            if (count != plan.Members.Length) return false;
+
+            for (int i = 0; i < count; i++)
             {
-                Interlocked.Increment(ref failures);
-                Log.Warning("[RimMT] V0.4.18.1 nearest-first reorder failed for one JobGiver query; Vanilla continues with the original arguments when possible. " +
-                    ex.GetType().Name + ": " + ex.Message);
+                Thing thing = source[i] as Thing;
+                if (!ReferenceEquals(thing, plan.Members[i]) || thing == null) return false;
+                bool spawned = thing.Spawned;
+                if (spawned != plan.Spawned[i]) return false;
+                if (spawned && thing.Position != plan.Positions[i]) return false;
+            }
+            return true;
+        }
+
+        private static Thing[] BuildPrefix(SearchPlan plan, float maxDistance)
+        {
+            double maxSq = (double)maxDistance * maxDistance;
+            Candidate[] ordered = plan.Ordered;
+            int count = 0;
+            while (count < ordered.Length && ordered[count].DistanceSquared <= maxSq) count++;
+            Thing[] result = new Thing[count];
+            for (int i = 0; i < count; i++) result[i] = ordered[i].Thing;
+            return result;
+        }
+
+        private sealed class PackageContext
+        {
+            internal readonly Pawn Pawn;
+            internal readonly Dictionary<PlanKey, SearchPlan> Plans = new Dictionary<PlanKey, SearchPlan>();
+            internal PackageContext(Pawn pawn) { Pawn = pawn; }
+        }
+
+        private sealed class SearchPlan
+        {
+            internal readonly Thing[] Members;
+            internal readonly bool[] Spawned;
+            internal readonly IntVec3[] Positions;
+            internal readonly Candidate[] Ordered;
+            internal readonly Dictionary<float, Thing[]> Prefixes = new Dictionary<float, Thing[]>();
+            internal SearchPlan(Thing[] members, bool[] spawned, IntVec3[] positions, Candidate[] ordered)
+            {
+                Members = members;
+                Spawned = spawned;
+                Positions = positions;
+                Ordered = ordered;
             }
         }
 
-        private static void UpdateMax(ref long field, long value)
+        private struct PlanKey : IEquatable<PlanKey>
         {
-            long seen;
-            while (value > (seen = Interlocked.Read(ref field)))
+            internal readonly object Source;
+            internal readonly int X;
+            internal readonly int Z;
+            internal PlanKey(object source, int x, int z) { Source = source; X = x; Z = z; }
+            public bool Equals(PlanKey other) { return ReferenceEquals(Source, other.Source) && X == other.X && Z == other.Z; }
+            public override bool Equals(object obj) { return obj is PlanKey && Equals((PlanKey)obj); }
+            public override int GetHashCode()
             {
-                if (Interlocked.CompareExchange(ref field, value, seen) == seen)
-                    break;
+                unchecked { return (RuntimeHelpers.GetHashCode(Source) * 397 ^ X) * 397 ^ Z; }
             }
-        }
-
-        internal static string Summary()
-        {
-            long calls = Interlocked.Read(ref reordered);
-            long source = Interlocked.Read(ref sourceCandidates);
-            long kept = Interlocked.Read(ref keptCandidates);
-            double avgSource = calls == 0 ? 0.0 : source / (double)calls;
-            double avgKept = calls == 0 ? 0.0 : kept / (double)calls;
-            double avgSortUs = calls == 0 ? 0.0 :
-                (Interlocked.Read(ref sortTicks) * 1000000.0 / Stopwatch.Frequency) / calls;
-            double maxSortUs = Interlocked.Read(ref maxSortTicks) * 1000000.0 / Stopwatch.Frequency;
-
-            return "JobGiver global nearest V0.4.18.1 + S4 timing scope: patched(global/reachable)=" + globalPatched + "/" + reachablePatched +
-                ", minSource=" + MinSourceCount +
-                ", jobGiverScopes=" + Interlocked.Read(ref jobGiverScopes) +
-                ", observed(global/reachable)=" + Interlocked.Read(ref globalObserved) + "/" + Interlocked.Read(ref reachableObserved) +
-                ", reordered=" + calls +
-                ", reorderedReachable=" + Interlocked.Read(ref reorderedReachable) +
-                ", outsideScope=" + Interlocked.Read(ref outsideScope) +
-                ", priorityBypass=" + Interlocked.Read(ref priorityBypass) +
-                ", nonListBypass=" + Interlocked.Read(ref nonListBypass) +
-                ", smallBypass=" + Interlocked.Read(ref smallBypass) +
-                ", tooLargeBypass=" + Interlocked.Read(ref tooLargeBypass) +
-                ", nullElementBypass=" + Interlocked.Read(ref nullElementBypass) +
-                ", typeBypass=" + Interlocked.Read(ref typeBypass) +
-                ", invalidPositionBypass=" + Interlocked.Read(ref invalidPositionBypass) +
-                ", sourceCandidates=" + source +
-                ", keptCandidates=" + kept +
-                ", skippedUnspawned=" + Interlocked.Read(ref skippedUnspawned) +
-                ", skippedOutOfRange=" + Interlocked.Read(ref skippedOutOfRange) +
-                ", avgSource=" + avgSource.ToString("F1") +
-                ", avgKept=" + avgKept.ToString("F1") +
-                ", maxSource=" + Interlocked.Read(ref maxSourceCount) +
-                ", avgSortUs=" + avgSortUs.ToString("F2") +
-                ", maxSortUs=" + maxSortUs.ToString("F2") +
-                ", failures=" + Interlocked.Read(ref failures) +
-                ". S4 reuses this existing JobGiver scope timestamp; Global nearest behavior itself remains the validated S1 >=64 policy.";
         }
 
         private struct Candidate
@@ -325,23 +264,19 @@ namespace RimMT
             internal readonly Thing Thing;
             internal readonly long DistanceSquared;
             internal readonly int SourceIndex;
-
             internal Candidate(Thing thing, long distanceSquared, int sourceIndex)
             {
-                Thing = thing;
-                DistanceSquared = distanceSquared;
-                SourceIndex = sourceIndex;
+                Thing = thing; DistanceSquared = distanceSquared; SourceIndex = sourceIndex;
             }
         }
 
         private sealed class CandidateComparer : IComparer<Candidate>
         {
             internal static readonly CandidateComparer Instance = new CandidateComparer();
-
             public int Compare(Candidate a, Candidate b)
             {
-                int distance = a.DistanceSquared.CompareTo(b.DistanceSquared);
-                return distance != 0 ? distance : a.SourceIndex.CompareTo(b.SourceIndex);
+                int d = a.DistanceSquared.CompareTo(b.DistanceSquared);
+                return d != 0 ? d : a.SourceIndex.CompareTo(b.SourceIndex);
             }
         }
     }
