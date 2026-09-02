@@ -12,6 +12,8 @@ namespace RimMT
     /// RC2-T2 persistent DoBill index, redesigned for Unified Lean.
     /// Stable membership is cached; inactive bill givers are removed by a live
     /// BillStack.AnyShouldDoNow readiness gate before expensive JobOnThing/ingredient search.
+    /// Spawn/despawn changes are applied incrementally to already-built WorkGiver lists; a full
+    /// cache clear is used only as a fail-closed recovery if an incremental mutation throws.
     /// Final usability, reservation, reachability and JobOnThing authority remain live.
     /// </summary>
     [StaticConstructorOnStartup]
@@ -30,7 +32,10 @@ namespace RimMT
         private static long inactiveFiltered;
         private static long activeReturned;
         private static long indexRebuilds;
-        private static long invalidations;
+        private static long mutationEvents;
+        private static long incrementalAdds;
+        private static long incrementalRemoves;
+        private static long fallbackClears;
         private static long shouldSkipCalls;
         private static long shouldSkipNoWork;
         private static long shouldSkipContinue;
@@ -66,7 +71,7 @@ namespace RimMT
                 if (despawn != null)
                     harmony.Patch(despawn, prefix: new HarmonyMethod(typeof(PersistentDoBillIndex092), nameof(ThingDeSpawnPrefix)) { priority = Priority.First });
 
-                Log.Message("[RimMT] Unified persistent DoBill index active: source=" + sourcePatched + ", shouldSkip=" + shouldSkipPatched + ". Stable membership is cached; inactive bill givers are removed by a live AnyShouldDoNow readiness gate before expensive JobOnThing.");
+                Log.Message("[RimMT] Unified persistent DoBill index active: source=" + sourcePatched + ", shouldSkip=" + shouldSkipPatched + ". Stable membership is incrementally maintained; inactive bill givers are removed by live AnyShouldDoNow before expensive JobOnThing.");
             }
             catch (Exception ex)
             {
@@ -93,8 +98,7 @@ namespace RimMT
                 int localInactive = 0;
 
                 // Zero allocation when all represented benches are active. A filtered list is
-                // materialized only after the first inactive bench is found because returning the
-                // stable cached membership directly is the overwhelmingly cheapest common case.
+                // materialized only after the first inactive bench is found.
                 List<Thing> active = null;
                 for (int i = 0; i < things.Count; i++)
                 {
@@ -160,7 +164,22 @@ namespace RimMT
 
         public static void ThingSpawnedPostfix(Thing __instance, Map map)
         {
-            if (__instance is IBillGiver && map != null) Invalidate(map);
+            if (!(__instance is IBillGiver) || map == null) return;
+            BillMapCache cache;
+            if (!Caches.TryGetValue(map, out cache) || cache == null) return;
+
+            mutationEvents++;
+            try
+            {
+                incrementalAdds += cache.AddSpawned(__instance, map);
+            }
+            catch (Exception ex)
+            {
+                cache.Invalidate();
+                fallbackClears++;
+                if (failureLogs++ < 4)
+                    Log.Warning("[RimMT] DoBill incremental spawn update failed closed to cache clear: " + ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
         public static void ThingDeSpawnPrefix(Thing __instance)
@@ -168,16 +187,22 @@ namespace RimMT
             if (!(__instance is IBillGiver)) return;
             Map map = null;
             try { map = __instance.Map; } catch { }
-            if (map != null) Invalidate(map);
-        }
+            if (map == null) return;
 
-        private static void Invalidate(Map map)
-        {
             BillMapCache cache;
-            if (map != null && Caches.TryGetValue(map, out cache) && cache != null)
+            if (!Caches.TryGetValue(map, out cache) || cache == null) return;
+
+            mutationEvents++;
+            try
+            {
+                incrementalRemoves += cache.Remove(__instance);
+            }
+            catch (Exception ex)
             {
                 cache.Invalidate();
-                invalidations++;
+                fallbackClears++;
+                if (failureLogs++ < 4)
+                    Log.Warning("[RimMT] DoBill incremental despawn update failed closed to cache clear: " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -212,7 +237,10 @@ namespace RimMT
                 ", filterRate=" + filterRate.ToString("F2") + "%" +
                 ", activeReturned=" + activeReturned +
                 ", rebuilds=" + indexRebuilds +
-                ", invalidations=" + invalidations +
+                ", mutationEvents=" + mutationEvents +
+                ", incrementalAdds=" + incrementalAdds +
+                ", incrementalRemoves=" + incrementalRemoves +
+                ", fallbackClears=" + fallbackClears +
                 ", shouldSkipCalls=" + shouldSkipCalls +
                 ", shouldSkipNoWork=" + shouldSkipNoWork +
                 ", shouldSkipContinue=" + shouldSkipContinue + ".";
@@ -220,15 +248,17 @@ namespace RimMT
 
         private sealed class BillMapCache
         {
-            private readonly Dictionary<WorkGiverDef, List<Thing>> byDef = new Dictionary<WorkGiverDef, List<Thing>>();
+            private readonly Dictionary<WorkGiverDef, CacheEntry> byDef = new Dictionary<WorkGiverDef, CacheEntry>();
 
             internal List<Thing> Get(WorkGiver_DoBill giver, Map map)
             {
-                List<Thing> cached;
-                if (byDef.TryGetValue(giver.def, out cached) && cached != null) return cached;
+                CacheEntry entry;
+                if (byDef.TryGetValue(giver.def, out entry) && entry != null && entry.Things != null)
+                    return entry.Things;
 
-                List<Thing> source = map.listerThings.ThingsMatching(giver.PotentialWorkThingRequest);
-                cached = new List<Thing>(source == null ? 0 : Math.Min(source.Count, 64));
+                ThingRequest request = giver.PotentialWorkThingRequest;
+                List<Thing> source = map.listerThings.ThingsMatching(request);
+                List<Thing> cached = new List<Thing>(source == null ? 0 : Math.Min(source.Count, 64));
                 if (source != null)
                 {
                     for (int i = 0; i < source.Count; i++)
@@ -238,12 +268,56 @@ namespace RimMT
                         cached.Add(thing);
                     }
                 }
-                byDef[giver.def] = cached;
+                byDef[giver.def] = new CacheEntry(request, cached);
                 indexRebuilds++;
                 return cached;
             }
 
+            internal int AddSpawned(Thing thing, Map map)
+            {
+                if (thing == null || map == null || !thing.Spawned || thing.Map != map || !(thing is IBillGiver)) return 0;
+                int added = 0;
+                foreach (KeyValuePair<WorkGiverDef, CacheEntry> pair in byDef)
+                {
+                    CacheEntry entry = pair.Value;
+                    if (entry == null || entry.Things == null || !entry.Request.Accepts(thing)) continue;
+                    if (entry.Things.Contains(thing)) continue;
+                    entry.Things.Add(thing);
+                    added++;
+                }
+                return added;
+            }
+
+            internal int Remove(Thing thing)
+            {
+                if (thing == null) return 0;
+                int removed = 0;
+                foreach (KeyValuePair<WorkGiverDef, CacheEntry> pair in byDef)
+                {
+                    List<Thing> list = pair.Value == null ? null : pair.Value.Things;
+                    if (list == null) continue;
+                    for (int i = list.Count - 1; i >= 0; i--)
+                    {
+                        if (!ReferenceEquals(list[i], thing)) continue;
+                        list.RemoveAt(i);
+                        removed++;
+                    }
+                }
+                return removed;
+            }
+
             internal void Invalidate() { byDef.Clear(); }
+        }
+
+        private sealed class CacheEntry
+        {
+            internal readonly ThingRequest Request;
+            internal readonly List<Thing> Things;
+            internal CacheEntry(ThingRequest request, List<Thing> things)
+            {
+                Request = request;
+                Things = things;
+            }
         }
     }
 }
