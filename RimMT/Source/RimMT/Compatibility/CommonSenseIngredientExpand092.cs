@@ -68,7 +68,7 @@ namespace RimMT
         }
 
         public static bool Prefix(Pawn pawn, Predicate<Thing> baseValidator, bool billGiverIsPawn,
-            List<Thing> newRelevantThings, HashSet<Thing> processedThings, ref bool __runOriginal, out ExpandState __state)
+            List<Thing> newRelevantThings, HashSet<Thing> processedThings, out ExpandState __state)
         {
             __state = default(ExpandState);
             try
