@@ -246,7 +246,7 @@ namespace RimMT
 
             try
             {
-                Method method = validator.Method;
+                MethodInfo method = validator.Method;
                 string owner = method == null || method.DeclaringType == null ? "<unknown>" : method.DeclaringType.FullName;
                 string name = method == null ? "<unknown>" : method.Name;
                 string key = owner + "." + name;
