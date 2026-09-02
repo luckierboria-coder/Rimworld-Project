@@ -6,6 +6,9 @@ namespace RimMT
 {
     internal static class RimMTRuntime
     {
+        private const string RetiredRegionFeature = "parallel.regionHint";
+        private const string RetiredWorkPrefilterFeature = "parallel.workPrefilter";
+
         private static bool initialized;
         private static bool compatibilityChecked;
         private static JobScheduler scheduler;
@@ -42,19 +45,17 @@ namespace RimMT
             FeatureGate.Register("parallel.jobPartition", true, "Persistent-map search fabric / candidate partition production path");
             FeatureGate.Register(JobGiverSlowSearch0419S.FeatureId, true, "Validated slow-search tail rescue");
             FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "ReachProfile with rolling mismatch fuse");
-            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "Retired: insufficient production yield");
+            FeatureGate.Register(RetiredRegionFeature, false, "Retired: insufficient production yield");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe / not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe / not implemented");
             FeatureGate.Register("parallel.thingTick", false, "Not implemented");
 
-            // Explicitly register retired instrumentation as OFF so optional reports can explain
-            // why it is absent, without ever installing its Harmony hooks.
             FeatureGate.Register("diagnostics.hotPaths", false, "External diagnostic layer only in Unified Lean");
             FeatureGate.Register("diagnostics.pathFinder", false, "External diagnostic layer only");
             FeatureGate.Register("diagnostics.jobGiver", false, "External diagnostic layer only");
             FeatureGate.Register("diagnostics.jobGiverDetail", false, "External diagnostic layer only");
             FeatureGate.Register("parallel.pathSnapshot", false, "Retired from production: validation-only shadow path");
-            FeatureGate.Register(ParallelWorkPrefilter.FeatureId, false, "Retired from production: measured negative ROI");
+            FeatureGate.Register(RetiredWorkPrefilterFeature, false, "Retired from production: measured negative ROI");
             FeatureGate.Register("ui.overlayCache", false, "Retired from Unified Lean production path");
             FeatureGate.Register("ai.reachNoCache", false, "Retired; ReachProfile is the production reachability accelerator");
 
@@ -75,16 +76,15 @@ namespace RimMT
             JobGiverSlowSearch0419S.SetEnabled(work);
             FeatureGate.SetEnabled(AggressiveReachabilityProfiles.FeatureId, work);
 
-            // Production-retired modules are hard OFF regardless of legacy settings files.
             FeatureGate.SetEnabled("diagnostics.hotPaths", false);
             FeatureGate.SetEnabled("diagnostics.pathFinder", false);
             FeatureGate.SetEnabled("diagnostics.jobGiver", false);
             FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
             FeatureGate.SetEnabled("parallel.pathSnapshot", false);
-            FeatureGate.SetEnabled(ParallelWorkPrefilter.FeatureId, false);
+            FeatureGate.SetEnabled(RetiredWorkPrefilterFeature, false);
             FeatureGate.SetEnabled("ui.overlayCache", false);
             FeatureGate.SetEnabled("ai.reachNoCache", false);
-            FeatureGate.SetEnabled(ParallelRegionConnectivity.FeatureId, false);
+            FeatureGate.SetEnabled(RetiredRegionFeature, false);
         }
 
         internal static void OnMainThreadFrame()
