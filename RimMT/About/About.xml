@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimMT</name>
+  <name>RimMT V0.9.2 Unified Lean</name>
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -12,5 +12,5 @@
     </li>
   </modDependencies>
   <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>RimMT V0.4.19-JS1.1S5.1 Hybrid Tail Rescue is based on S4/S1 for RimWorld 1.5. ThingRequest behavior remains unchanged. For custom search sets whose Count is available without enumeration, Count 1-127 may use validator-first/live-CanReach acceleration after the current JobPackage reaches 24ms, while Count 128+ remains Vanilla after the S4 32ms rescue point. Unknown/lazy custom enumerables retain S4 behavior. S5.1 uses the normal RimMT Harmony owner so CompatibilityGuard does not misclassify its own routing layer as a foreign patch. JR1/JR1.1, S2 fanout and S3 learned admission remain retired.</description>
+  <description>Single-DLL production build for RimWorld 1.5. Consolidates the validated RimMT scheduler/dispatcher, JobGiver nearest-first and package-local search-plan reuse, S5.1 Hybrid Tail Rescue at the validated 16ms admission point, RC2 large-set early-tail prevention, rolling-fuse ReachProfile, persistent low-churn DoBill indexing, mature S5.3 BuildRoof/Harvest/ClearSnow pruning with Tend/Sow fail-closed compatibility, production haul accelerators, path-topology invalidation, and the validated Common Sense ingredient-expansion memo. Resident hot-path diagnostics, PathSnapshot shadow validation, WorkPrefilter and low-yield Stage4D experiments are excluded from the production path and may be supplied as optional external diagnostics.</description>
 </ModMetaData>
