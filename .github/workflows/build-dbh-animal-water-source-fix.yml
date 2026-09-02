@@ -1,0 +1,81 @@
+name: Build DBH Animal Water Source Fix
+
+on:
+  push:
+    branches: [ dbh-animal-water-source-fix ]
+    paths:
+      - 'DBH-Animal-Water-Source-Fix-1.5/**'
+      - '.github/workflows/build-dbh-animal-water-source-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dbh-animal-water-source-fix
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download DBH 1.5 reference assembly
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'DBH-Animal-Water-Source-Fix-1.5\Libs' | Out-Null
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Dubwise56/Dubs-Bad-Hygiene/master/1.5/Assemblies/BadHygiene.dll' -OutFile 'DBH-Animal-Water-Source-Fix-1.5\Libs\BadHygiene.dll'
+
+      - name: Restore
+        run: dotnet restore DBH-Animal-Water-Source-Fix-1.5/Source/DBHAnimalWaterSourceFix.csproj
+
+      - name: Build Release
+        run: dotnet build DBH-Animal-Water-Source-Fix-1.5/Source/DBHAnimalWaterSourceFix.csproj --configuration Release --no-restore
+
+      - name: Stage package
+        shell: pwsh
+        run: |
+          $dll = 'DBH-Animal-Water-Source-Fix-1.5\Source\bin\Release\net472\DBHAnimalWaterSourceFix.dll'
+          if (!(Test-Path $dll)) { throw 'DBHAnimalWaterSourceFix.dll was not produced.' }
+
+          $bytes = [IO.File]::ReadAllBytes($dll)
+          $ascii = [Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($needle in @('DBHAnimalWaterSourceFix', 'JobGiverDrinkWaterPatch', 'FindBestDrink')) {
+            if (!$ascii.Contains($needle)) { throw "Compiled DLL missing symbol: $needle" }
+          }
+
+          $stage = 'build\DBH-Animal-Water-Source-Fix-1.5'
+          Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          Copy-Item $dll "$stage\1.5\Assemblies\DBHAnimalWaterSourceFix.dll" -Force
+          Copy-Item 'DBH-Animal-Water-Source-Fix-1.5\About' $stage -Recurse -Force
+          Copy-Item 'DBH-Animal-Water-Source-Fix-1.5\CHANGELOG.txt' $stage -Force
+          New-Item -ItemType Directory -Force -Path "$stage\Source" | Out-Null
+          Copy-Item 'DBH-Animal-Water-Source-Fix-1.5\Source\DBHAnimalWaterSourceFix.cs' "$stage\Source\DBHAnimalWaterSourceFix.cs" -Force
+          Copy-Item 'DBH-Animal-Water-Source-Fix-1.5\Source\DBHAnimalWaterSourceFix.csproj' "$stage\Source\DBHAnimalWaterSourceFix.csproj" -Force
+
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Compress-Archive -Path $stage -DestinationPath 'artifacts\DBH-Animal-Water-Source-Fix-1.5.zip' -Force
+
+      - name: Commit built artifact
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add artifacts/DBH-Animal-Water-Source-Fix-1.5.zip
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m 'Build DBH animal water source fix artifact [skip ci]'
+          git push origin HEAD:dbh-animal-water-source-fix
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DBH-Animal-Water-Source-Fix-1.5
+          path: artifacts/DBH-Animal-Water-Source-Fix-1.5.zip
+          if-no-files-found: error
