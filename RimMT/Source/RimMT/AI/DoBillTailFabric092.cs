@@ -16,7 +16,8 @@ namespace RimMT
     /// PersistentMapSearchFabric worker. The main thread never waits: first sighting falls through
     /// to S5.1/Vanilla, later synchronized snapshots can prove the closest candidate with a dynamic
     /// live-check budget. Validator, Reachability and final Thing result remain live main-thread work.
-    /// Steady-state hits allocate nothing; bypass reasons are counted without logging or allocation.
+    /// Steady-state hits allocate nothing. If this lane repeatedly sees only non-bill-giver sets, it
+    /// cold-sleeps and probes 1/64 eligible tails until useful membership reappears.
     /// </summary>
     internal static class DoBillTailFabric092
     {
@@ -24,10 +25,15 @@ namespace RimMT
         private const int MaxCount = 127;
         private const int TailThresholdMs = 16;
         private const int MaxTrackedStates = 2048;
+        private const int ColdAfterZeroYield = 256;
+        private const int ColdProbeMask = 63; // 1/64 eligible tails while cold.
         private static readonly long TailThresholdTicks = Math.Max(1L, Stopwatch.Frequency * TailThresholdMs / 1000L);
         private static readonly Dictionary<SourceKey, SourceState> States = new Dictionary<SourceKey, SourceState>();
         private static int nextSourceId = 400000;
         private static bool patched;
+        private static bool coldMode;
+        private static int zeroYieldStreak;
+        private static int coldProbeSerial;
         private static int failureLogs;
 
         private static long observed;
@@ -47,6 +53,10 @@ namespace RimMT
         private static long unspawnedBypass;
         private static long invalidPositionBypass;
         private static long countMismatchBypass;
+        private static long coldEnters;
+        private static long coldExits;
+        private static long coldBypasses;
+        private static long coldProbes;
 
         internal static void Apply(Harmony harmony)
         {
@@ -67,7 +77,7 @@ namespace RimMT
                 prefix.priority = Priority.First + 220;
                 harmony.Patch(target, prefix: prefix);
                 patched = true;
-                Log.Message("[RimMT] DoBill worker-tail fabric active: repeated 16..127 static bill-giver sets can use worker-maintained spatial snapshots after a 16ms JobGiver tail threshold; steady-state membership validation is allocation-free and final validation/reachability stays live.");
+                Log.Message("[RimMT] DoBill worker-tail fabric active with zero-yield cold sleep: repeated 16..127 static bill-giver sets can use worker-maintained spatial snapshots after a 16ms JobGiver tail threshold; 256 consecutive zero-yield eligible tails enter 1/64 probing until useful membership returns.");
             }
             catch (Exception ex)
             {
@@ -111,6 +121,9 @@ namespace RimMT
                 return true;
 
             tailEligible++;
+            if (ShouldColdBypass())
+                return true;
+
             try
             {
                 int count = collection.Count;
@@ -119,6 +132,7 @@ namespace RimMT
                 if (!TryValidateAndHash(collection, map, count, out hash, out failure))
                 {
                     CountValidationFailure(failure);
+                    RecordZeroYield();
                     return true;
                 }
 
@@ -130,6 +144,7 @@ namespace RimMT
                     if (!TryCaptureMembers(collection, map, count, out members))
                     {
                         invalidMemberBypass++;
+                        RecordZeroYield();
                         return true;
                     }
 
@@ -147,9 +162,11 @@ namespace RimMT
                         return true;
                     }
                     registrations++;
+                    MarkUseful();
                     return true;
                 }
 
+                MarkUseful();
                 PersistentMapSearchFabric.SourceSnapshot snapshot;
                 if (!PersistentMapSearchFabric.TryGetSourceSnapshot(map, state.SourceId, out snapshot) || snapshot == null || snapshot.Count != count)
                 {
@@ -192,6 +209,37 @@ namespace RimMT
                     Log.Warning("[RimMT] DoBill worker-tail fabric failed closed for one call: " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
+        }
+
+        private static bool ShouldColdBypass()
+        {
+            if (!coldMode) return false;
+            int serial = ++coldProbeSerial;
+            if ((serial & ColdProbeMask) == 0)
+            {
+                coldProbes++;
+                return false;
+            }
+            coldBypasses++;
+            return true;
+        }
+
+        private static void RecordZeroYield()
+        {
+            if (zeroYieldStreak < int.MaxValue) zeroYieldStreak++;
+            if (coldMode || zeroYieldStreak < ColdAfterZeroYield) return;
+            coldMode = true;
+            coldProbeSerial = 0;
+            coldEnters++;
+        }
+
+        private static void MarkUseful()
+        {
+            zeroYieldStreak = 0;
+            if (!coldMode) return;
+            coldMode = false;
+            coldProbeSerial = 0;
+            coldExits++;
         }
 
         private static bool TryValidateAndHash(ICollection<Thing> collection, Map map, int expectedCount, out int hash, out ValidationFailure failure)
@@ -297,6 +345,7 @@ namespace RimMT
         internal static string Summary()
         {
             return "DoBill worker-tail fabric: patched=" + patched +
+                ", coldMode=" + coldMode +
                 ", observed=" + observed +
                 ", tailEligible=" + tailEligible +
                 ", registrations=" + registrations +
@@ -311,6 +360,11 @@ namespace RimMT
                 ", unspawned=" + unspawnedBypass +
                 ", invalidPosition=" + invalidPositionBypass +
                 ", countMismatch=" + countMismatchBypass + "]" +
+                ", zeroYieldStreak=" + zeroYieldStreak +
+                ", coldEnters=" + coldEnters +
+                ", coldExits=" + coldExits +
+                ", coldBypasses=" + coldBypasses +
+                ", coldProbes=" + coldProbes +
                 ", liveChecks=" + liveChecks +
                 ", candidatesVisited=" + candidatesVisited +
                 ", retainedStates=" + States.Count +
