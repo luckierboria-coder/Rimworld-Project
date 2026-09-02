@@ -28,6 +28,8 @@ namespace RimMT
             listing.CheckboxLabeled("RimMT_WorkScanAcceleration".Translate(), ref Settings.WorkScanAcceleration, "RimMT_WorkScanAccelerationDesc".Translate());
 
             listing.GapLine();
+            if (listing.ButtonText("RimMT_LogReport".Translate()))
+                RimMTDiagnostics.LogRuntimeReport();
             if (listing.ButtonText("RimMT_RunSelfTest".Translate()))
                 RimMTDiagnostics.RunWorkerSelfTest();
 
