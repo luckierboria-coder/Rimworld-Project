@@ -7,6 +7,7 @@ using System.Threading;
 using HarmonyLib;
 using RimWorld;
 using Verse;
+using Verse.AI;
 
 namespace RimMTRC2T2
 {
@@ -15,65 +16,92 @@ namespace RimMTRC2T2
     {
         private static readonly Harmony H = new Harmony("allen.rimmt");
         private static readonly double ToMs = 1000.0 / Stopwatch.Frequency;
+        private static readonly object Sync = new object();
+
+        private const string FeatureId = "parallel.commonSense";
+        private const int CleaningTtl = 30;
+        private const int IngredientExpandTtl = 60;
+        private const int OpportunityNegativeTtl = 15;
 
         private static Type settingsType;
         private static object scheduler;
         private static MethodInfo schedulerTryEnqueue;
         private static object schedulerPriority;
-        private static string schedulerFeatureId = "parallel.jobPartition";
 
-        private static readonly object Sync = new object();
         private static readonly Dictionary<string, CleaningCache> Cleaning = new Dictionary<string, CleaningCache>();
         private static readonly Dictionary<string, int[]> PathOrders = new Dictionary<string, int[]>();
         private static readonly Dictionary<string, int[]> IngredientOrders = new Dictionary<string, int[]>();
-        private static readonly Dictionary<string, OpportunityHint> OpportunityHints = new Dictionary<string, OpportunityHint>();
+        private static readonly Dictionary<string, ExpandCache> IngredientExpand = new Dictionary<string, ExpandCache>();
+        private static readonly Dictionary<string, NegativeHint> OpportunityNegative = new Dictionary<string, NegativeHint>();
 
-        private static long workerQueued, workerRejected, workerCompleted, workerExceptions;
-        private static long cleanCalls, cleanHits, cleanPublished, cleanOriginalMsTicks;
+        private static long workerQueued, workerRejected, workerCompleted, workerErrors;
+        private static long runtimeErrors;
+        private static long cleaningCalls, cleaningHits, cleaningPublished, cleaningMissTicks;
         private static long pathCalls, pathHits, pathQueued, pathApplied;
-        private static long ingCalls, ingHits, ingQueued, ingApplied;
-        private static long oppCalls, oppHits, oppStrongSkips, oppQueued;
-        private static long runtimeExceptions;
+        private static long ingredientSortCalls, ingredientSortHits, ingredientSortQueued, ingredientSortApplied;
+        private static long ingredientExpandCalls, ingredientExpandHits, ingredientExpandQueued, ingredientExpandApplied;
+        private static long opportunityCalls, opportunityNegativeHits, opportunityQueued;
 
         private sealed class CleaningCache
         {
-            public int Tick;
-            public Filth[] Things;
-            public int[] Order;
+            internal int Tick;
+            internal Filth[] Things;
+            internal int[] Order;
         }
 
-        private sealed class OpportunityHint
+        private sealed class ExpandCache
         {
-            public int Tick;
-            public bool StrongSkip;
+            internal int Tick;
+            internal Thing[] Things;
+            internal int[] Order;
         }
 
-        internal struct CleanState
+        private sealed class NegativeHint
         {
-            public long Start;
-            public string Key;
-            public Pawn Pawn;
-            public LocalTargetInfo Target;
+            internal int Tick;
+            internal bool Skip;
         }
 
-        internal struct OrderState
+        internal struct CleaningState
         {
-            public string Key;
-            public int[] X;
-            public int[] Z;
-            public int[] Ids;
-            public int StarterX;
-            public int StarterZ;
-            public bool Valid;
+            internal long Start;
+            internal string Key;
+            internal int Tick;
+            internal int StartX;
+            internal int StartZ;
         }
 
-        internal struct IngredientState
+        internal struct PathState
         {
-            public string Key;
-            public int[] Ids;
-            public float[] Potency;
-            public int[] RotBucket;
-            public bool Valid;
+            internal string Key;
+            internal int[] X;
+            internal int[] Z;
+            internal int StartX;
+            internal int StartZ;
+            internal bool Valid;
+        }
+
+        internal struct IngredientSortState
+        {
+            internal string Key;
+            internal float[] Potency;
+            internal int[] Rot;
+            internal bool Valid;
+        }
+
+        internal struct ExpandState
+        {
+            internal string Key;
+            internal int Tick;
+            internal HashSet<int> Before;
+            internal bool Valid;
+        }
+
+        internal struct OpportunityState
+        {
+            internal string Key;
+            internal int Tick;
+            internal bool Valid;
         }
 
         static Stage4DCommonSenseAccelerator()
@@ -93,30 +121,45 @@ namespace RimMTRC2T2
             settingsType = AccessTools.TypeByName("CommonSense.Settings");
             BindScheduler();
 
-            Patch(AccessTools.Method(utility, "SelectAllFilth"), nameof(CleanPrefix), nameof(CleanPostfix));
-
+            Patch(AccessTools.Method(utility, "SelectAllFilth"), nameof(CleaningPrefix), nameof(CleaningPostfix));
             foreach (MethodInfo m in utility.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
-                if (m.Name == "OptimizePath")
-                    Patch(m, nameof(PathPrefix), nameof(PathPostfix));
+                if (m.Name == "OptimizePath") Patch(m, nameof(PathPrefix), nameof(PathPostfix));
 
-            Type ingSort = AccessTools.TypeByName("CommonSense.IngredientPriority+WorkGiver_DoBill_TryFindBestBillIngredientsInSet_AllowMix_CommonSensePatch");
-            Patch(ingSort == null ? null : AccessTools.Method(ingSort, "DoSort"), nameof(IngredientPrefix), nameof(IngredientPostfix));
+            Type sortType = AccessTools.TypeByName("CommonSense.IngredientPriority+WorkGiver_DoBill_TryFindBestBillIngredientsInSet_AllowMix_CommonSensePatch");
+            Patch(sortType == null ? null : AccessTools.Method(sortType, "DoSort"), nameof(IngredientSortPrefix), nameof(IngredientSortPostfix));
 
-            Type opp = AccessTools.TypeByName("CommonSense.OpportunisticTasks");
-            Patch(opp == null ? null : AccessTools.Method(opp, "Cleaning_Opportunity"), nameof(OpportunityPrefix), nameof(OpportunityPostfix));
+            Type expandType = AccessTools.TypeByName("CommonSense.IngredientPriority+WorkGiver_DoBill_TryFindBestIngredientsHelper_CommonSensePatch");
+            Patch(expandType == null ? null : AccessTools.Method(expandType, "PreProcess"), nameof(IngredientExpandPrefix), nameof(IngredientExpandPostfix));
+
+            Type oppType = AccessTools.TypeByName("CommonSense.OpportunisticTasks");
+            Patch(oppType == null ? null : AccessTools.Method(oppType, "Cleaning_Opportunity"), nameof(OpportunityPrefix), nameof(OpportunityPostfix));
 
             Type diagnostics = AccessTools.TypeByName("RimMT.RimMTDiagnostics");
             MethodInfo report = diagnostics == null ? null : AccessTools.Method(diagnostics, "LogRuntimeReport");
             if (report != null)
                 H.Patch(report, postfix: new HarmonyMethod(typeof(Stage4DCommonSenseAccelerator), nameof(Report)) { priority = Priority.Last });
 
-            Log.Message("[RimMT] RC2-T2 Stage 4D Common Sense Accelerator installed: cleaning-cache + worker path ordering + worker ingredient ordering + worker opportunity hints. Experimental assertive mode: per-call fallback only, no permanent module shutdown on ordinary exceptions. Scheduler bridge=" + (scheduler != null ? "RimMT.JobScheduler" : "unavailable") + ".");
+            Log.Message("[RimMT] RC2-T2 Stage 4D Common Sense Accelerator installed: cleaning candidate cache, exact worker path ordering, exact worker spoilage ordering, ingredient-expansion memo, opportunistic negative memo. Experimental assertive mode: errors are logged and only the current call falls back; ordinary errors do not permanently disable a submodule. Worker work uses primitive snapshots only; main thread never waits for workers.");
         }
 
         private static void BindScheduler()
         {
             try
             {
+                Type featureGate = AccessTools.TypeByName("RimMT.FeatureGate");
+                MethodInfo register = featureGate == null ? null : AccessTools.Method(featureGate, "Register");
+                if (register != null)
+                {
+                    ParameterInfo[] rp = register.GetParameters();
+                    object[] args = rp.Length == 3
+                        ? new object[] { FeatureId, true, "Common Sense async accelerator" }
+                        : null;
+                    if (args != null)
+                    {
+                        try { register.Invoke(null, args); } catch { }
+                    }
+                }
+
                 Type runtime = AccessTools.TypeByName("RimMT.RimMTRuntime");
                 PropertyInfo p = runtime == null ? null : runtime.GetProperty("Scheduler", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
                 scheduler = p == null ? null : p.GetValue(null, null);
@@ -128,27 +171,8 @@ namespace RimMTRC2T2
             }
             catch (Exception ex)
             {
+                Interlocked.Increment(ref runtimeErrors);
                 Log.Warning("[RimMT] Stage 4D scheduler bridge setup error: " + ex);
-            }
-        }
-
-        private static void Patch(MethodBase m, string pre, string post)
-        {
-            if (m == null)
-            {
-                Log.Warning("[RimMT] Stage 4D target missing for " + pre + "; continuing with remaining Common Sense accelerators.");
-                return;
-            }
-            try
-            {
-                H.Patch(m,
-                    prefix: string.IsNullOrEmpty(pre) ? null : new HarmonyMethod(typeof(Stage4DCommonSenseAccelerator), pre) { priority = Priority.First },
-                    postfix: string.IsNullOrEmpty(post) ? null : new HarmonyMethod(typeof(Stage4DCommonSenseAccelerator), post) { priority = Priority.Last });
-            }
-            catch (Exception ex)
-            {
-                Interlocked.Increment(ref runtimeExceptions);
-                Log.Warning("[RimMT] Stage 4D patch error on " + m + ": " + ex);
             }
         }
 
@@ -157,111 +181,161 @@ namespace RimMTRC2T2
             if (action == null) return false;
             try
             {
-                if (scheduler == null || schedulerTryEnqueue == null || schedulerPriority == null)
-                    BindScheduler();
+                if (scheduler == null || schedulerTryEnqueue == null || schedulerPriority == null) BindScheduler();
                 if (scheduler == null || schedulerTryEnqueue == null || schedulerPriority == null)
                 {
                     Interlocked.Increment(ref workerRejected);
                     return false;
                 }
+
                 Action wrapped = delegate
                 {
-                    try { action(); Interlocked.Increment(ref workerCompleted); }
+                    try
+                    {
+                        action();
+                        Interlocked.Increment(ref workerCompleted);
+                    }
                     catch (Exception ex)
                     {
-                        Interlocked.Increment(ref workerExceptions);
+                        Interlocked.Increment(ref workerErrors);
                         Log.Error("[RimMT] Stage 4D worker exception: " + ex);
                     }
                 };
-                bool ok = (bool)schedulerTryEnqueue.Invoke(scheduler, new object[] { schedulerFeatureId, schedulerPriority, wrapped });
+
+                bool ok = (bool)schedulerTryEnqueue.Invoke(scheduler, new object[] { FeatureId, schedulerPriority, wrapped });
                 if (ok) Interlocked.Increment(ref workerQueued); else Interlocked.Increment(ref workerRejected);
                 return ok;
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref workerRejected);
-                Log.Warning("[RimMT] Stage 4D worker enqueue error: " + ex.Message);
+                Log.Warning("[RimMT] Stage 4D enqueue error: " + ex);
                 return false;
             }
         }
 
-        // ---------------- Cleaning candidate scan ----------------
-        public static bool CleanPrefix(Pawn pawn, LocalTargetInfo target, int Limit, ref IEnumerable<Filth> __result, out CleanState __state)
+        private static void Patch(MethodBase method, string prefix, string postfix)
         {
-            __state = default(CleanState);
-            Interlocked.Increment(ref cleanCalls);
+            if (method == null)
+            {
+                Log.Warning("[RimMT] Stage 4D target missing for " + prefix + "; remaining accelerators stay active.");
+                return;
+            }
+            try
+            {
+                H.Patch(method,
+                    prefix: new HarmonyMethod(typeof(Stage4DCommonSenseAccelerator), prefix) { priority = Priority.First },
+                    postfix: new HarmonyMethod(typeof(Stage4DCommonSenseAccelerator), postfix) { priority = Priority.Last });
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref runtimeErrors);
+                Log.Warning("[RimMT] Stage 4D patch error on " + method + ": " + ex);
+            }
+        }
+
+        private static int TickNow()
+        {
+            return Find.TickManager == null ? 0 : Find.TickManager.TicksGame;
+        }
+
+        private static bool ReadSetting(string field, bool fallback)
+        {
+            try
+            {
+                FieldInfo f = settingsType == null ? null : AccessTools.Field(settingsType, field);
+                return f != null && f.FieldType == typeof(bool) ? (bool)f.GetValue(null) : fallback;
+            }
+            catch { return fallback; }
+        }
+
+        // --- 1. Cleaning candidate scan ---------------------------------------------------------
+        public static bool CleaningPrefix(Pawn pawn, LocalTargetInfo target, int Limit, ref IEnumerable<Filth> __result, out CleaningState __state)
+        {
+            __state = default(CleaningState);
+            Interlocked.Increment(ref cleaningCalls);
             try
             {
                 if (pawn == null || pawn.Map == null) return true;
-                string key = CleaningKey(pawn, target, Limit);
-                __state.Key = key; __state.Pawn = pawn; __state.Target = target; __state.Start = Stopwatch.GetTimestamp();
-                CleaningCache c;
-                lock (Sync) Cleaning.TryGetValue(key, out c);
-                int now = Find.TickManager == null ? 0 : Find.TickManager.TicksGame;
-                if (c == null || c.Order == null || c.Things == null || now - c.Tick > 30) return true;
+                Room room = target.HasThing ? target.Thing.GetRoom() : target.Cell.GetRoom(pawn.Map);
+                if (room == null) return true;
+                int tick = TickNow();
+                string key = pawn.Map.GetHashCode() + ":" + room.ID + ":" + pawn.thingIDNumber + ":" + Limit;
+                __state = new CleaningState { Start = Stopwatch.GetTimestamp(), Key = key, Tick = tick, StartX = pawn.Position.x, StartZ = pawn.Position.z };
 
-                List<Filth> valid = new List<Filth>(c.Order.Length);
-                for (int i = 0; i < c.Order.Length; i++)
+                CleaningCache cache;
+                lock (Sync) Cleaning.TryGetValue(key, out cache);
+                if (cache == null || cache.Things == null || cache.Order == null || tick - cache.Tick > CleaningTtl) return true;
+
+                WorkGiverDef cleanDef = DefDatabase<WorkGiverDef>.GetNamedSilentFail("CleanFilth");
+                WorkGiver_Scanner scanner = cleanDef == null ? null : cleanDef.Worker as WorkGiver_Scanner;
+                if (scanner == null) return true;
+
+                List<Filth> result = new List<Filth>(cache.Order.Length);
+                for (int i = 0; i < cache.Order.Length; i++)
                 {
-                    int idx = c.Order[i];
-                    if (idx < 0 || idx >= c.Things.Length) continue;
-                    Filth f = c.Things[idx];
-                    if (f == null || f.Destroyed || !f.Spawned || f.Map != pawn.Map || f.IsForbidden(pawn)) continue;
-                    valid.Add(f);
-                    if (Limit > 0 && valid.Count >= Limit) break;
+                    int idx = cache.Order[i];
+                    if (idx < 0 || idx >= cache.Things.Length) continue;
+                    Filth f = cache.Things[idx];
+                    if (f == null || f.Destroyed || !f.Spawned || f.Map != pawn.Map || !f.Position.InAllowedArea(pawn)) continue;
+                    if (!scanner.HasJobOnThing(pawn, f)) continue;
+                    Room fr = f.GetRoom();
+                    if (fr == null || (fr != room && !fr.IsDoorway)) continue;
+                    result.Add(f);
+                    if (Limit > 0 && result.Count >= Limit) break;
                 }
-                __result = valid;
-                Interlocked.Increment(ref cleanHits);
+                __result = result;
+                Interlocked.Increment(ref cleaningHits);
                 return false;
             }
             catch (Exception ex)
             {
-                Interlocked.Increment(ref runtimeExceptions);
-                Log.Warning("[RimMT] Stage 4D cleaning cache call error; original Common Sense scan continues: " + ex);
+                Interlocked.Increment(ref runtimeErrors);
+                Log.Warning("[RimMT] Stage 4D cleaning hit error; Common Sense original runs for this call: " + ex);
                 return true;
             }
         }
 
-        public static void CleanPostfix(Pawn pawn, LocalTargetInfo target, int Limit, ref IEnumerable<Filth> __result, CleanState __state)
+        public static void CleaningPostfix(Pawn pawn, LocalTargetInfo target, int Limit, ref IEnumerable<Filth> __result, CleaningState __state)
         {
             if (__state.Start == 0) return;
             try
             {
-                Interlocked.Add(ref cleanOriginalMsTicks, Stopwatch.GetTimestamp() - __state.Start);
+                Interlocked.Add(ref cleaningMissTicks, Stopwatch.GetTimestamp() - __state.Start);
                 if (__result == null || string.IsNullOrEmpty(__state.Key)) return;
                 List<Filth> list = __result as List<Filth> ?? __result.ToList();
                 __result = list;
                 Filth[] refs = list.ToArray();
-                int[] x = new int[refs.Length], z = new int[refs.Length];
-                IntVec3 start = pawn.Position;
+                int[] x = new int[refs.Length];
+                int[] z = new int[refs.Length];
                 for (int i = 0; i < refs.Length; i++) { x[i] = refs[i].Position.x; z[i] = refs[i].Position.z; }
+
+                CleaningCache cache = new CleaningCache { Tick = __state.Tick, Things = refs, Order = null };
+                lock (Sync) Cleaning[__state.Key] = cache;
                 string key = __state.Key;
-                QueueWorker(delegate
+                int sx = __state.StartX, sz = __state.StartZ;
+                if (QueueWorker(delegate
                 {
-                    int[] order = NearestOrder(x, z, start.x, start.z);
-                    int tick = Find.TickManager == null ? 0 : Find.TickManager.TicksGame; // publication timestamp only
-                    lock (Sync) Cleaning[key] = new CleaningCache { Tick = tick, Things = refs, Order = order };
-                    Interlocked.Increment(ref cleanPublished);
-                });
+                    int[] order = ExactNearestOrder(x, z, sx, sz);
+                    lock (Sync)
+                    {
+                        CleaningCache c;
+                        if (Cleaning.TryGetValue(key, out c) && c == cache) c.Order = order;
+                    }
+                    Interlocked.Increment(ref cleaningPublished);
+                })) { }
             }
             catch (Exception ex)
             {
-                Interlocked.Increment(ref runtimeExceptions);
+                Interlocked.Increment(ref runtimeErrors);
                 Log.Warning("[RimMT] Stage 4D cleaning publish error: " + ex);
             }
         }
 
-        private static string CleaningKey(Pawn pawn, LocalTargetInfo target, int limit)
+        // --- 2. Exact Common Sense path queue ordering ------------------------------------------
+        public static bool PathPrefix(object[] __args, out PathState __state)
         {
-            Room room = target.HasThing ? target.Thing.GetRoom() : target.Cell.GetRoom(pawn.Map);
-            int roomId = room == null ? -1 : room.ID;
-            return pawn.Map.GetHashCode() + ":" + roomId + ":" + pawn.thingIDNumber + ":" + limit;
-        }
-
-        // ---------------- Common Sense OptimizePath ----------------
-        public static bool PathPrefix(object[] __args, out OrderState __state)
-        {
-            __state = default(OrderState);
+            __state = default(PathState);
             Interlocked.Increment(ref pathCalls);
             try
             {
@@ -271,18 +345,20 @@ namespace RimMTRC2T2
                 if (locals == null && counts == null) return true;
                 int n = locals != null ? locals.Count : counts.Count;
                 if (n < 4) return true;
+
                 int[] ids = new int[n], x = new int[n], z = new int[n];
                 for (int i = 0; i < n; i++)
                 {
                     Thing t = locals != null ? locals[i].Thing : counts[i].Thing;
                     ids[i] = t == null ? 0 : t.thingIDNumber;
-                    IntVec3 c = locals != null ? locals[i].Cell : (t == null ? IntVec3.Invalid : t.Position);
-                    x[i] = c.x; z[i] = c.z;
+                    IntVec3 cell = locals != null ? locals[i].Cell : (t == null ? IntVec3.Invalid : t.Position);
+                    x[i] = cell.x; z[i] = cell.z;
                 }
                 Thing starter = __args.Length > 1 ? __args[1] as Thing : null;
                 int sx = starter == null ? int.MinValue : starter.Position.x;
                 int sz = starter == null ? int.MinValue : starter.Position.z;
                 string key = Signature(ids, x, z, sx, sz);
+
                 int[] order;
                 lock (Sync) PathOrders.TryGetValue(key, out order);
                 if (order != null && order.Length == n)
@@ -292,43 +368,48 @@ namespace RimMTRC2T2
                     Interlocked.Increment(ref pathApplied);
                     return false;
                 }
-                __state = new OrderState { Key = key, X = x, Z = z, Ids = ids, StarterX = sx, StarterZ = sz, Valid = true };
+                __state = new PathState { Key = key, X = x, Z = z, StartX = sx, StartZ = sz, Valid = true };
                 return true;
             }
             catch (Exception ex)
             {
-                Interlocked.Increment(ref runtimeExceptions);
-                Log.Warning("[RimMT] Stage 4D path ordering error; Common Sense original continues: " + ex);
+                Interlocked.Increment(ref runtimeErrors);
+                Log.Warning("[RimMT] Stage 4D path hit error; original OptimizePath runs: " + ex);
                 return true;
             }
         }
 
-        public static void PathPostfix(OrderState __state)
+        public static void PathPostfix(PathState __state)
         {
-            if (!__state.Valid || string.IsNullOrEmpty(__state.Key)) return;
-            string key = __state.Key; int[] x = __state.X, z = __state.Z; int sx = __state.StarterX, sz = __state.StarterZ;
-            if (QueueWorker(delegate { int[] o = NearestOrder(x, z, sx, sz); lock (Sync) PathOrders[key] = o; }))
-                Interlocked.Increment(ref pathQueued);
+            if (!__state.Valid) return;
+            string key = __state.Key; int[] x = __state.X; int[] z = __state.Z; int sx = __state.StartX; int sz = __state.StartZ;
+            if (QueueWorker(delegate
+            {
+                int[] order = ExactNearestOrder(x, z, sx, sz);
+                lock (Sync) PathOrders[key] = order;
+            })) Interlocked.Increment(ref pathQueued);
         }
 
-        // ---------------- Ingredient rot/potency sorting ----------------
-        public static bool IngredientPrefix(List<Thing> availableThings, Bill bill, out IngredientState __state)
+        // --- 3a. Exact spoilage / potency ingredient ordering ----------------------------------
+        public static bool IngredientSortPrefix(List<Thing> availableThings, Bill bill, out IngredientSortState __state)
         {
-            __state = default(IngredientState);
-            Interlocked.Increment(ref ingCalls);
+            __state = default(IngredientSortState);
+            Interlocked.Increment(ref ingredientSortCalls);
             try
             {
-                if (availableThings == null || availableThings.Count < 4 || bill == null || bill.recipe == null) return true;
+                if (!ReadSetting("prefer_spoiling_ingredients", false) || availableThings == null || availableThings.Count < 4 || bill == null || bill.recipe == null || bill.recipe.addsHediff != null)
+                    return true;
+
                 int n = availableThings.Count;
                 int[] ids = new int[n], rot = new int[n];
-                float[] pot = new float[n];
+                float[] potency = new float[n];
                 for (int i = 0; i < n; i++)
                 {
                     Thing t = availableThings[i];
                     ids[i] = t == null ? 0 : t.thingIDNumber;
-                    pot[i] = t == null ? 0f : t.GetStatValue(StatDefOf.MedicalPotency);
+                    potency[i] = t == null ? 0f : t.GetStatValue(StatDefOf.MedicalPotency);
                     CompRottable r = t == null ? null : t.TryGetComp<CompRottable>();
-                    rot[i] = r == null ? int.MaxValue : (int)((r.PropsRot.TicksToRotStart - r.RotProgress) / 2500f);
+                    rot[i] = r == null ? int.MaxValue : (int)(r.PropsRot.TicksToRotStart - r.RotProgress) / 2500;
                 }
                 string key = bill.recipe.shortHash + ":" + Signature(ids, rot, null, 0, 0);
                 int[] order;
@@ -336,107 +417,196 @@ namespace RimMTRC2T2
                 if (order != null && order.Length == n)
                 {
                     ApplyOrder(availableThings, order);
-                    Interlocked.Increment(ref ingHits); Interlocked.Increment(ref ingApplied);
+                    Interlocked.Increment(ref ingredientSortHits);
+                    Interlocked.Increment(ref ingredientSortApplied);
                     return false;
                 }
-                __state = new IngredientState { Key = key, Ids = ids, Potency = pot, RotBucket = rot, Valid = true };
+                __state = new IngredientSortState { Key = key, Potency = potency, Rot = rot, Valid = true };
                 return true;
             }
             catch (Exception ex)
             {
-                Interlocked.Increment(ref runtimeExceptions);
-                Log.Warning("[RimMT] Stage 4D ingredient ordering error; Common Sense original continues: " + ex);
+                Interlocked.Increment(ref runtimeErrors);
+                Log.Warning("[RimMT] Stage 4D ingredient-sort hit error; Common Sense sort runs: " + ex);
                 return true;
             }
         }
 
-        public static void IngredientPostfix(IngredientState __state)
+        public static void IngredientSortPostfix(IngredientSortState __state)
         {
             if (!__state.Valid) return;
-            string key = __state.Key; float[] p = __state.Potency; int[] r = __state.RotBucket; int n = p.Length;
+            string key = __state.Key; float[] p = __state.Potency; int[] r = __state.Rot; int n = p.Length;
             if (QueueWorker(delegate
             {
-                int[] o = Enumerable.Range(0, n).ToArray();
-                Array.Sort(o, delegate(int a, int b)
+                int[] order = Enumerable.Range(0, n).ToArray();
+                Array.Sort(order, delegate(int a, int b)
                 {
-                    int pc = p[b].CompareTo(p[a]);
-                    if (pc != 0) return pc;
-                    return r[a].CompareTo(r[b]);
+                    if (p[a] > p[b]) return -1;
+                    if (p[a] < p[b]) return 1;
+                    bool ar = r[a] != int.MaxValue, br = r[b] != int.MaxValue;
+                    if (!ar) return !br ? 0 : 1;
+                    if (!br) return -1;
+                    return r[a] - r[b];
                 });
-                lock (Sync) IngredientOrders[key] = o;
-            })) Interlocked.Increment(ref ingQueued);
+                lock (Sync) IngredientOrders[key] = order;
+            })) Interlocked.Increment(ref ingredientSortQueued);
         }
 
-        // ---------------- Opportunistic cleaning path hint ----------------
-        public static bool OpportunityPrefix(Job currJob, Pawn pawn, int Limit, ref Job __result)
+        // --- 3b. Common Sense storage-group ingredient expansion memo ---------------------------
+        public static bool IngredientExpandPrefix(Pawn pawn, Predicate<Thing> baseValidator, bool billGiverIsPawn, List<Thing> newRelevantThings, HashSet<Thing> processedThings, out ExpandState __state)
         {
-            Interlocked.Increment(ref oppCalls);
+            __state = default(ExpandState);
+            Interlocked.Increment(ref ingredientExpandCalls);
             try
             {
-                string key; int sx, sz, bx, bz, tx, tz;
-                if (!OpportunityGeometry(currJob, pawn, out key, out sx, out sz, out bx, out bz, out tx, out tz)) return true;
-                OpportunityHint h; lock (Sync) OpportunityHints.TryGetValue(key, out h);
-                int now = Find.TickManager == null ? 0 : Find.TickManager.TicksGame;
-                if (h != null && now - h.Tick <= 60)
-                {
-                    Interlocked.Increment(ref oppHits);
-                    if (h.StrongSkip)
-                    {
-                        __result = null; Interlocked.Increment(ref oppStrongSkips); return false;
-                    }
+                if (!ReadSetting("prefer_spoiling_ingredients", false) || billGiverIsPawn || pawn == null || pawn.Map == null || baseValidator == null || newRelevantThings == null || processedThings == null)
                     return true;
-                }
-                if (QueueWorker(delegate
+
+                int tick = TickNow();
+                int[] ids = newRelevantThings.Where(t => t != null).Select(t => t.thingIDNumber).ToArray();
+                string key = pawn.Map.GetHashCode() + ":" + pawn.thingIDNumber + ":" + Signature(ids, null, null, processedThings.Count, 0);
+                ExpandCache cache;
+                lock (Sync) IngredientExpand.TryGetValue(key, out cache);
+                if (cache != null && cache.Things != null && cache.Order != null && tick - cache.Tick <= IngredientExpandTtl)
                 {
-                    double stot = Math.Sqrt((sx - tx) * (long)(sx - tx) + (sz - tz) * (long)(sz - tz));
-                    double stob = Math.Sqrt((sx - bx) * (long)(sx - bx) + (sz - bz) * (long)(sz - bz));
-                    double btot = Math.Sqrt((bx - tx) * (long)(bx - tx) + (bz - tz) * (long)(bz - tz));
-                    bool strong = stob > 20.0 && stob + btot > 0.0 && stot / (stob + btot) < 0.45;
-                    int tick = Find.TickManager == null ? 0 : Find.TickManager.TicksGame;
-                    lock (Sync) OpportunityHints[key] = new OpportunityHint { Tick = tick, StrongSkip = strong };
-                })) Interlocked.Increment(ref oppQueued);
+                    for (int oi = 0; oi < cache.Order.Length; oi++)
+                    {
+                        int idx = cache.Order[oi];
+                        if (idx < 0 || idx >= cache.Things.Length) continue;
+                        Thing t = cache.Things[idx];
+                        if (t == null || t.Destroyed || !t.Spawned || t.Map != pawn.Map || t.def.IsMedicine || processedThings.Contains(t)) continue;
+                        if (!baseValidator(t)) continue;
+                        if (!pawn.CanReach(t, PathEndMode.OnCell, Danger.Deadly)) continue;
+                        newRelevantThings.Add(t);
+                        processedThings.Add(t);
+                    }
+                    Interlocked.Increment(ref ingredientExpandHits);
+                    Interlocked.Increment(ref ingredientExpandApplied);
+                    return false;
+                }
+
+                __state = new ExpandState
+                {
+                    Key = key,
+                    Tick = tick,
+                    Before = new HashSet<int>(newRelevantThings.Where(t => t != null).Select(t => t.thingIDNumber)),
+                    Valid = true
+                };
                 return true;
             }
             catch (Exception ex)
             {
-                Interlocked.Increment(ref runtimeExceptions);
-                Log.Warning("[RimMT] Stage 4D opportunity hint error; Common Sense original continues: " + ex);
+                Interlocked.Increment(ref runtimeErrors);
+                Log.Warning("[RimMT] Stage 4D ingredient-expand hit error; Common Sense expansion runs: " + ex);
                 return true;
             }
         }
 
-        public static void OpportunityPostfix() { }
-
-        private static bool OpportunityGeometry(Job job, Pawn pawn, out string key, out int sx, out int sz, out int bx, out int bz, out int tx, out int tz)
+        public static void IngredientExpandPostfix(List<Thing> newRelevantThings, ExpandState __state)
         {
-            key = null; sx = sz = bx = bz = tx = tz = 0;
-            if (job == null || pawn == null || pawn.Map == null || !job.targetA.IsValid) return false;
-            Thing building = job.targetA.Thing;
-            if (building == null) return false;
-            Thing target = job.targetB.Thing;
-            if (target == null && job.targetQueueB != null && job.targetQueueB.Count > 0) target = job.targetQueueB[0].Thing;
-            if (target == null) return false;
-            sx = pawn.Position.x; sz = pawn.Position.z; bx = building.Position.x; bz = building.Position.z; tx = target.Position.x; tz = target.Position.z;
-            key = pawn.Map.GetHashCode() + ":" + pawn.thingIDNumber + ":" + sx + "," + sz + ":" + bx + "," + bz + ":" + tx + "," + tz;
-            return true;
+            if (!__state.Valid || newRelevantThings == null) return;
+            try
+            {
+                Thing[] extras = newRelevantThings.Where(t => t != null && !__state.Before.Contains(t.thingIDNumber)).ToArray();
+                ExpandCache cache = new ExpandCache { Tick = __state.Tick, Things = extras, Order = null };
+                lock (Sync) IngredientExpand[__state.Key] = cache;
+                int[] ids = extras.Select(t => t.thingIDNumber).ToArray();
+                string key = __state.Key;
+                if (QueueWorker(delegate
+                {
+                    int[] order = Enumerable.Range(0, ids.Length).OrderBy(i => ids[i]).ToArray();
+                    lock (Sync)
+                    {
+                        ExpandCache c;
+                        if (IngredientExpand.TryGetValue(key, out c) && c == cache) c.Order = order;
+                    }
+                })) Interlocked.Increment(ref ingredientExpandQueued);
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref runtimeErrors);
+                Log.Warning("[RimMT] Stage 4D ingredient-expand publish error: " + ex);
+            }
         }
 
-        private static int[] NearestOrder(int[] x, int[] z, int sx, int sz)
+        // --- 4. Opportunistic cleaning negative memo --------------------------------------------
+        public static bool OpportunityPrefix(Job currJob, Pawn pawn, int Limit, ref Job __result, out OpportunityState __state)
         {
-            int n = x.Length; int[] order = Enumerable.Range(0, n).ToArray();
-            for (int i = 0; i < n; i++)
+            __state = default(OpportunityState);
+            Interlocked.Increment(ref opportunityCalls);
+            try
             {
-                int best = i; long bestD = Dist(i == 0 ? sx : x[order[i - 1]], i == 0 ? sz : z[order[i - 1]], x[order[i]], z[order[i]]);
-                for (int j = i + 1; j < n; j++)
+                if (currJob == null || pawn == null || pawn.Map == null || !currJob.targetA.IsValid) return true;
+                Thing building = currJob.targetA.Thing;
+                Thing target = currJob.targetB.Thing;
+                if (target == null && currJob.targetQueueB != null && currJob.targetQueueB.Count > 0) target = currJob.targetQueueB[0].Thing;
+                int tick = TickNow();
+                string key = pawn.Map.GetHashCode() + ":" + pawn.thingIDNumber + ":" + currJob.def.shortHash + ":" + pawn.Position.x + "," + pawn.Position.z + ":" +
+                    (building == null ? "-" : building.thingIDNumber + "@" + building.Position.x + "," + building.Position.z) + ":" +
+                    (target == null ? "-" : target.thingIDNumber + "@" + target.Position.x + "," + target.Position.z) + ":" + Limit + ":" + ReadSetting("calculate_full_path", false);
+
+                NegativeHint hint;
+                lock (Sync) OpportunityNegative.TryGetValue(key, out hint);
+                if (hint != null && hint.Skip && tick - hint.Tick <= OpportunityNegativeTtl)
                 {
-                    long d = Dist(i == 0 ? sx : x[order[i - 1]], i == 0 ? sz : z[order[i - 1]], x[order[j]], z[order[j]]);
-                    if (d < bestD) { bestD = d; best = j; }
+                    __result = null;
+                    Interlocked.Increment(ref opportunityNegativeHits);
+                    return false;
                 }
-                if (best != i) { int t = order[i]; order[i] = order[best]; order[best] = t; }
+                __state = new OpportunityState { Key = key, Tick = tick, Valid = true };
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref runtimeErrors);
+                Log.Warning("[RimMT] Stage 4D opportunity hit error; Common Sense original runs: " + ex);
+                return true;
+            }
+        }
+
+        public static void OpportunityPostfix(Job __result, OpportunityState __state)
+        {
+            if (!__state.Valid || __result != null) return;
+            string key = __state.Key; int tick = __state.Tick;
+            if (QueueWorker(delegate
+            {
+                lock (Sync) OpportunityNegative[key] = new NegativeHint { Tick = tick, Skip = true };
+            })) Interlocked.Increment(ref opportunityQueued);
+        }
+
+        private static int[] ExactNearestOrder(int[] x, int[] z, int sx, int sz)
+        {
+            int n = x.Length;
+            int[] order = Enumerable.Range(0, n).ToArray();
+            if (n == 0) return order;
+
+            if (sx != int.MinValue)
+            {
+                int best = 0;
+                long bestD = Dist(x[order[0]], z[order[0]], sx, sz);
+                for (int i = 1; i < n; i++)
+                {
+                    long d = Dist(x[order[i]], z[order[i]], sx, sz);
+                    if (Math.Abs(d) < Math.Abs(bestD)) { bestD = d; best = i; }
+                }
+                Swap(order, 0, best);
+            }
+
+            for (int i = 0; i < n - 1; i++)
+            {
+                int best = i + 1;
+                long bestD = Dist(x[order[i]], z[order[i]], x[order[best]], z[order[best]]);
+                for (int c = i + 2; c < n; c++)
+                {
+                    long d = Dist(x[order[i]], z[order[i]], x[order[c]], z[order[c]]);
+                    if (Math.Abs(d) < Math.Abs(bestD)) { bestD = d; best = c; }
+                }
+                Swap(order, i + 1, best);
             }
             return order;
         }
 
+        private static void Swap(int[] a, int x, int y) { if (x == y) return; int t = a[x]; a[x] = a[y]; a[y] = t; }
         private static long Dist(int ax, int az, int bx, int bz) { long dx = ax - bx, dz = az - bz; return dx * dx + dz * dz; }
 
         private static void ApplyOrder(object listObj, int[] order)
@@ -444,17 +614,22 @@ namespace RimMTRC2T2
             IList<LocalTargetInfo> locals = listObj as IList<LocalTargetInfo>;
             if (locals != null)
             {
-                LocalTargetInfo[] copy = locals.ToArray(); for (int i = 0; i < order.Length; i++) locals[i] = copy[order[i]]; return;
+                LocalTargetInfo[] copy = locals.ToArray();
+                for (int i = 0; i < order.Length; i++) locals[i] = copy[order[i]];
+                return;
             }
             IList<ThingCount> counts = listObj as IList<ThingCount>;
             if (counts != null)
             {
-                ThingCount[] copy = counts.ToArray(); for (int i = 0; i < order.Length; i++) counts[i] = copy[order[i]]; return;
+                ThingCount[] copy = counts.ToArray();
+                for (int i = 0; i < order.Length; i++) counts[i] = copy[order[i]];
+                return;
             }
             IList<Thing> things = listObj as IList<Thing>;
             if (things != null)
             {
-                Thing[] copy = things.ToArray(); for (int i = 0; i < order.Length; i++) things[i] = copy[order[i]];
+                Thing[] copy = things.ToArray();
+                for (int i = 0; i < order.Length; i++) things[i] = copy[order[i]];
             }
         }
 
@@ -463,7 +638,12 @@ namespace RimMTRC2T2
             unchecked
             {
                 long h = 1469598103934665603L;
-                for (int i = 0; i < a.Length; i++) { h ^= a[i]; h *= 1099511628211L; if (b != null) { h ^= b[i]; h *= 1099511628211L; } if (c != null) { h ^= c[i]; h *= 1099511628211L; } }
+                for (int i = 0; i < a.Length; i++)
+                {
+                    h ^= a[i]; h *= 1099511628211L;
+                    if (b != null) { h ^= b[i]; h *= 1099511628211L; }
+                    if (c != null) { h ^= c[i]; h *= 1099511628211L; }
+                }
                 h ^= x; h *= 1099511628211L; h ^= z;
                 return h.ToString("X16") + ":" + a.Length;
             }
@@ -471,14 +651,15 @@ namespace RimMTRC2T2
 
         public static void Report()
         {
-            double cleanMs = Interlocked.Read(ref cleanOriginalMsTicks) * ToMs;
-            Log.Message("[RimMT] RC2-T2 Stage 4D Common Sense Accelerator report: worker queued/completed/rejected/errors=" + workerQueued + "/" + workerCompleted + "/" + workerRejected + "/" + workerExceptions +
-                ", runtimeExceptions=" + runtimeExceptions +
-                "; cleaning calls/hits/published=" + cleanCalls + "/" + cleanHits + "/" + cleanPublished + ", measuredOriginalMs=" + cleanMs.ToString("F2") +
+            Log.Message("[RimMT] RC2-T2 Stage 4D Common Sense Accelerator report: worker queued/completed/rejected/errors=" +
+                workerQueued + "/" + workerCompleted + "/" + workerRejected + "/" + workerErrors +
+                ", runtimeErrors=" + runtimeErrors +
+                "; cleaning calls/hits/published/missMs=" + cleaningCalls + "/" + cleaningHits + "/" + cleaningPublished + "/" + (cleaningMissTicks * ToMs).ToString("F2") +
                 "; path calls/hits/queued/applied=" + pathCalls + "/" + pathHits + "/" + pathQueued + "/" + pathApplied +
-                "; ingredient calls/hits/queued/applied=" + ingCalls + "/" + ingHits + "/" + ingQueued + "/" + ingApplied +
-                "; opportunity calls/hits/queued/strongSkips=" + oppCalls + "/" + oppHits + "/" + oppQueued + "/" + oppStrongSkips +
-                ". Worker tasks operate on primitive snapshots only; no main-thread wait is used.");
+                "; ingredientSort calls/hits/queued/applied=" + ingredientSortCalls + "/" + ingredientSortHits + "/" + ingredientSortQueued + "/" + ingredientSortApplied +
+                "; ingredientExpand calls/hits/queued/applied=" + ingredientExpandCalls + "/" + ingredientExpandHits + "/" + ingredientExpandQueued + "/" + ingredientExpandApplied +
+                "; opportunity calls/negativeHits/queued=" + opportunityCalls + "/" + opportunityNegativeHits + "/" + opportunityQueued +
+                ". Main thread never waits for worker completion.");
         }
     }
 }
