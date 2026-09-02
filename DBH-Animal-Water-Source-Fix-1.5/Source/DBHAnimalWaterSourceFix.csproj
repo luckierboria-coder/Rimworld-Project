@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>DBHAnimalWaterSourceFix</AssemblyName>
+    <RootNamespace>Allen.DBHAnimalWaterSourceFix</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4066" PrivateAssets="all" />
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" PrivateAssets="all" />
+    <Reference Include="BadHygiene">
+      <HintPath>..\Libs\BadHygiene.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
