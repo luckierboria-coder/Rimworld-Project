@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -11,8 +12,10 @@ namespace RimMT
     /// <summary>
     /// RC2-T2 persistent DoBill index, redesigned for Unified Lean.
     /// The persistent index caches only stable membership facts (spawned IBillGiver instances),
-    /// not transient ThingIsUsableBillGiver results. This removes the old raw source-count rebuild
-    /// churn while leaving final usability, reservation, reachability and JobOnThing authority live.
+    /// not transient ThingIsUsableBillGiver results. V0.9.2 tail refinement also performs a cheap
+    /// live BillStack.AnyShouldDoNow gate per bench so inactive bill givers never reach expensive
+    /// JobOnThing/ingredient search. Final usability, reservation, reachability and JobOnThing
+    /// authority remain live and Vanilla-owned.
     /// </summary>
     [StaticConstructorOnStartup]
     internal static class PersistentDoBillIndex092
@@ -21,6 +24,17 @@ namespace RimMT
         private static bool sourcePatched;
         private static bool shouldSkipPatched;
         private static int failureLogs;
+
+        private static long sourceLookups;
+        private static long sourceIndexHits;
+        private static long readinessScans;
+        private static long inactiveFiltered;
+        private static long activeReturned;
+        private static long indexRebuilds;
+        private static long invalidations;
+        private static long shouldSkipCalls;
+        private static long shouldSkipNoWork;
+        private static long shouldSkipContinue;
 
         static PersistentDoBillIndex092()
         {
@@ -53,7 +67,7 @@ namespace RimMT
                 if (despawn != null)
                     harmony.Patch(despawn, prefix: new HarmonyMethod(typeof(PersistentDoBillIndex092), nameof(ThingDeSpawnPrefix)) { priority = Priority.First });
 
-                Log.Message("[RimMT] Unified persistent DoBill index active: source=" + sourcePatched + ", shouldSkip=" + shouldSkipPatched + ". Index membership rebuilds only when an IBillGiver spawns/despawns; transient usability remains live-authoritative.");
+                Log.Message("[RimMT] Unified persistent DoBill index active: source=" + sourcePatched + ", shouldSkip=" + shouldSkipPatched + ". Stable membership is cached; inactive bill givers are removed by a live AnyShouldDoNow readiness gate before expensive JobOnThing.");
             }
             catch (Exception ex)
             {
@@ -67,21 +81,56 @@ namespace RimMT
             WorkGiver_DoBill giver = __instance as WorkGiver_DoBill;
             if (giver == null || giver.def == null) return;
 
+            Interlocked.Increment(ref sourceLookups);
             try
             {
                 BillMapCache cache = Caches.GetValue(pawn.Map, delegate(Map m) { return new BillMapCache(); });
-                __result = cache.Get(giver, pawn.Map);
+                List<Thing> things = cache.Get(giver, pawn.Map);
+                if (things == null)
+                    return;
+
+                Interlocked.Increment(ref sourceIndexHits);
+                Interlocked.Add(ref readinessScans, things.Count);
+
+                // Do not allocate when every represented bench is currently active. Only once an
+                // inactive BillStack is observed do we materialize a filtered list and copy the
+                // already-validated prefix. Every exclusion is based on live main-thread state.
+                List<Thing> active = null;
+                for (int i = 0; i < things.Count; i++)
+                {
+                    Thing thing = things[i];
+                    IBillGiver billGiver = thing as IBillGiver;
+                    BillStack stack = billGiver == null ? null : billGiver.BillStack;
+
+                    bool keep = stack == null || stack.AnyShouldDoNow;
+                    if (keep)
+                    {
+                        Interlocked.Increment(ref activeReturned);
+                        if (active != null) active.Add(thing);
+                        continue;
+                    }
+
+                    Interlocked.Increment(ref inactiveFiltered);
+                    if (active == null)
+                    {
+                        active = new List<Thing>(things.Count);
+                        for (int j = 0; j < i; j++) active.Add(things[j]);
+                    }
+                }
+
+                __result = active == null ? (IEnumerable<Thing>)things : active;
             }
             catch (Exception ex)
             {
                 if (failureLogs++ < 4)
-                    Log.Warning("[RimMT] DoBill source index failed closed for one call: " + ex.GetType().Name + ": " + ex.Message);
+                    Log.Warning("[RimMT] DoBill source/readiness gate failed closed for one call: " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
         public static bool ShouldSkipPrefix(WorkGiver_DoBill __instance, Pawn pawn, ref bool __result)
         {
             if (!shouldSkipPatched || __instance == null || pawn == null || pawn.Map == null || __instance.def == null) return true;
+            Interlocked.Increment(ref shouldSkipCalls);
             try
             {
                 BillMapCache cache = Caches.GetValue(pawn.Map, delegate(Map m) { return new BillMapCache(); });
@@ -93,16 +142,14 @@ namespace RimMT
                     if (billGiver == null || ReferenceEquals(thing, pawn) || billGiver.BillStack == null) continue;
                     if (billGiver.BillStack.AnyShouldDoNow)
                     {
-                        // Work may still be unusable for this pawn. Returning false only asks
-                        // Vanilla to continue scanning; it never fabricates a Job.
                         __result = false;
+                        Interlocked.Increment(ref shouldSkipContinue);
                         return false;
                     }
                 }
 
-                // Every spawned IBillGiver matching this WorkGiver's ThingRequest is represented.
-                // No bill stack currently wants work, so skipping the scanner is authoritative.
                 __result = true;
+                Interlocked.Increment(ref shouldSkipNoWork);
                 return false;
             }
             catch { return true; }
@@ -125,7 +172,10 @@ namespace RimMT
         {
             BillMapCache cache;
             if (map != null && Caches.TryGetValue(map, out cache) && cache != null)
+            {
                 cache.Invalidate();
+                Interlocked.Increment(ref invalidations);
+            }
         }
 
         private static bool HasUnsafeForeignPatch(MethodBase target)
@@ -145,6 +195,24 @@ namespace RimMT
                 return true;
             }
             return false;
+        }
+
+        internal static string Summary()
+        {
+            long scans = Interlocked.Read(ref readinessScans);
+            long filtered = Interlocked.Read(ref inactiveFiltered);
+            double filterRate = scans <= 0 ? 0.0 : filtered * 100.0 / scans;
+            return "DoBill persistent index/readiness: sourceLookups=" + Interlocked.Read(ref sourceLookups) +
+                ", sourceIndexHits=" + Interlocked.Read(ref sourceIndexHits) +
+                ", readinessScans=" + scans +
+                ", inactiveFiltered=" + filtered +
+                ", filterRate=" + filterRate.ToString("F2") + "%" +
+                ", activeReturned=" + Interlocked.Read(ref activeReturned) +
+                ", rebuilds=" + Interlocked.Read(ref indexRebuilds) +
+                ", invalidations=" + Interlocked.Read(ref invalidations) +
+                ", shouldSkipCalls=" + Interlocked.Read(ref shouldSkipCalls) +
+                ", shouldSkipNoWork=" + Interlocked.Read(ref shouldSkipNoWork) +
+                ", shouldSkipContinue=" + Interlocked.Read(ref shouldSkipContinue) + ".";
         }
 
         private sealed class BillMapCache
@@ -168,6 +236,7 @@ namespace RimMT
                     }
                 }
                 byDef[giver.def] = cached;
+                Interlocked.Increment(ref indexRebuilds);
                 return cached;
             }
 
