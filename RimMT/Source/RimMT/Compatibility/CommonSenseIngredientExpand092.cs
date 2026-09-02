@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using HarmonyLib;
 using RimWorld;
@@ -11,7 +12,8 @@ namespace RimMT
     /// <summary>
     /// The only retained Stage4D Common Sense optimization. Misses run Common Sense unchanged;
     /// hits replay only previously observed extras and revalidate live state, baseValidator and
-    /// CanReach. V0.9.2 keeps only cheap aggregate counters for on-demand reporting.
+    /// CanReach. Timing is recorded only on cache misses, which are rare, so the measurement does
+    /// not tax the 99%+ hit path.
     /// </summary>
     [StaticConstructorOnStartup]
     internal static class CommonSenseIngredientExpand092
@@ -30,11 +32,14 @@ namespace RimMT
         private static long extrasRejectedLive;
         private static long extrasReplayed;
         private static long publishes;
+        private static long missPathTicks;
+        private static long missPathTicksMax;
 
         internal struct ExpandState
         {
             internal ExpandKey Key;
             internal int Tick;
+            internal long StartTimestamp;
             internal HashSet<int> Before;
             internal bool Valid;
         }
@@ -68,7 +73,7 @@ namespace RimMT
                     prefix: new HarmonyMethod(typeof(CommonSenseIngredientExpand092), nameof(Prefix)) { priority = Priority.First },
                     postfix: new HarmonyMethod(typeof(CommonSenseIngredientExpand092), nameof(Postfix)) { priority = Priority.Last });
                 installed = true;
-                Log.Message("[RimMT] Unified Common Sense ingredient-expansion memo active; cached setting metadata and allocation-light miss capture are enabled.");
+                Log.Message("[RimMT] Unified Common Sense ingredient-expansion memo active; cached setting metadata, allocation-light miss capture and miss-only timing are enabled.");
             }
             catch (Exception ex)
             {
@@ -126,6 +131,7 @@ namespace RimMT
                 {
                     Key = key,
                     Tick = tick,
+                    StartTimestamp = Stopwatch.GetTimestamp(),
                     Before = CaptureIds(newRelevantThings),
                     Valid = true
                 };
@@ -143,6 +149,16 @@ namespace RimMT
             if (!__state.Valid || newRelevantThings == null) return;
             try
             {
+                if (__state.StartTimestamp != 0L)
+                {
+                    long elapsed = Stopwatch.GetTimestamp() - __state.StartTimestamp;
+                    if (elapsed > 0L)
+                    {
+                        missPathTicks += elapsed;
+                        if (elapsed > missPathTicksMax) missPathTicksMax = elapsed;
+                    }
+                }
+
                 int extraCount = 0;
                 for (int i = 0; i < newRelevantThings.Count; i++)
                 {
@@ -192,17 +208,24 @@ namespace RimMT
         {
             long total = eligibleCalls;
             long hits = cacheHits;
+            long misses = cacheMisses;
             double hitRate = total <= 0 ? 0.0 : hits * 100.0 / total;
+            double avgMissUs = misses <= 0 ? 0.0 : (missPathTicks * 1000000.0 / Stopwatch.Frequency) / misses;
+            double maxMissUs = missPathTicksMax * 1000000.0 / Stopwatch.Frequency;
+            double estimatedAvoidedMs = hits <= 0 ? 0.0 : avgMissUs * hits / 1000.0;
             return "CommonSense ingredient memo: installed=" + installed +
                 ", eligibleCalls=" + total +
                 ", hits=" + hits +
-                ", misses=" + cacheMisses +
+                ", misses=" + misses +
                 ", hitRate=" + hitRate.ToString("F2") + "%" +
                 ", extrasRevalidated=" + extrasRevalidated +
                 ", extrasRejectedLive=" + extrasRejectedLive +
                 ", extrasReplayed=" + extrasReplayed +
                 ", publishes=" + publishes +
-                ", entries=" + Cache.Count + ".";
+                ", entries=" + Cache.Count +
+                ", missPathAvgUs=" + avgMissUs.ToString("F2") +
+                ", missPathMaxUs=" + maxMissUs.ToString("F2") +
+                ", estimatedAvoidedMs=" + estimatedAvoidedMs.ToString("F1") + ".";
         }
 
         private static ExpandKey BuildKey(Pawn pawn, List<Thing> relevant, int processedCount)
