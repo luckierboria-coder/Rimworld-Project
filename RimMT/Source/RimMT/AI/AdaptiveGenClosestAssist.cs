@@ -31,7 +31,7 @@ namespace RimMT
             new ConditionalWeakTable<object, SourceState>();
 
         private static volatile bool compatibilityReady;
-        private static volatile bool coldMode;
+        private static int coldModeValue;
         private static int nextSourceId;
 
         [ThreadStatic]
@@ -310,12 +310,12 @@ namespace RimMT
 
         private static bool ShouldColdBypass(long observedNow)
         {
-            if (!Volatile.Read(ref coldMode))
+            if (Volatile.Read(ref coldModeValue) == 0)
             {
                 long useful = Interlocked.Read(ref lastUsefulObserved);
                 if (observedNow - useful < ColdAfterObservedWithoutUseful)
                     return false;
-                Volatile.Write(ref coldMode, true);
+                Volatile.Write(ref coldModeValue, 1);
                 Interlocked.Increment(ref coldEnters);
             }
 
@@ -332,8 +332,8 @@ namespace RimMT
         private static void MarkUseful(long observedNow)
         {
             Interlocked.Exchange(ref lastUsefulObserved, observedNow);
-            if (!Volatile.Read(ref coldMode)) return;
-            Volatile.Write(ref coldMode, false);
+            if (Volatile.Read(ref coldModeValue) == 0) return;
+            Volatile.Write(ref coldModeValue, 0);
             Interlocked.Increment(ref coldExits);
         }
 
@@ -452,7 +452,7 @@ namespace RimMT
             double maxQueryUs = Interlocked.Read(ref queryTicksMax) * 1000000.0 / Stopwatch.Frequency;
 
             return "Persistent-fabric GenClosest V0.4.14: compatibilityReady=" + compatibilityReady +
-                ", coldMode=" + Volatile.Read(ref coldMode) +
+                ", coldMode=" + (Volatile.Read(ref coldModeValue) != 0) +
                 ", observed=" + Interlocked.Read(ref observedCalls) +
                 ", eligible=" + eligible +
                 ", accelerated=" + accelerated +
