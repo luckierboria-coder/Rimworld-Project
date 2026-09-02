@@ -19,44 +19,18 @@ namespace RimMT
         {
             Listing_Standard listing = new Listing_Standard();
             listing.Begin(inRect);
-            listing.Label("RimMT_SettingsIntro".Translate());
+            listing.Label("RimMT V0.9.2 Unified Lean — single DLL production build");
+            listing.Label("Runtime profilers, PathSnapshot shadow validation and WorkPrefilter are not resident. Optional diagnostics can be installed separately when needed.");
             listing.GapLine();
+
             listing.CheckboxLabeled("RimMT_AdaptiveBurst".Translate(), ref Settings.AdaptiveBurst, "RimMT_AdaptiveBurstDesc".Translate());
-            listing.CheckboxLabeled("RimMT_HotPathDiagnostics".Translate(), ref Settings.HotPathDiagnostics, "RimMT_HotPathDiagnosticsDesc".Translate());
-            listing.GapLine();
             listing.CheckboxLabeled("RimMT_TextCache".Translate(), ref Settings.TextCache, "RimMT_TextCacheDesc".Translate());
-            listing.CheckboxLabeled("RimMT_OverlayCache".Translate(), ref Settings.OverlayCache, "RimMT_OverlayCacheDesc".Translate());
-            listing.Label("RimMT_OverlayRefresh".Translate(Settings.OverlayRefreshFrames));
-            Settings.OverlayRefreshFrames = (int)listing.Slider(Settings.OverlayRefreshFrames, 5f, 120f);
-            listing.GapLine();
-
-            listing.Label("RimMT_Production".Translate());
             listing.CheckboxLabeled("RimMT_WorkScanAcceleration".Translate(), ref Settings.WorkScanAcceleration, "RimMT_WorkScanAccelerationDesc".Translate());
-            listing.GapLine();
-
-            listing.Label("RimMT_Experimental".Translate());
-            listing.CheckboxLabeled("RimMT_PathSnapshotWorker".Translate(), ref Settings.PathSnapshotWorker, "RimMT_PathSnapshotWorkerDesc".Translate());
-            listing.CheckboxLabeled("RimMT_ReachNoCache".Translate(), ref Settings.ReachNoCache, "RimMT_ReachNoCacheDesc".Translate());
-            listing.Label("RimMT_ReachTtl".Translate(Settings.ReachNoCacheTtl));
-            Settings.ReachNoCacheTtl = (int)listing.Slider(Settings.ReachNoCacheTtl, 5f, 60f);
-            listing.GapLine();
-
-            if (WorkGiverDetailPatches.CaptureActive)
-            {
-                listing.Label("RimMT_JobGiverCaptureActive".Translate(WorkGiverDetailPatches.PackagesRemaining));
-                if (listing.ButtonText("RimMT_StopJobGiverCapture".Translate()))
-                    WorkGiverDetailPatches.RequestStopCapture();
-            }
-            else
-            {
-                listing.Label("RimMT_JobGiverCaptureDesc".Translate());
-                if (listing.ButtonText("RimMT_StartJobGiverCapture".Translate()))
-                    WorkGiverDetailPatches.StartCapture();
-            }
 
             listing.GapLine();
-            if (listing.ButtonText("RimMT_LogReport".Translate())) RimMTDiagnostics.LogRuntimeReport();
-            if (listing.ButtonText("RimMT_RunSelfTest".Translate())) RimMTDiagnostics.RunWorkerSelfTest();
+            if (listing.ButtonText("RimMT_RunSelfTest".Translate()))
+                RimMTDiagnostics.RunWorkerSelfTest();
+
             listing.End();
             RimMTRuntime.ApplySettings(Settings);
         }
