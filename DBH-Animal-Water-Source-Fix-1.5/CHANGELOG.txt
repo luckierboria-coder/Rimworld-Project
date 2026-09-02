@@ -1,0 +1,19 @@
+DBH Animal Water Source Fix - RimWorld 1.5
+
+Purpose
+- Prevent animal drinking job loops when Dubs Bad Hygiene gives an animal an inventory water Ingest job while a usable basin/trough is also available.
+
+Behavior
+- Patches only DubsBadHygiene.JobGiver_DrinkWater.TryGiveJob(Pawn).
+- Only runs for animals.
+- Only intervenes when DBH has already selected an inventory item with WaterExt.SeekForThirst as an Ingest target.
+- Calls DBH's own ClosestSanitation.FindBestDrink using the same urgency and search-range rules as DBH.
+- If DBH returns a basin/sanitation fixture, replaces the inventory Ingest job with DBHDrinkFromBasin.
+- If DBH finds no usable basin, leaves the original inventory water job unchanged.
+- On reflection/API failure, fails open and leaves DBH behavior unchanged.
+
+Performance
+- No global Pawn scans.
+- No GameComponent/WorldComponent tick loop.
+- No Pawn_JobTracker patch.
+- No extra work unless an animal is thirsty and DBH has selected carried water.
