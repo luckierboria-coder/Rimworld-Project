@@ -31,9 +31,6 @@ namespace RimMT
         private long parallelBatchesEnqueued;
         private long timeoutPollClaims;
 
-        // Production-only counters deliberately exclude diagnostics.selfTest so a manual CPU test
-        // cannot make normal gameplay appear to saturate all workers. These are cheap aggregate
-        // counters only; no per-item stopwatch/profiler is installed.
         private int productionPending;
         private int productionActiveWorkers;
         private int productionPeakActiveWorkers;
@@ -43,6 +40,10 @@ namespace RimMT
         private long productionRejected;
         private long productionFailures;
         private long productionParallelBatches;
+
+        // These two sampling accumulators are written only by RimMTRuntime.OnMainThreadFrame.
+        // Keeping them non-atomic removes two locked RMW operations per rendered frame while all
+        // actual worker-owned counters below remain Interlocked/Volatile.
         private long productionConcurrencySamples;
         private long productionActiveWorkerSamples;
 
@@ -69,13 +70,13 @@ namespace RimMT
         public long ProductionRejected { get { return Interlocked.Read(ref productionRejected); } }
         public long ProductionFailures { get { return Interlocked.Read(ref productionFailures); } }
         public long ProductionParallelBatches { get { return Interlocked.Read(ref productionParallelBatches); } }
-        public long ProductionConcurrencySamples { get { return Interlocked.Read(ref productionConcurrencySamples); } }
+        public long ProductionConcurrencySamples { get { return Volatile.Read(ref productionConcurrencySamples); } }
         public double ProductionAverageActiveWorkers
         {
             get
             {
-                long samples = Interlocked.Read(ref productionConcurrencySamples);
-                return samples <= 0 ? 0.0 : Interlocked.Read(ref productionActiveWorkerSamples) / (double)samples;
+                long samples = Volatile.Read(ref productionConcurrencySamples);
+                return samples <= 0 ? 0.0 : Volatile.Read(ref productionActiveWorkerSamples) / (double)samples;
             }
         }
         public double ProductionWorkerUtilizationPercent
@@ -199,8 +200,8 @@ namespace RimMT
 
         internal void SampleProductionConcurrency()
         {
-            Interlocked.Increment(ref productionConcurrencySamples);
-            Interlocked.Add(ref productionActiveWorkerSamples, Volatile.Read(ref productionActiveWorkers));
+            productionConcurrencySamples++;
+            productionActiveWorkerSamples += Volatile.Read(ref productionActiveWorkers);
         }
 
         private static bool IsProductionFeature(string featureId)
@@ -210,18 +211,11 @@ namespace RimMT
 
         private void ReleaseWakeCredits(int count)
         {
-            if (count <= 0)
-                return;
-            if (count > 1)
-                Interlocked.Increment(ref multiWakeCalls);
+            if (count <= 0) return;
+            if (count > 1) Interlocked.Increment(ref multiWakeCalls);
             Interlocked.Add(ref wakeReleases, count);
-            try
-            {
-                wakeSignal.Release(count);
-            }
-            catch (SemaphoreFullException)
-            {
-            }
+            try { wakeSignal.Release(count); }
+            catch (SemaphoreFullException) { }
         }
 
         private void EnqueueReserved(WorkItem item, JobPriority priority)
@@ -241,11 +235,9 @@ namespace RimMT
                 bool signaled = wakeSignal.Wait(5);
                 WorkItem item;
                 bool backgroundSlot;
-                if (!TryTake(out item, out backgroundSlot))
-                    continue;
+                if (!TryTake(out item, out backgroundSlot)) continue;
 
-                if (!signaled)
-                    Interlocked.Increment(ref timeoutPollClaims);
+                if (!signaled) Interlocked.Increment(ref timeoutPollClaims);
 
                 int active = Interlocked.Increment(ref activeWorkers);
                 UpdatePeak(ref peakActiveWorkers, active);
@@ -325,8 +317,7 @@ namespace RimMT
             int observed;
             while (value > (observed = Volatile.Read(ref field)))
             {
-                if (Interlocked.CompareExchange(ref field, value, observed) == observed)
-                    break;
+                if (Interlocked.CompareExchange(ref field, value, observed) == observed) break;
             }
         }
 
@@ -335,8 +326,7 @@ namespace RimMT
             int observed;
             while (value > (observed = Volatile.Read(ref field)))
             {
-                if (Interlocked.CompareExchange(ref field, value, observed) == observed)
-                    break;
+                if (Interlocked.CompareExchange(ref field, value, observed) == observed) break;
             }
         }
 
