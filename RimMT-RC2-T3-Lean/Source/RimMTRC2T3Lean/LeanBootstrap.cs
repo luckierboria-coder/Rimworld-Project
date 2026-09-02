@@ -188,6 +188,17 @@ namespace RimMTRC2T3Lean
             if (!IsStage4D(typeName))
                 return false;
 
+            // The diagnostic run identified these exact generic Stage4D patch names.
+            // They belong to the zero-hit path-ordering experiment and the report hook,
+            // so they are safe to remove explicitly in Lean.
+            if (string.Equals(methodName, "PathPrefix", StringComparison.Ordinal) ||
+                string.Equals(methodName, "PathPostfix", StringComparison.Ordinal) ||
+                string.Equals(methodName, "Report", StringComparison.Ordinal))
+            {
+                recognized = true;
+                return true;
+            }
+
             string identity = (typeName + "." + methodName).ToLowerInvariant();
 
             // Keep the one Stage4D path with overwhelming measured reuse.
@@ -211,8 +222,8 @@ namespace RimMTRC2T3Lean
                 return true;
             }
 
-            // Generic Prefix/Postfix names are not guessed at. Leaving an ambiguous patch in
-            // place is preferable to removing a production authority path accidentally.
+            // Generic Prefix/Postfix names are not guessed at unless explicitly validated above.
+            // Leaving an ambiguous patch in place is preferable to removing production authority accidentally.
             return false;
         }
 
