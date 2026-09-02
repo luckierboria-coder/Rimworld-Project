@@ -11,10 +11,6 @@ namespace RimMT
 {
     /// <summary>
     /// Unified Lean S5.1 known-small Hybrid Tail Rescue.
-    /// Validated production behavior only: when a JobGiver package has already spent >=16 ms,
-    /// a known materialized custom set of <=127 Things may be evaluated nearest-first with the
-    /// WorkGiver validator before live Reachability. Unknown/lazy sets and larger sets remain for
-    /// Vanilla/Stage3. No per-call telemetry or parity sampling is present in the production DLL.
     /// </summary>
     [StaticConstructorOnStartup]
     internal static class JobGiverHybridTailS51
@@ -26,6 +22,14 @@ namespace RimMT
 
         [ThreadStatic] private static Candidate[] scratch;
         private static int failureLogs;
+        private static long observed;
+        private static long knownSmall;
+        private static long thresholdBypass;
+        private static long accelerated;
+        private static long acceleratedNull;
+        private static long validatorRejected;
+        private static long reachRejected;
+        private static long failures;
 
         static JobGiverHybridTailS51()
         {
@@ -71,13 +75,18 @@ namespace RimMT
             if (__7 == null || !JobGiverGlobalNearest04181.InJobGiverScope || !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return true;
 
+            observed++;
             int knownCount;
             if (!TryKnownCount(__7, out knownCount) || knownCount <= 0 || knownCount > KnownFastMax || knownCount > MaxSourceCount)
                 return true;
+            knownSmall++;
 
             long scopeStart = JobGiverGlobalNearest04181.CurrentScopeStartTicks;
             if (scopeStart <= 0L || Stopwatch.GetTimestamp() - scopeStart < EarlyThresholdTicks)
+            {
+                thresholdBypass++;
                 return true;
+            }
 
             Map map = __1;
             Pawn pawn = __4.pawn;
@@ -126,29 +135,51 @@ namespace RimMT
                     local[kept++] = new Candidate(thing, distanceSq, index);
                 }
 
-                // A materialized collection changing while enumerated is unexpected. Do not
-                // authoritatively answer from a partial snapshot; fall back to Vanilla.
                 if (sourceIndex != knownCount) return true;
 
                 if (kept > 1) Array.Sort(local, 0, kept, CandidateComparer.Instance);
                 for (int i = 0; i < kept; i++)
                 {
                     Thing thing = local[i].Thing;
-                    if (validator != null && !validator(thing)) continue;
-                    if (!map.reachability.CanReach(root, new LocalTargetInfo(thing), endMode, traverseParms)) continue;
+                    if (validator != null && !validator(thing))
+                    {
+                        validatorRejected++;
+                        continue;
+                    }
+                    if (!map.reachability.CanReach(root, new LocalTargetInfo(thing), endMode, traverseParms))
+                    {
+                        reachRejected++;
+                        continue;
+                    }
                     result = thing;
+                    accelerated++;
                     return false;
                 }
 
                 result = null;
+                accelerated++;
+                acceleratedNull++;
                 return false;
             }
             catch (Exception ex)
             {
+                failures++;
                 if (failureLogs++ < 4)
                     Log.Warning("[RimMT] Unified Lean S5.1 fast path failed closed to Vanilla: " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
+        }
+
+        internal static string Summary()
+        {
+            return "S5.1 tail rescue: observed=" + observed +
+                ", knownSmall=" + knownSmall +
+                ", thresholdBypass=" + thresholdBypass +
+                ", accelerated=" + accelerated +
+                ", acceleratedNull=" + acceleratedNull +
+                ", validatorRejected=" + validatorRejected +
+                ", reachRejected=" + reachRejected +
+                ", failures=" + failures + ".";
         }
 
         private static Candidate[] EnsureScratch(int required)
