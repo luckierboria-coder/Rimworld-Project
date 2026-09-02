@@ -13,6 +13,8 @@ namespace RimMT
     /// Lean form of JS1.1S4. ThingRequest-backed >=256 searches retain the validated fast path.
     /// Once the current JobPackage has already spent 32ms, later >=16 ThingRequest searches and
     /// explicit custom enumerables may use nearest-first validator-first/live-CanReach rescue.
+    /// V0.9.2 records route totals plus validator identity only for genuinely heavy calls (>=64
+    /// validator rejects), so diagnostics do not become a new hot path.
     /// </summary>
     internal static class JobGiverSlowSearch0419S
     {
@@ -21,6 +23,8 @@ namespace RimMT
         private const int TailMinSourceCount = 16;
         private const int TailRescueThresholdMs = 32;
         private const int MaxSourceCount = 16384;
+        private const int HeavyRejectThreshold = 64;
+        private const int MaxHeavyValidatorKeys = 24;
         private static readonly long TailRescueThresholdTicks = Math.Max(1L, Stopwatch.Frequency * TailRescueThresholdMs / 1000L);
 
         [ThreadStatic] private static Candidate[] candidateScratch;
@@ -35,7 +39,16 @@ namespace RimMT
         private static long acceleratedNull;
         private static long validatorRejected;
         private static long reachRejected;
+        private static long staticLargeValidatorRejected;
+        private static long tailListValidatorRejected;
+        private static long customTailValidatorRejected;
+        private static long staticLargeReachRejected;
+        private static long tailListReachRejected;
+        private static long customTailReachRejected;
+        private static long heavyValidatorCalls;
+        private static long heavyValidatorRejects;
         private static long failures;
+        private static readonly Dictionary<string, HeavyValidatorStats> HeavyValidators = new Dictionary<string, HeavyValidatorStats>();
 
         internal static void Apply(Harmony harmony)
         {
@@ -52,7 +65,7 @@ namespace RimMT
                     count++;
                 }
                 patched = count > 0;
-                Log.Message("[RimMT] Unified S4 slow-search rescue active on " + count + " ClosestThingReachable overload(s).");
+                Log.Message("[RimMT] Unified S4 slow-search rescue active on " + count + " ClosestThingReachable overload(s); heavy validator-tail attribution is thresholded and on-demand.");
             }
             catch (Exception ex)
             {
@@ -97,7 +110,7 @@ namespace RimMT
             {
                 if (Stopwatch.GetTimestamp() - scopeStart < TailRescueThresholdTicks) return true;
                 customTailEligible++;
-                return TryAccelerateCustom(__7, __0, map, __3, __4, __5, __6, ref __result);
+                return TryAccelerateCustom(__7, __0, map, __3, __4, __5, __6, RescueRoute.CustomTail, ref __result);
             }
 
             List<Thing> source;
@@ -110,18 +123,18 @@ namespace RimMT
             if (count >= LargeSearchThreshold)
             {
                 staticLargeEligible++;
-                return TryAccelerateList(source, count, __0, map, __3, __4, __5, __6, ref __result);
+                return TryAccelerateList(source, count, __0, map, __3, __4, __5, __6, RescueRoute.StaticLarge, ref __result);
             }
             if (count < TailMinSourceCount) return true;
             if (Stopwatch.GetTimestamp() - scopeStart < TailRescueThresholdTicks) return true;
 
             tailEligible++;
-            return TryAccelerateList(source, count, __0, map, __3, __4, __5, __6, ref __result);
+            return TryAccelerateList(source, count, __0, map, __3, __4, __5, __6, RescueRoute.TailList, ref __result);
         }
 
         private static bool TryAccelerateList(List<Thing> source, int count, IntVec3 root, Map map,
             PathEndMode endMode, TraverseParms traverseParms, float maxDistance,
-            Predicate<Thing> validator, ref Thing result)
+            Predicate<Thing> validator, RescueRoute route, ref Thing result)
         {
             try
             {
@@ -140,14 +153,14 @@ namespace RimMT
                     if (distSq > maxSq) continue;
                     candidates[kept++] = new Candidate(thing, distSq, i);
                 }
-                return RunCandidates(candidates, kept, root, map, endMode, traverseParms, validator, ref result);
+                return RunCandidates(candidates, kept, root, map, endMode, traverseParms, validator, route, ref result);
             }
             catch (Exception ex) { return Failure(ex); }
         }
 
         private static bool TryAccelerateCustom(IEnumerable<Thing> source, IntVec3 root, Map map,
             PathEndMode endMode, TraverseParms traverseParms, float maxDistance,
-            Predicate<Thing> validator, ref Thing result)
+            Predicate<Thing> validator, RescueRoute route, ref Thing result)
         {
             try
             {
@@ -170,36 +183,83 @@ namespace RimMT
                     candidates[kept++] = new Candidate(thing, distSq, sourceIndex);
                 }
                 if (sourceCount < TailMinSourceCount) return true;
-                return RunCandidates(candidates, kept, root, map, endMode, traverseParms, validator, ref result);
+                return RunCandidates(candidates, kept, root, map, endMode, traverseParms, validator, route, ref result);
             }
             catch (Exception ex) { return Failure(ex); }
         }
 
         private static bool RunCandidates(Candidate[] candidates, int kept, IntVec3 root, Map map,
-            PathEndMode endMode, TraverseParms traverseParms, Predicate<Thing> validator, ref Thing result)
+            PathEndMode endMode, TraverseParms traverseParms, Predicate<Thing> validator, RescueRoute route, ref Thing result)
         {
+            int localValidatorRejected = 0;
+            int localReachRejected = 0;
             if (kept > 1) Array.Sort(candidates, 0, kept, CandidateComparer.Instance);
             for (int i = 0; i < kept; i++)
             {
                 Thing thing = candidates[i].Thing;
                 if (validator != null && !validator(thing))
                 {
-                    validatorRejected++;
+                    localValidatorRejected++;
                     continue;
                 }
                 if (!map.reachability.CanReach(root, new LocalTargetInfo(thing), endMode, traverseParms))
                 {
-                    reachRejected++;
+                    localReachRejected++;
                     continue;
                 }
+                RecordRoute(route, localValidatorRejected, localReachRejected, validator);
                 result = thing;
                 accelerated++;
                 return false;
             }
+            RecordRoute(route, localValidatorRejected, localReachRejected, validator);
             result = null;
             accelerated++;
             acceleratedNull++;
             return false;
+        }
+
+        private static void RecordRoute(RescueRoute route, int validatorRejects, int reachRejects, Predicate<Thing> validator)
+        {
+            validatorRejected += validatorRejects;
+            reachRejected += reachRejects;
+            switch (route)
+            {
+                case RescueRoute.StaticLarge:
+                    staticLargeValidatorRejected += validatorRejects;
+                    staticLargeReachRejected += reachRejects;
+                    break;
+                case RescueRoute.TailList:
+                    tailListValidatorRejected += validatorRejects;
+                    tailListReachRejected += reachRejects;
+                    break;
+                default:
+                    customTailValidatorRejected += validatorRejects;
+                    customTailReachRejected += reachRejects;
+                    break;
+            }
+
+            if (validatorRejects < HeavyRejectThreshold || validator == null) return;
+            heavyValidatorCalls++;
+            heavyValidatorRejects += validatorRejects;
+            if (HeavyValidators.Count >= MaxHeavyValidatorKeys) return;
+
+            try
+            {
+                Method method = validator.Method;
+                string owner = method == null || method.DeclaringType == null ? "<unknown>" : method.DeclaringType.FullName;
+                string name = method == null ? "<unknown>" : method.Name;
+                string key = owner + "." + name;
+                HeavyValidatorStats stats;
+                if (!HeavyValidators.TryGetValue(key, out stats))
+                {
+                    stats = new HeavyValidatorStats();
+                    HeavyValidators[key] = stats;
+                }
+                stats.Calls++;
+                stats.Rejects += validatorRejects;
+            }
+            catch { }
         }
 
         private static Candidate[] EnsureScratch(int required, int preserveCount)
@@ -225,6 +285,7 @@ namespace RimMT
 
         internal static string Summary()
         {
+            string heavy = BuildHeavyValidatorSummary();
             return "S4 slow-search: patched=" + patched + ", enabled=" + enabled +
                    ", observed=" + observed +
                    ", staticLargeEligible=" + staticLargeEligible +
@@ -233,10 +294,40 @@ namespace RimMT
                    ", accelerated=" + accelerated +
                    ", acceleratedNull=" + acceleratedNull +
                    ", validatorRejected=" + validatorRejected +
+                   " [static=" + staticLargeValidatorRejected + ", tailList=" + tailListValidatorRejected + ", custom=" + customTailValidatorRejected + "]" +
                    ", reachRejected=" + reachRejected +
+                   " [static=" + staticLargeReachRejected + ", tailList=" + tailListReachRejected + ", custom=" + customTailReachRejected + "]" +
+                   ", heavyValidatorCalls=" + heavyValidatorCalls +
+                   ", heavyValidatorRejects=" + heavyValidatorRejects +
+                   ", heavyValidators=" + heavy +
                    ", failures=" + failures +
                    ", staticThreshold=" + LargeSearchThreshold + ", tailThresholdMs=" + TailRescueThresholdMs +
                    ", tailMinSource=" + TailMinSourceCount + ".";
+        }
+
+        private static string BuildHeavyValidatorSummary()
+        {
+            if (HeavyValidators.Count == 0) return "none";
+            string bestKey = null;
+            long bestRejects = -1;
+            long bestCalls = 0;
+            foreach (KeyValuePair<string, HeavyValidatorStats> pair in HeavyValidators)
+            {
+                HeavyValidatorStats stats = pair.Value;
+                if (stats == null || stats.Rejects <= bestRejects) continue;
+                bestKey = pair.Key;
+                bestRejects = stats.Rejects;
+                bestCalls = stats.Calls;
+            }
+            return bestKey == null ? "none" : bestKey + "(calls=" + bestCalls + ", rejects=" + bestRejects + ")";
+        }
+
+        private enum RescueRoute { StaticLarge, TailList, CustomTail }
+
+        private sealed class HeavyValidatorStats
+        {
+            internal long Calls;
+            internal long Rejects;
         }
 
         private struct Candidate
