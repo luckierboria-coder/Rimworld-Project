@@ -41,6 +41,8 @@ namespace RimMT
             sb.AppendLine(MainThreadDispatcher.Summary());
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
                 ", source=" + AdaptiveLoadBalancer.SampleSource +
+                ", samples=" + AdaptiveLoadBalancer.SampleCount +
+                ", butterSamples=" + AdaptiveLoadBalancer.ButterFrameSamples +
                 ", EMAms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
                 ", P95ms=" + AdaptiveLoadBalancer.Percentile95().ToString("F3") +
                 ", spikes=" + AdaptiveLoadBalancer.SpikeCount);
