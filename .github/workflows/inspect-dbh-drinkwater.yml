@@ -1,0 +1,45 @@
+name: Inspect DBH DrinkWater
+
+on:
+  push:
+    branches: [ dbh-animal-water-source-fix ]
+    paths:
+      - '.github/workflows/inspect-dbh-drinkwater.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dbh-animal-water-source-fix
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Download DBH 1.5 assembly
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path inspect | Out-Null
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Dubwise56/Dubs-Bad-Hygiene/master/1.5/Assemblies/BadHygiene.dll' -OutFile 'inspect/BadHygiene.dll'
+      - name: Install ILSpy
+        run: dotnet tool install --global ilspycmd
+      - name: Decompile target type
+        shell: pwsh
+        run: |
+          ilspycmd -t DubsBadHygiene.JobGiver_DrinkWater inspect/BadHygiene.dll -o inspect/decompiled
+          Get-ChildItem inspect/decompiled -Recurse
+          $f = Get-ChildItem inspect/decompiled -Recurse -Filter '*.cs' | Select-Object -First 1
+          if ($null -eq $f) { throw 'No decompiled C# generated.' }
+          Copy-Item $f.FullName 'inspect/JobGiver_DrinkWater.cs' -Force
+      - name: Commit inspection output
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add inspect/JobGiver_DrinkWater.cs
+          git commit -m 'Inspect DBH JobGiver_DrinkWater [skip ci]'
+          git push origin HEAD:dbh-animal-water-source-fix
