@@ -1,0 +1,63 @@
+name: Build RimMT RC2-T3 Lean
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main, rimmt-rc2-t3-lean ]
+    paths:
+      - 'RimMT-RC2-T3-Lean/**'
+      - '.github/workflows/build-rimmt-rc2-t3-lean.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore RimMT-RC2-T3-Lean/Source/RimMTRC2T3Lean/RimMTRC2T3Lean.csproj
+      - name: Build Release
+        run: dotnet build RimMT-RC2-T3-Lean/Source/RimMTRC2T3Lean/RimMTRC2T3Lean.csproj --configuration Release --no-restore
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dll = 'RimMT-RC2-T3-Lean/1.5/Assemblies/RimMTRC2T3Lean.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+      - name: Package Lean layer
+        shell: pwsh
+        run: |
+          $src = 'RimMT-RC2-T3-Lean'
+          $stageRoot = 'build/RimMT-RC2-T3-Lean'
+          New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
+          Copy-Item "$src/About" $stageRoot -Recurse
+          Copy-Item "$src/1.5" $stageRoot -Recurse
+          Copy-Item "$src/LoadFolders.xml" $stageRoot
+          Copy-Item "$src/README.md" $stageRoot
+          Compress-Archive -Path $stageRoot -DestinationPath 'build/RimMT_RC2_T3_Lean.zip' -Force
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-RC2-T3-Lean
+          path: build/RimMT_RC2_T3_Lean.zip
+          if-no-files-found: error
+      - name: Publish downloadable artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'dist-artifacts' | Out-Null
+          Copy-Item 'build/RimMT_RC2_T3_Lean.zip' 'dist-artifacts/RimMT_RC2_T3_Lean.zip' -Force
+          git config user.name 'github-actions[bot]'
+          git config user.email '4189826+github-actions[bot]@users.noreply.github.com'
+          git add 'dist-artifacts/RimMT_RC2_T3_Lean.zip'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m 'Build RimMT RC2-T3 Lean'
+          git push
