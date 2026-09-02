@@ -31,30 +31,33 @@ namespace RimMT
             int workers = Math.Max(1, Math.Min(detectedProcessorCount - 1, 8));
             scheduler = new JobScheduler(workers, 100000);
 
-            FeatureGate.Register("runtime.scheduler", true, "Core bounded worker scheduler; semaphore work credits preserve ParallelFor fan-out");
-            FeatureGate.Register("runtime.dispatcher", true, "Worker-to-main-thread dispatcher; TickManagerUpdate bracket owns frame-boundary commits");
-            FeatureGate.Register("runtime.adaptiveBurst", true, "Pressure-aware scheduler; samples Butter++ TickManagerUpdate slices when Butter++ is active");
-            FeatureGate.Register("diagnostics.selfTest", true, "Pure CPU worker self-test");
-            FeatureGate.Register("diagnostics.hotPaths", true, "PathFinder / JobGiver / tick hot-path profiler");
-            FeatureGate.Register("diagnostics.pathFinder", true, "PathFinder.FindPath overload probes");
-            FeatureGate.Register("diagnostics.jobGiver", true, "JobGiver_Work.TryIssueJobPackage probes");
-            FeatureGate.Register("diagnostics.jobGiverDetail", false, "Temporary on-demand per-WorkGiver phase capture; no resident detail detours during normal play");
+            FeatureGate.Register("runtime.scheduler", true, "Core bounded worker scheduler");
+            FeatureGate.Register("runtime.dispatcher", true, "Worker-to-main-thread dispatcher");
+            FeatureGate.Register("runtime.adaptiveBurst", true, "Pressure-aware scheduler");
+            FeatureGate.Register("diagnostics.selfTest", true, "On-demand pure CPU worker self-test; no resident hooks");
             FeatureGate.Register("ui.textCache", true, "Text metric result cache");
-            FeatureGate.Register("ui.overlayCache", true, "Visible Thing overlay scan cache");
-            FeatureGate.Register("ai.reachNoCache", false, "Topology-aware short-lived negative reachability cache");
-            FeatureGate.Register("ai.pathTopology", true, "PathGrid topology invalidation hooks for reachability generations");
-            FeatureGate.Register("parallel.pathSnapshot", true, "Bounded worker-side immutable path parity validation; Vanilla authoritative");
-            FeatureGate.Register("parallel.jobScan", true, "V0.4.6 Work scanner accelerator: worker-built hauling spatial index plus main-thread revalidation");
-            FeatureGate.Register("parallel.haulGlobal", true, "V0.4.7 direct JobGiver_Haul accelerator for exact ListerHaulables global searches");
-            FeatureGate.Register("parallel.jobPartition", true, "V0.4.14 persistent-map-fabric GenClosest accelerator; Vanilla live validation/final authority retained");
-            FeatureGate.Register(JobPackageLocalSearch0419.FeatureId, true, "V0.4.19-JS1.1 Lean per-JobPackage bucketed HasJobOnThing memo + original JS1 nearest-order reuse");
-            FeatureGate.Register(JobGiverSlowSearch0419S.FeatureId, true, "JS1.1S4 Tail Rescue: retain S1 >=256 acceleration; only after the current JobPackage exceeds 32ms may later >=16 ThingRequest/custom searches use rescue");
-            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "V0.4.16 sampled per-Pawn Region connectivity profiles with JS1.1R embedded rolling mismatch fuse");
-            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "RETIRED in JS1.1/JS1.1R/JS1.1S/JS1.1S1/S4: near-zero-yield V0.4.15 RegionHint worker graph");
-            FeatureGate.Register(ParallelWorkPrefilter.FeatureId, true, "V0.4.17 worker-side read-only Grower/Harvest/BuildRoof negative prefilter with sampled false-negative fuse");
-            FeatureGate.Register("parallel.pawnTick", false, "Unsafe by default; not implemented");
-            FeatureGate.Register("parallel.reservations", false, "Unsafe by default; not implemented");
-            FeatureGate.Register("parallel.thingTick", false, "Whitelist module not implemented");
+            FeatureGate.Register("ai.pathTopology", true, "PathGrid topology invalidation generation");
+            FeatureGate.Register("parallel.jobScan", true, "Production haul/work scanner accelerator");
+            FeatureGate.Register("parallel.haulGlobal", true, "Direct JobGiver_Haul global accelerator");
+            FeatureGate.Register("parallel.jobPartition", true, "Persistent-map search fabric / candidate partition production path");
+            FeatureGate.Register(JobGiverSlowSearch0419S.FeatureId, true, "Validated slow-search tail rescue");
+            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "ReachProfile with rolling mismatch fuse");
+            FeatureGate.Register(ParallelRegionConnectivity.FeatureId, false, "Retired: insufficient production yield");
+            FeatureGate.Register("parallel.pawnTick", false, "Unsafe / not implemented");
+            FeatureGate.Register("parallel.reservations", false, "Unsafe / not implemented");
+            FeatureGate.Register("parallel.thingTick", false, "Not implemented");
+
+            // Explicitly register retired instrumentation as OFF so optional reports can explain
+            // why it is absent, without ever installing its Harmony hooks.
+            FeatureGate.Register("diagnostics.hotPaths", false, "External diagnostic layer only in Unified Lean");
+            FeatureGate.Register("diagnostics.pathFinder", false, "External diagnostic layer only");
+            FeatureGate.Register("diagnostics.jobGiver", false, "External diagnostic layer only");
+            FeatureGate.Register("diagnostics.jobGiverDetail", false, "External diagnostic layer only");
+            FeatureGate.Register("parallel.pathSnapshot", false, "Retired from production: validation-only shadow path");
+            FeatureGate.Register(ParallelWorkPrefilter.FeatureId, false, "Retired from production: measured negative ROI");
+            FeatureGate.Register("ui.overlayCache", false, "Retired from Unified Lean production path");
+            FeatureGate.Register("ai.reachNoCache", false, "Retired; ReachProfile is the production reachability accelerator");
+
             ApplySettings(RimMTMod.Settings);
         }
 
@@ -62,22 +65,26 @@ namespace RimMT
         {
             if (!initialized || settings == null) return;
             FeatureGate.SetEnabled("runtime.adaptiveBurst", settings.AdaptiveBurst);
-            FeatureGate.SetEnabled("diagnostics.hotPaths", settings.HotPathDiagnostics);
-            FeatureGate.SetEnabled("diagnostics.pathFinder", settings.HotPathDiagnostics);
-            FeatureGate.SetEnabled("diagnostics.jobGiver", settings.HotPathDiagnostics);
             FeatureGate.SetEnabled("ui.textCache", settings.TextCache);
-            FeatureGate.SetEnabled("ui.overlayCache", settings.OverlayCache);
-            FeatureGate.SetEnabled("ai.reachNoCache", settings.ReachNoCache);
-            FeatureGate.SetEnabled("parallel.pathSnapshot", settings.PathSnapshotWorker);
-            FeatureGate.SetEnabled("parallel.jobScan", settings.WorkScanAcceleration);
-            FeatureGate.SetEnabled("parallel.haulGlobal", settings.WorkScanAcceleration);
-            FeatureGate.SetEnabled("parallel.jobPartition", settings.WorkScanAcceleration);
-            FeatureGate.SetEnabled(JobPackageLocalSearch0419.FeatureId, settings.WorkScanAcceleration);
-            FeatureGate.SetEnabled(JobGiverSlowSearch0419S.FeatureId, settings.WorkScanAcceleration);
-            JobGiverSlowSearch0419S.SetEnabled(settings.WorkScanAcceleration);
-            FeatureGate.SetEnabled(AggressiveReachabilityProfiles.FeatureId, settings.WorkScanAcceleration);
+
+            bool work = settings.WorkScanAcceleration;
+            FeatureGate.SetEnabled("parallel.jobScan", work);
+            FeatureGate.SetEnabled("parallel.haulGlobal", work);
+            FeatureGate.SetEnabled("parallel.jobPartition", work);
+            FeatureGate.SetEnabled(JobGiverSlowSearch0419S.FeatureId, work);
+            JobGiverSlowSearch0419S.SetEnabled(work);
+            FeatureGate.SetEnabled(AggressiveReachabilityProfiles.FeatureId, work);
+
+            // Production-retired modules are hard OFF regardless of legacy settings files.
+            FeatureGate.SetEnabled("diagnostics.hotPaths", false);
+            FeatureGate.SetEnabled("diagnostics.pathFinder", false);
+            FeatureGate.SetEnabled("diagnostics.jobGiver", false);
+            FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
+            FeatureGate.SetEnabled("parallel.pathSnapshot", false);
+            FeatureGate.SetEnabled(ParallelWorkPrefilter.FeatureId, false);
+            FeatureGate.SetEnabled("ui.overlayCache", false);
+            FeatureGate.SetEnabled("ai.reachNoCache", false);
             FeatureGate.SetEnabled(ParallelRegionConnectivity.FeatureId, false);
-            FeatureGate.SetEnabled(ParallelWorkPrefilter.FeatureId, settings.WorkScanAcceleration);
         }
 
         internal static void OnMainThreadFrame()
@@ -106,10 +113,8 @@ namespace RimMT
             if (logicalTickBoundary && FeatureGate.IsEnabled("runtime.dispatcher"))
                 MainThreadDispatcher.Drain(256);
 
-            WorkGiverDetailPatches.OnMainThreadFrame();
-
-            bool mayDiagnoseProbeFailure = RuntimeCompatibility.ButterPlusPlusActive && !butterProbeReadable;
-            if (!compatibilityChecked && Current.ProgramState == ProgramState.Playing && (logicalTickBoundary || mayDiagnoseProbeFailure))
+            if (!compatibilityChecked && Current.ProgramState == ProgramState.Playing &&
+                (logicalTickBoundary || (RuntimeCompatibility.ButterPlusPlusActive && !butterProbeReadable)))
             {
                 compatibilityChecked = true;
                 CompatibilityGuard.RunBaselineScan();
@@ -117,9 +122,7 @@ namespace RimMT
                 GlobalHaulAccelerator.MarkCompatibilityReady();
                 AdaptiveGenClosestAssist.MarkCompatibilityReady();
                 AggressiveReachabilityProfiles.MarkCompatibilityReady();
-                // RegionHint is intentionally retired/off in S4.
-                ParallelWorkPrefilter.MarkCompatibilityReady();
-                RimMTDiagnostics.LogStartupReport();
+                Log.Message("[RimMT] Unified Lean compatibility scan complete. Runtime profiling remains external/on-demand.");
             }
         }
     }
