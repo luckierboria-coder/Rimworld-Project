@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>DBH Animal Water Source Fix</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>Allen.DBH.AnimalWaterSourceFix</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>Dubwise.DubsBadHygiene</packageId>
+      <displayName>Dubs Bad Hygiene</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>Dubwise.DubsBadHygiene</li>
+  </loadAfter>
+  <description>RimWorld 1.5 compatibility fix for Dubs Bad Hygiene animal drinking. When DBH selects an inventory thirst-water item for an animal, this patch asks DBH's own ClosestSanitation.FindBestDrink selector whether a usable basin/trough is available. If DBH returns a basin, the inventory Ingest job is replaced with DBHDrinkFromBasin. If no usable basin is found, DBH's original inventory-water job is left unchanged. No global tick scanning and no Pawn_JobTracker patching.</description>
+</ModMetaData>
