@@ -11,18 +11,17 @@ namespace RimMT
         private readonly ConcurrentQueue<WorkItem> normal = new ConcurrentQueue<WorkItem>();
         private readonly ConcurrentQueue<WorkItem> background = new ConcurrentQueue<WorkItem>();
 
-        // V0.4.15: one queued work item owns one semaphore credit. AutoResetEvent used by
-        // earlier builds collapsed a ParallelFor burst into a single wake, allowing one
-        // worker to drain dozens of short batches before peers woke on their 5 ms poll.
         private readonly SemaphoreSlim wakeSignal = new SemaphoreSlim(0, int.MaxValue);
         private readonly object enqueueSync = new object();
         private readonly Thread[] workers;
         private readonly int maxPending;
         private volatile bool running = true;
+
         private int pending;
         private int activeWorkers;
         private int peakActiveWorkers;
         private int highWaterPending;
+        private int activeBackgroundWorkers;
         private long enqueued;
         private long completed;
         private long rejected;
@@ -31,6 +30,21 @@ namespace RimMT
         private long multiWakeCalls;
         private long parallelBatchesEnqueued;
         private long timeoutPollClaims;
+
+        // Production-only counters deliberately exclude diagnostics.selfTest so a manual CPU test
+        // cannot make normal gameplay appear to saturate all workers. These are cheap aggregate
+        // counters only; no per-item stopwatch/profiler is installed.
+        private int productionPending;
+        private int productionActiveWorkers;
+        private int productionPeakActiveWorkers;
+        private int productionHighWaterPending;
+        private long productionEnqueued;
+        private long productionCompleted;
+        private long productionRejected;
+        private long productionFailures;
+        private long productionParallelBatches;
+        private long productionConcurrencySamples;
+        private long productionActiveWorkerSamples;
 
         public int WorkerCount { get { return workers.Length; } }
         public int Pending { get { return Volatile.Read(ref pending); } }
@@ -45,6 +59,33 @@ namespace RimMT
         public long MultiWakeCalls { get { return Interlocked.Read(ref multiWakeCalls); } }
         public long ParallelBatchesEnqueued { get { return Interlocked.Read(ref parallelBatchesEnqueued); } }
         public long TimeoutPollClaims { get { return Interlocked.Read(ref timeoutPollClaims); } }
+
+        public int ProductionPending { get { return Volatile.Read(ref productionPending); } }
+        public int ProductionActiveWorkers { get { return Volatile.Read(ref productionActiveWorkers); } }
+        public int ProductionPeakActiveWorkers { get { return Volatile.Read(ref productionPeakActiveWorkers); } }
+        public int ProductionHighWaterPending { get { return Volatile.Read(ref productionHighWaterPending); } }
+        public long ProductionEnqueued { get { return Interlocked.Read(ref productionEnqueued); } }
+        public long ProductionCompleted { get { return Interlocked.Read(ref productionCompleted); } }
+        public long ProductionRejected { get { return Interlocked.Read(ref productionRejected); } }
+        public long ProductionFailures { get { return Interlocked.Read(ref productionFailures); } }
+        public long ProductionParallelBatches { get { return Interlocked.Read(ref productionParallelBatches); } }
+        public long ProductionConcurrencySamples { get { return Interlocked.Read(ref productionConcurrencySamples); } }
+        public double ProductionAverageActiveWorkers
+        {
+            get
+            {
+                long samples = Interlocked.Read(ref productionConcurrencySamples);
+                return samples <= 0 ? 0.0 : Interlocked.Read(ref productionActiveWorkerSamples) / (double)samples;
+            }
+        }
+        public double ProductionWorkerUtilizationPercent
+        {
+            get
+            {
+                if (workers.Length <= 0) return 0.0;
+                return ProductionAverageActiveWorkers * 100.0 / workers.Length;
+            }
+        }
 
         public JobScheduler(int workerCount, int maxPendingJobs)
         {
@@ -63,9 +104,11 @@ namespace RimMT
 
         public bool TryEnqueue(string featureId, JobPriority priority, Action action)
         {
+            bool production = IsProductionFeature(featureId);
             if (!running || action == null || !FeatureGate.IsEnabled(featureId) || CircuitBreaker.IsOpen(featureId))
             {
                 Interlocked.Increment(ref rejected);
+                if (production) Interlocked.Increment(ref productionRejected);
                 return false;
             }
 
@@ -74,13 +117,22 @@ namespace RimMT
                 if (pending >= maxPending)
                 {
                     Interlocked.Increment(ref rejected);
+                    if (production) Interlocked.Increment(ref productionRejected);
                     return false;
                 }
 
                 int nowPending = Interlocked.Increment(ref pending);
                 Interlocked.Increment(ref enqueued);
-                UpdateHighWater(nowPending);
-                EnqueueReserved(new WorkItem(featureId, action), priority);
+                UpdateHighWater(ref highWaterPending, nowPending);
+
+                if (production)
+                {
+                    int productionNowPending = Interlocked.Increment(ref productionPending);
+                    Interlocked.Increment(ref productionEnqueued);
+                    UpdateHighWater(ref productionHighWaterPending, productionNowPending);
+                }
+
+                EnqueueReserved(new WorkItem(featureId, action, production), priority);
             }
             ReleaseWakeCredits(1);
             return true;
@@ -88,9 +140,11 @@ namespace RimMT
 
         public bool ParallelFor(string featureId, int fromInclusive, int toExclusive, int batchSize, Action<int,int> body, Action onComplete = null, JobPriority priority = JobPriority.Normal)
         {
+            bool production = IsProductionFeature(featureId);
             if (body == null || toExclusive <= fromInclusive || !FeatureGate.IsEnabled(featureId) || CircuitBreaker.IsOpen(featureId))
             {
                 Interlocked.Increment(ref rejected);
+                if (production) Interlocked.Increment(ref productionRejected);
                 return false;
             }
 
@@ -105,13 +159,22 @@ namespace RimMT
                 if (!running || pending + batches > maxPending || !FeatureGate.IsEnabled(featureId) || CircuitBreaker.IsOpen(featureId))
                 {
                     Interlocked.Increment(ref rejected);
+                    if (production) Interlocked.Increment(ref productionRejected);
                     return false;
                 }
 
                 int nowPending = Interlocked.Add(ref pending, batches);
                 Interlocked.Add(ref enqueued, batches);
                 Interlocked.Add(ref parallelBatchesEnqueued, batches);
-                UpdateHighWater(nowPending);
+                UpdateHighWater(ref highWaterPending, nowPending);
+
+                if (production)
+                {
+                    int productionNowPending = Interlocked.Add(ref productionPending, batches);
+                    Interlocked.Add(ref productionEnqueued, batches);
+                    Interlocked.Add(ref productionParallelBatches, batches);
+                    UpdateHighWater(ref productionHighWaterPending, productionNowPending);
+                }
 
                 for (int start = fromInclusive; start < toExclusive; start += batchSize)
                 {
@@ -122,7 +185,7 @@ namespace RimMT
                         body(s,e);
                         if (Interlocked.Decrement(ref remaining) == 0 && Volatile.Read(ref allQueued) == 1 && onComplete != null)
                             MainThreadDispatcher.TryEnqueue(onComplete);
-                    }), priority);
+                    }, production), priority);
                 }
                 Volatile.Write(ref allQueued, 1);
             }
@@ -130,10 +193,19 @@ namespace RimMT
             if (Volatile.Read(ref remaining) == 0 && onComplete != null)
                 MainThreadDispatcher.TryEnqueue(onComplete);
 
-            // One credit per batch lets sleeping workers fan out immediately. A worker consumes
-            // one credit per claimed item, so burst credits do not remain after the queue drains.
             ReleaseWakeCredits(batches);
             return true;
+        }
+
+        internal void SampleProductionConcurrency()
+        {
+            Interlocked.Increment(ref productionConcurrencySamples);
+            Interlocked.Add(ref productionActiveWorkerSamples, Volatile.Read(ref productionActiveWorkers));
+        }
+
+        private static bool IsProductionFeature(string featureId)
+        {
+            return !string.Equals(featureId, "diagnostics.selfTest", StringComparison.Ordinal);
         }
 
         private void ReleaseWakeCredits(int count)
@@ -149,7 +221,6 @@ namespace RimMT
             }
             catch (SemaphoreFullException)
             {
-                // Defensive only: maxPending is far below SemaphoreSlim's capacity.
             }
         }
 
@@ -169,61 +240,102 @@ namespace RimMT
             {
                 bool signaled = wakeSignal.Wait(5);
                 WorkItem item;
-                if (!TryTake(out item))
+                bool backgroundSlot;
+                if (!TryTake(out item, out backgroundSlot))
                     continue;
 
-                // When a background credit was consumed while adaptiveBurst hid the background
-                // queue, the 5 ms timeout path can later claim that pending work after pressure
-                // falls. This is a fail-open recovery path, not a spin loop.
                 if (!signaled)
                     Interlocked.Increment(ref timeoutPollClaims);
 
                 int active = Interlocked.Increment(ref activeWorkers);
-                UpdatePeakActive(active);
+                UpdatePeak(ref peakActiveWorkers, active);
+
+                if (item.Production)
+                {
+                    int productionActive = Interlocked.Increment(ref productionActiveWorkers);
+                    UpdatePeak(ref productionPeakActiveWorkers, productionActive);
+                }
+
                 try
                 {
                     item.Action();
                     Interlocked.Increment(ref completed);
+                    if (item.Production) Interlocked.Increment(ref productionCompleted);
                 }
                 catch (Exception ex)
                 {
                     Interlocked.Increment(ref failures);
+                    if (item.Production) Interlocked.Increment(ref productionFailures);
                     CircuitBreaker.RecordFailure(item.FeatureId, ex);
                     Log.Error("[RimMT] Worker exception in feature '" + item.FeatureId + "' on " + Thread.CurrentThread.Name + ": " + ex);
                 }
                 finally
                 {
+                    if (backgroundSlot) Interlocked.Decrement(ref activeBackgroundWorkers);
+                    if (item.Production)
+                    {
+                        Interlocked.Decrement(ref productionActiveWorkers);
+                        Interlocked.Decrement(ref productionPending);
+                    }
                     Interlocked.Decrement(ref activeWorkers);
                     Interlocked.Decrement(ref pending);
                 }
             }
         }
 
-        private bool TryTake(out WorkItem item)
+        private bool TryTake(out WorkItem item, out bool backgroundSlot)
         {
+            backgroundSlot = false;
             if (high.TryDequeue(out item)) return true;
             if (normal.TryDequeue(out item)) return true;
-            if ((!FeatureGate.IsEnabled("runtime.adaptiveBurst") || AdaptiveLoadBalancer.AllowBackground) && background.TryDequeue(out item)) return true;
-            item = null;
+
+            if (!FeatureGate.IsEnabled("runtime.adaptiveBurst"))
+                return background.TryDequeue(out item);
+
+            int budget = AdaptiveLoadBalancer.BackgroundConcurrencyBudget(workers.Length);
+            if (budget <= 0 || !TryAcquireBackgroundSlot(budget))
+            {
+                item = null;
+                return false;
+            }
+
+            if (background.TryDequeue(out item))
+            {
+                backgroundSlot = true;
+                return true;
+            }
+
+            Interlocked.Decrement(ref activeBackgroundWorkers);
             return false;
         }
 
-        private void UpdateHighWater(int value)
+        private bool TryAcquireBackgroundSlot(int budget)
+        {
+            while (true)
+            {
+                int current = Volatile.Read(ref activeBackgroundWorkers);
+                if (current >= budget) return false;
+                if (Interlocked.CompareExchange(ref activeBackgroundWorkers, current + 1, current) == current)
+                    return true;
+            }
+        }
+
+        private static void UpdateHighWater(ref int field, int value)
         {
             int observed;
-            while (value > (observed = Volatile.Read(ref highWaterPending)))
+            while (value > (observed = Volatile.Read(ref field)))
             {
-                if (Interlocked.CompareExchange(ref highWaterPending, value, observed) == observed)
+                if (Interlocked.CompareExchange(ref field, value, observed) == observed)
                     break;
             }
         }
 
-        private void UpdatePeakActive(int value)
+        private static void UpdatePeak(ref int field, int value)
         {
             int observed;
-            while (value > (observed = Volatile.Read(ref peakActiveWorkers)))
+            while (value > (observed = Volatile.Read(ref field)))
             {
-                if (Interlocked.CompareExchange(ref peakActiveWorkers, value, observed) == observed)
+                if (Interlocked.CompareExchange(ref field, value, observed) == observed)
                     break;
             }
         }
@@ -232,10 +344,12 @@ namespace RimMT
         {
             internal readonly string FeatureId;
             internal readonly Action Action;
-            internal WorkItem(string featureId, Action action)
+            internal readonly bool Production;
+            internal WorkItem(string featureId, Action action, bool production)
             {
                 FeatureId = featureId;
                 Action = action;
+                Production = production;
             }
         }
     }
