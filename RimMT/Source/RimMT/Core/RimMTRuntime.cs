@@ -36,8 +36,8 @@ namespace RimMT
 
             FeatureGate.Register("runtime.scheduler", true, "Core bounded worker scheduler");
             FeatureGate.Register("runtime.dispatcher", true, "Worker-to-main-thread dispatcher");
-            FeatureGate.Register("runtime.adaptiveBurst", true, "Pressure-aware scheduler");
-            FeatureGate.Register("diagnostics.selfTest", true, "On-demand pure CPU worker self-test; no resident hooks");
+            FeatureGate.Register("runtime.adaptiveBurst", true, "Rolling pressure-aware scheduler with hysteresis and worker budgets");
+            FeatureGate.Register("diagnostics.selfTest", true, "On-demand pure CPU worker self-test; excluded from production utilization counters");
             FeatureGate.Register("ui.textCache", true, "Text metric result cache");
             FeatureGate.Register("ai.pathTopology", true, "PathGrid topology invalidation generation");
             FeatureGate.Register("parallel.jobScan", true, "Production haul/work scanner accelerator");
@@ -91,6 +91,7 @@ namespace RimMT
         {
             if (!initialized) return;
             Interlocked.Increment(ref mainThreadFrames);
+            if (scheduler != null) scheduler.SampleProductionConcurrency();
 
             bool logicalTickBoundary = true;
             bool butterProbeReadable = true;
@@ -124,8 +125,6 @@ namespace RimMT
                 AggressiveReachabilityProfiles.MarkCompatibilityReady();
                 Log.Message("[RimMT] Unified Lean compatibility scan complete. Runtime profiling remains external/on-demand.");
 
-                // One-shot production status only. This reads counters after the compatibility
-                // scan and adds no recurring Harmony/profiler work to normal gameplay.
                 RimMTDiagnostics.LogRuntimeReport();
             }
         }
