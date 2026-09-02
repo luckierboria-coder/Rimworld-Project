@@ -12,7 +12,8 @@ namespace RimMT
         private const int PressureRefreshMask = 15; // refresh rolling pressure every 16 samples
         private const int DownshiftWindows = 4;
 
-        private static readonly object Sync = new object();
+        // Tick/frame pressure sampling is produced only from RimWorld's main thread. Workers read
+        // only pressureValue, so the hot sampling path needs no lock or Interlocked RMW operations.
         private static readonly double[] TickMs = new double[Window];
         private static readonly double[] SortScratch = new double[Window];
 
@@ -28,18 +29,14 @@ namespace RimMT
         private static int pressureValue = (int)LoadPressure.Normal;
 
         internal static LoadPressure Pressure { get { return (LoadPressure)Volatile.Read(ref pressureValue); } }
-        internal static double EmaTickMs { get { lock (Sync) return emaMs; } }
-        internal static double RollingP95Ms { get { lock (Sync) return rollingP95Ms; } }
-        internal static double RollingSlowRatio { get { lock (Sync) return rollingSlowRatio; } }
-        internal static long SampleCount { get { return Interlocked.Read(ref sampleCount); } }
-        internal static long SpikeCount { get { return Interlocked.Read(ref spikes); } }
-        internal static long ButterFrameSamples { get { return Interlocked.Read(ref butterFrameSamples); } }
+        internal static double EmaTickMs { get { return Volatile.Read(ref emaMs); } }
+        internal static double RollingP95Ms { get { return Volatile.Read(ref rollingP95Ms); } }
+        internal static double RollingSlowRatio { get { return Volatile.Read(ref rollingSlowRatio); } }
+        internal static long SampleCount { get { return Volatile.Read(ref sampleCount); } }
+        internal static long SpikeCount { get { return Volatile.Read(ref spikes); } }
+        internal static long ButterFrameSamples { get { return Volatile.Read(ref butterFrameSamples); } }
         internal static string SampleSource { get { return RuntimeCompatibility.ButterPlusPlusActive ? "Butter++ TickManagerUpdate slice" : "DoSingleTick"; } }
 
-        // Background maintenance is not binary any more. Low pressure may use all workers,
-        // Normal uses roughly half, High keeps one lane, and Critical pauses background work.
-        // High-priority offloads remain available so a worker-side search/index refresh can help
-        // relieve the next main-thread JobGiver/DoBill pass instead of being starved by the burst.
         internal static int BackgroundConcurrencyBudget(int workerCount)
         {
             if (workerCount <= 0) return 0;
@@ -65,10 +62,6 @@ namespace RimMT
 
         internal static void RecordTick(long startTimestamp)
         {
-            // Butter++ may hold one logical DoSingleTick open across several rendered frames and
-            // manually replay other mods' DoSingleTick prefixes/postfixes. Measuring that wall time
-            // would include inter-frame time and poison RimMT's pressure model. In Butter++ mode,
-            // TickManagerUpdate frame slices are sampled instead.
             if (RuntimeCompatibility.ButterPlusPlusActive)
                 return;
             RecordSample(startTimestamp);
@@ -78,7 +71,7 @@ namespace RimMT
         {
             if (!RuntimeCompatibility.ButterPlusPlusActive || startTimestamp == 0L)
                 return;
-            Interlocked.Increment(ref butterFrameSamples);
+            butterFrameSamples++;
             RecordSample(startTimestamp);
         }
 
@@ -89,27 +82,22 @@ namespace RimMT
 
             long end = Stopwatch.GetTimestamp();
             double ms = (end - startTimestamp) * 1000.0 / Stopwatch.Frequency;
-            long samples = Interlocked.Increment(ref sampleCount);
+            long samples = ++sampleCount;
 
-            lock (Sync)
-            {
-                TickMs[index] = ms;
-                index = (index + 1) % Window;
-                if (count < Window) count++;
+            TickMs[index] = ms;
+            index = (index + 1) % Window;
+            if (count < Window) count++;
 
-                emaMs = emaMs <= 0.0 ? ms : (emaMs * 0.92 + ms * 0.08);
+            emaMs = emaMs <= 0.0 ? ms : (emaMs * 0.92 + ms * 0.08);
 
-                // Spike count remains an inexpensive lifetime signal. Rolling pressure itself is
-                // refreshed from the whole recent window so one good tick can no longer erase a burst.
-                double spikeThreshold = Math.Max(20.0, emaMs * 1.75);
-                if (ms >= spikeThreshold) Interlocked.Increment(ref spikes);
+            double spikeThreshold = Math.Max(20.0, emaMs * 1.75);
+            if (ms >= spikeThreshold) spikes++;
 
-                if ((samples & PressureRefreshMask) == 0 || count < 32)
-                    RefreshPressureLocked();
-            }
+            if ((samples & PressureRefreshMask) == 0 || count < 32)
+                RefreshPressure();
         }
 
-        private static void RefreshPressureLocked()
+        private static void RefreshPressure()
         {
             if (count <= 0)
                 return;
@@ -151,8 +139,6 @@ namespace RimMT
                 return;
             }
 
-            // Downshift only after several clean rolling windows and only one level at a time.
-            // This hysteresis prevents High/Critical from collapsing to Normal on one quiet tick.
             downshiftStreak++;
             if (downshiftStreak < DownshiftWindows)
                 return;
@@ -164,18 +150,18 @@ namespace RimMT
 
         internal static double Percentile95()
         {
-            lock (Sync)
-            {
-                if (count == 0) return 0.0;
-                // The rolling value is refreshed every <=16 samples and avoids allocating on report.
-                if (rollingP95Ms > 0.0) return rollingP95Ms;
-                for (int i = 0; i < count; i++) SortScratch[i] = TickMs[i];
-                Array.Sort(SortScratch, 0, count);
-                int pos = (int)Math.Ceiling(count * 0.95) - 1;
-                if (pos < 0) pos = 0;
-                if (pos >= count) pos = count - 1;
-                return SortScratch[pos];
-            }
+            // Reports/monitor run on the main thread. rollingP95Ms is refreshed every <=16 samples,
+            // so the normal report path performs no sort and no allocation.
+            double cached = Volatile.Read(ref rollingP95Ms);
+            if (cached > 0.0) return cached;
+            if (count == 0) return 0.0;
+
+            for (int i = 0; i < count; i++) SortScratch[i] = TickMs[i];
+            Array.Sort(SortScratch, 0, count);
+            int pos = (int)Math.Ceiling(count * 0.95) - 1;
+            if (pos < 0) pos = 0;
+            if (pos >= count) pos = count - 1;
+            return SortScratch[pos];
         }
     }
 }
