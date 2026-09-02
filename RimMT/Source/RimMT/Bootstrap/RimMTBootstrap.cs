@@ -24,23 +24,19 @@ namespace RimMT
                 RimMTPatches.Apply(harmony);
                 PathGridInvalidation.ApplyBulkGuard(harmony);
 
-                // Validated production search layers. PathSnapshot/SafePath telemetry and
-                // WorkPrefilter are deliberately absent from Unified Lean.
                 AdaptiveGenClosestAssist.Apply(harmony);
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
                 JobGiverSlowSearch0419S.Apply(harmony);
+                DoBillTailFabric092.Apply(harmony);
                 AggressiveReachabilityProfiles.Apply(harmony);
 
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                // ParallelRegionConnectivity remains retired: historical RegionHint yield was
-                // too low to justify a permanent production hook.
-
                 Log.Message("[RimMT] V0.9.2 Unified Lean initialized. Single-DLL production mode: " +
                     "diagnostic hot-path probes, PathSnapshot shadow validation, SafePath telemetry and WorkPrefilter are not installed. " +
-                    "Validated JobGiver/ReachProfile/haul/topology paths remain fail-closed and Vanilla-authoritative at final decision boundaries.");
+                    "Validated JobGiver/DoBill/ReachProfile/haul/topology paths remain fail-closed and Vanilla-authoritative at final decision boundaries.");
             }
             catch (Exception ex)
             {
