@@ -24,8 +24,6 @@ namespace RimMT
         private static bool shouldSkipPatched;
         private static int failureLogs;
 
-        // All hooks below execute on the RimWorld main thread; plain aggregate counters avoid
-        // turning observability into cache-line contention on a WorkGiver hot path.
         private static long sourceLookups;
         private static long sourceIndexHits;
         private static long readinessScans;
@@ -97,8 +95,9 @@ namespace RimMT
                 int localActive = 0;
                 int localInactive = 0;
 
-                // Zero allocation when all represented benches are active. A filtered list is
-                // materialized only after the first inactive bench is found.
+                // With the observed workload ~95% of represented benches are inactive, so reserve
+                // only a small active list up front instead of allocating capacity for the whole
+                // membership set. List<T> still grows normally if a rare call has more active benches.
                 List<Thing> active = null;
                 for (int i = 0; i < things.Count; i++)
                 {
@@ -117,7 +116,7 @@ namespace RimMT
                     localInactive++;
                     if (active == null)
                     {
-                        active = new List<Thing>(things.Count);
+                        active = new List<Thing>(Math.Min(things.Count, 32));
                         for (int j = 0; j < i; j++) active.Add(things[j]);
                     }
                 }
