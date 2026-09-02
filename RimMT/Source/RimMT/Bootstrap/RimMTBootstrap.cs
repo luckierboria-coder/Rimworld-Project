@@ -29,7 +29,7 @@ namespace RimMT
                 JobGiverGlobalNearest04181.Apply(harmony);
                 JobGiverSlowSearch0419S.Apply(harmony);
                 DoBillTailFabric092.Apply(harmony);
-                AggressiveReachabilityProfiles.Apply(harmony);
+                AggressiveReachabilityProfilesV17.Apply(harmony);
 
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
