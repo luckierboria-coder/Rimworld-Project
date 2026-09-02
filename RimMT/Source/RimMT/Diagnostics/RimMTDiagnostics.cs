@@ -27,7 +27,7 @@ namespace RimMT
             sb.AppendLine(MainThreadDispatcher.Summary());
             AppendLoad(sb);
             sb.AppendLine("Text cache: hits=" + TextMetricCache.Hits + ", misses=" + TextMetricCache.Misses);
-            sb.AppendLine("Production policy: diagnostics=external; PathSnapshot=OFF; WorkPrefilter=OFF; ReachNoCache=OFF; OverlayCache=OFF; S5.1 admission=16ms; S4 tail=32ms; RC2 Stage3 >=128; DoBill=persistent membership + live readiness + worker-tail fabric; S5.3 mature pruners; CommonSense=ingredientExpand memo only.");
+            sb.AppendLine("Production policy: diagnostics=external; PathSnapshot=OFF; WorkPrefilter=OFF; ReachNoCache=OFF; OverlayCache=OFF; S5.1 admission=16ms; S4 tail=32ms; RC2 Stage3 >=128; DoBill=persistent incremental membership + live readiness + worker-tail fabric; S5.3 mature pruners; CommonSense=ingredientExpand memo only.");
 
             sb.AppendLine("--- Production path counters ---");
             sb.AppendLine(PersistentMapSearchFabric.Summary());
@@ -74,8 +74,11 @@ namespace RimMT
                     .Append('/').Append(scheduler.WorkerCount).AppendLine();
                 sb.Append("Production workers: active ").Append(scheduler.ProductionActiveWorkers)
                     .Append("  peak ").Append(scheduler.ProductionPeakActiveWorkers)
-                    .Append("  avg ").Append(scheduler.ProductionAverageActiveWorkers.ToString("F2"))
-                    .Append("  util ").Append(scheduler.ProductionWorkerUtilizationPercent.ToString("F1")).Append("%")
+                    .Append("  busyAvg ").Append(scheduler.ProductionBusyAverageWorkers.ToString("F2"))
+                    .Append("  busyUtil ").Append(scheduler.ProductionBusyUtilizationPercent.ToString("F1")).Append("%")
+                    .AppendLine();
+                sb.Append("Production busy: ").Append(scheduler.ProductionBusyMilliseconds.ToString("F0")).Append(" ms worker-time")
+                    .Append(" / ").Append(scheduler.ProductionBusyWindowMilliseconds.ToString("F0")).Append(" ms wall-window")
                     .AppendLine();
                 sb.Append("Production queue: pending ").Append(scheduler.ProductionPending)
                     .Append("  highWater ").Append(scheduler.ProductionHighWaterPending)
@@ -123,8 +126,12 @@ namespace RimMT
                 ", peakActive=" + scheduler.ProductionPeakActiveWorkers +
                 ", highWater=" + scheduler.ProductionHighWaterPending +
                 ", parallelBatches=" + scheduler.ProductionParallelBatches +
-                ", concurrencySamples=" + scheduler.ProductionConcurrencySamples +
-                ", avgActive=" + scheduler.ProductionAverageActiveWorkers.ToString("F3") +
+                ", busyWorkerMs=" + scheduler.ProductionBusyMilliseconds.ToString("F2") +
+                ", busyWindowMs=" + scheduler.ProductionBusyWindowMilliseconds.ToString("F2") +
+                ", busyAvgWorkers=" + scheduler.ProductionBusyAverageWorkers.ToString("F3") +
+                ", busyUtilization=" + scheduler.ProductionBusyUtilizationPercent.ToString("F2") + "%" +
+                ", frameSamples=" + scheduler.ProductionConcurrencySamples +
+                ", sampledAvgActive=" + scheduler.ProductionAverageActiveWorkers.ToString("F3") +
                 ", sampledUtilization=" + scheduler.ProductionWorkerUtilizationPercent.ToString("F2") + "%");
         }
 
