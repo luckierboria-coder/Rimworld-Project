@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using RimWorld;
@@ -20,7 +19,7 @@ namespace RimMT
         private const int TtlTicks = 60;
         private const int MaxEntries = 4096;
         private static readonly Dictionary<ExpandKey, ExpandCache> Cache = new Dictionary<ExpandKey, ExpandCache>();
-        private static Type settingsType;
+        private static FieldInfo preferSpoilingField;
         private static int failureLogs;
         private static bool installed;
 
@@ -59,7 +58,8 @@ namespace RimMT
                 Type expandType = AccessTools.TypeByName("CommonSense.IngredientPriority+WorkGiver_DoBill_TryFindBestIngredientsHelper_CommonSensePatch");
                 if (utility == null || expandType == null) return;
 
-                settingsType = AccessTools.TypeByName("CommonSense.Settings");
+                Type settingsType = AccessTools.TypeByName("CommonSense.Settings");
+                preferSpoilingField = settingsType == null ? null : AccessTools.Field(settingsType, "prefer_spoiling_ingredients");
                 MethodInfo target = AccessTools.Method(expandType, "PreProcess");
                 if (target == null) return;
 
@@ -68,7 +68,7 @@ namespace RimMT
                     prefix: new HarmonyMethod(typeof(CommonSenseIngredientExpand092), nameof(Prefix)) { priority = Priority.First },
                     postfix: new HarmonyMethod(typeof(CommonSenseIngredientExpand092), nameof(Postfix)) { priority = Priority.Last });
                 installed = true;
-                Log.Message("[RimMT] Unified Common Sense ingredient-expansion memo active; other Stage4D experimental caches are not installed.");
+                Log.Message("[RimMT] Unified Common Sense ingredient-expansion memo active; cached setting metadata and allocation-light miss capture are enabled.");
             }
             catch (Exception ex)
             {
@@ -83,7 +83,7 @@ namespace RimMT
             __state = default(ExpandState);
             try
             {
-                if (!RimMTThreadGuard.IsMainThread || !ReadSetting("prefer_spoiling_ingredients", false) || billGiverIsPawn ||
+                if (!RimMTThreadGuard.IsMainThread || !ReadPreferSpoilingSetting() || billGiverIsPawn ||
                     pawn == null || pawn.Map == null || baseValidator == null || newRelevantThings == null || processedThings == null)
                     return true;
 
@@ -126,7 +126,7 @@ namespace RimMT
                 {
                     Key = key,
                     Tick = tick,
-                    Before = new HashSet<int>(newRelevantThings.Where(t => t != null).Select(t => t.thingIDNumber)),
+                    Before = CaptureIds(newRelevantThings),
                     Valid = true
                 };
                 return true;
@@ -143,18 +143,49 @@ namespace RimMT
             if (!__state.Valid || newRelevantThings == null) return;
             try
             {
-                List<Thing> extras = new List<Thing>();
+                int extraCount = 0;
                 for (int i = 0; i < newRelevantThings.Count; i++)
                 {
                     Thing thing = newRelevantThings[i];
-                    if (thing != null && !__state.Before.Contains(thing.thingIDNumber)) extras.Add(thing);
+                    if (thing != null && !__state.Before.Contains(thing.thingIDNumber)) extraCount++;
+                }
+
+                Thing[] extras = extraCount == 0 ? EmptyThings : new Thing[extraCount];
+                int write = 0;
+                for (int i = 0; i < newRelevantThings.Count && write < extraCount; i++)
+                {
+                    Thing thing = newRelevantThings[i];
+                    if (thing != null && !__state.Before.Contains(thing.thingIDNumber)) extras[write++] = thing;
                 }
 
                 if (Cache.Count >= MaxEntries) Cache.Clear();
-                Cache[__state.Key] = new ExpandCache { Tick = __state.Tick, Extras = extras.ToArray() };
+                Cache[__state.Key] = new ExpandCache { Tick = __state.Tick, Extras = extras };
                 publishes++;
             }
             catch (Exception ex) { LogFailure("ingredient memo publish", ex); }
+        }
+
+        private static readonly Thing[] EmptyThings = new Thing[0];
+
+        private static HashSet<int> CaptureIds(List<Thing> things)
+        {
+            HashSet<int> result = new HashSet<int>();
+            for (int i = 0; i < things.Count; i++)
+            {
+                Thing thing = things[i];
+                if (thing != null) result.Add(thing.thingIDNumber);
+            }
+            return result;
+        }
+
+        private static bool ReadPreferSpoilingSetting()
+        {
+            try
+            {
+                FieldInfo field = preferSpoilingField;
+                return field != null && field.FieldType == typeof(bool) && (bool)field.GetValue(null);
+            }
+            catch { return false; }
         }
 
         internal static string Summary()
@@ -189,16 +220,6 @@ namespace RimMT
                 }
                 return new ExpandKey(pawn.Map, pawn.thingIDNumber, count, hash, processedCount);
             }
-        }
-
-        private static bool ReadSetting(string field, bool fallback)
-        {
-            try
-            {
-                FieldInfo f = settingsType == null ? null : AccessTools.Field(settingsType, field);
-                return f != null && f.FieldType == typeof(bool) ? (bool)f.GetValue(null) : fallback;
-            }
-            catch { return fallback; }
         }
 
         private static int CurrentTick()
