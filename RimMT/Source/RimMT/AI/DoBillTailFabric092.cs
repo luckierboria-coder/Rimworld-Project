@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
-using System.Threading;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -17,18 +16,24 @@ namespace RimMT
     /// PersistentMapSearchFabric worker. The main thread never waits: first sighting falls through
     /// to S5.1/Vanilla, later synchronized snapshots can prove the closest candidate with a dynamic
     /// live-check budget. Validator, Reachability and final Thing result remain live main-thread work.
+    ///
+    /// Unified Lean overhead rule: steady-state hits allocate nothing. Membership arrays are created
+    /// only when a new source is registered; later calls validate the live collection directly against
+    /// the retained membership array.
     /// </summary>
     internal static class DoBillTailFabric092
     {
         private const int MinCount = 16;
         private const int MaxCount = 127;
         private const int TailThresholdMs = 16;
+        private const int MaxTrackedStates = 2048;
         private static readonly long TailThresholdTicks = Math.Max(1L, Stopwatch.Frequency * TailThresholdMs / 1000L);
         private static readonly Dictionary<SourceKey, SourceState> States = new Dictionary<SourceKey, SourceState>();
         private static int nextSourceId = 400000;
         private static bool patched;
         private static int failureLogs;
 
+        // Prefix is main-thread-only, so these diagnostic counters intentionally avoid Interlocked.
         private static long observed;
         private static long tailEligible;
         private static long registrations;
@@ -40,6 +45,7 @@ namespace RimMT
         private static long liveFallback;
         private static long liveChecks;
         private static long candidatesVisited;
+        private static long stateResets;
 
         internal static void Apply(Harmony harmony)
         {
@@ -60,7 +66,7 @@ namespace RimMT
                 prefix.priority = Priority.First + 220;
                 harmony.Patch(target, prefix: prefix);
                 patched = true;
-                Log.Message("[RimMT] DoBill worker-tail fabric active: repeated 16..127 static bill-giver sets can use worker-maintained spatial snapshots after a 16ms JobGiver tail threshold; final validation/reachability stays live.");
+                Log.Message("[RimMT] DoBill worker-tail fabric active: repeated 16..127 static bill-giver sets can use worker-maintained spatial snapshots after a 16ms JobGiver tail threshold; steady-state membership validation is allocation-free and final validation/reachability stays live.");
             }
             catch (Exception ex)
             {
@@ -85,11 +91,11 @@ namespace RimMT
             bool ignoreEntirelyForbiddenRegions,
             ref Thing __result)
         {
-            Interlocked.Increment(ref observed);
             if (!patched || !FeatureGate.IsEnabled("parallel.jobPartition") || !JobGiverGlobalNearest04181.InJobGiverScope ||
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing || customGlobalSearchSet == null)
                 return true;
 
+            observed++;
             long scopeStart = JobGiverGlobalNearest04181.CurrentScopeStartTicks;
             if (scopeStart <= 0L || Stopwatch.GetTimestamp() - scopeStart < TailThresholdTicks)
                 return true;
@@ -103,52 +109,54 @@ namespace RimMT
             if (collection == null || collection.Count < MinCount || collection.Count > MaxCount)
                 return true;
 
-            Interlocked.Increment(ref tailEligible);
+            tailEligible++;
             try
             {
                 int count = collection.Count;
-                Thing[] members = new Thing[count];
-                int hash = 17;
-                int i = 0;
-                foreach (Thing thing in collection)
-                {
-                    if (i >= count || thing == null || !(thing is IBillGiver) || thing is Pawn || !thing.Spawned || thing.MapHeld != map)
-                        return true;
-                    IntVec3 pos = thing.Position;
-                    if (!pos.IsValid || !pos.InBounds(map)) return true;
-                    members[i++] = thing;
-                    unchecked { hash = hash * 31 + thing.thingIDNumber; }
-                }
-                if (i != count) return true;
+                int hash;
+                if (!TryValidateAndHash(collection, map, count, out hash))
+                    return true;
 
                 SourceKey key = new SourceKey(map.uniqueID, count, hash);
                 SourceState state;
-                if (!States.TryGetValue(key, out state) || !MembershipMatches(state.Members, members))
+                if (!States.TryGetValue(key, out state) || !MembershipMatches(collection, state.Members, count))
                 {
-                    state = new SourceState { SourceId = Interlocked.Increment(ref nextSourceId), Members = members };
+                    Thing[] members;
+                    if (!TryCaptureMembers(collection, map, count, out members))
+                        return true;
+
+                    // Bound retained diagnostic/search state. Clearing only forces later calls to
+                    // re-register; it never changes the authoritative result of the current call.
+                    if (States.Count >= MaxTrackedStates)
+                    {
+                        States.Clear();
+                        stateResets++;
+                    }
+
+                    state = new SourceState { SourceId = ++nextSourceId, Members = members };
                     States[key] = state;
                     if (!PersistentMapSearchFabric.RegisterOrUpdateSource(map, state.SourceId, members))
                     {
-                        Interlocked.Increment(ref registrationRejected);
+                        registrationRejected++;
                         return true;
                     }
-                    Interlocked.Increment(ref registrations);
+                    registrations++;
                     return true; // never wait for worker publication
                 }
 
                 PersistentMapSearchFabric.SourceSnapshot snapshot;
                 if (!PersistentMapSearchFabric.TryGetSourceSnapshot(map, state.SourceId, out snapshot) || snapshot == null || snapshot.Count != count)
                 {
-                    Interlocked.Increment(ref snapshotMisses);
+                    snapshotMisses++;
                     return true;
                 }
-                Interlocked.Increment(ref snapshotHits);
+                snapshotHits++;
 
                 int cap = DynamicLiveCap();
                 int estimate = snapshot.EstimateCandidates(root, maxDistance, cap);
                 if (estimate > cap)
                 {
-                    Interlocked.Increment(ref broadBypass);
+                    broadBypass++;
                     return true;
                 }
 
@@ -162,14 +170,14 @@ namespace RimMT
                     out chosen, out visited, out buckets, out reaches, out validations, out stale);
                 if (!ok)
                 {
-                    Interlocked.Increment(ref liveFallback);
+                    liveFallback++;
                     return true;
                 }
 
                 __result = chosen;
-                Interlocked.Increment(ref accelerated);
-                Interlocked.Add(ref liveChecks, reaches + validations);
-                Interlocked.Add(ref candidatesVisited, visited);
+                accelerated++;
+                liveChecks += reaches + validations;
+                candidatesVisited += visited;
                 return false;
             }
             catch (Exception ex)
@@ -178,6 +186,59 @@ namespace RimMT
                     Log.Warning("[RimMT] DoBill worker-tail fabric failed closed for one call: " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
+        }
+
+        private static bool TryValidateAndHash(ICollection<Thing> collection, Map map, int expectedCount, out int hash)
+        {
+            hash = 17;
+            int seen = 0;
+            foreach (Thing thing in collection)
+            {
+                if (seen++ >= expectedCount || thing == null || !(thing is IBillGiver) || thing is Pawn ||
+                    !thing.Spawned || thing.MapHeld != map)
+                    return false;
+
+                IntVec3 pos = thing.Position;
+                if (!pos.IsValid || !pos.InBounds(map)) return false;
+                unchecked { hash = hash * 31 + thing.thingIDNumber; }
+            }
+            return seen == expectedCount;
+        }
+
+        private static bool TryCaptureMembers(ICollection<Thing> collection, Map map, int expectedCount, out Thing[] members)
+        {
+            members = new Thing[expectedCount];
+            int i = 0;
+            foreach (Thing thing in collection)
+            {
+                if (i >= expectedCount || thing == null || !(thing is IBillGiver) || thing is Pawn ||
+                    !thing.Spawned || thing.MapHeld != map)
+                {
+                    members = null;
+                    return false;
+                }
+                IntVec3 pos = thing.Position;
+                if (!pos.IsValid || !pos.InBounds(map))
+                {
+                    members = null;
+                    return false;
+                }
+                members[i++] = thing;
+            }
+            if (i == expectedCount) return true;
+            members = null;
+            return false;
+        }
+
+        private static bool MembershipMatches(ICollection<Thing> collection, Thing[] members, int expectedCount)
+        {
+            if (members == null || members.Length != expectedCount || collection.Count != expectedCount) return false;
+            int i = 0;
+            foreach (Thing thing in collection)
+            {
+                if (i >= expectedCount || !ReferenceEquals(thing, members[i++])) return false;
+            }
+            return i == expectedCount;
         }
 
         private static int DynamicLiveCap()
@@ -191,29 +252,22 @@ namespace RimMT
             }
         }
 
-        private static bool MembershipMatches(Thing[] a, Thing[] b)
-        {
-            if (a == null || b == null || a.Length != b.Length) return false;
-            for (int i = 0; i < a.Length; i++) if (!ReferenceEquals(a[i], b[i])) return false;
-            return true;
-        }
-
         internal static string Summary()
         {
-            long hits = Interlocked.Read(ref snapshotHits);
-            long accel = Interlocked.Read(ref accelerated);
             return "DoBill worker-tail fabric: patched=" + patched +
-                ", observed=" + Interlocked.Read(ref observed) +
-                ", tailEligible=" + Interlocked.Read(ref tailEligible) +
-                ", registrations=" + Interlocked.Read(ref registrations) +
-                ", registrationRejected=" + Interlocked.Read(ref registrationRejected) +
-                ", snapshotHits=" + hits +
-                ", snapshotMisses=" + Interlocked.Read(ref snapshotMisses) +
-                ", accelerated=" + accel +
-                ", broadBypass=" + Interlocked.Read(ref broadBypass) +
-                ", liveFallback=" + Interlocked.Read(ref liveFallback) +
-                ", liveChecks=" + Interlocked.Read(ref liveChecks) +
-                ", candidatesVisited=" + Interlocked.Read(ref candidatesVisited) +
+                ", observed=" + observed +
+                ", tailEligible=" + tailEligible +
+                ", registrations=" + registrations +
+                ", registrationRejected=" + registrationRejected +
+                ", snapshotHits=" + snapshotHits +
+                ", snapshotMisses=" + snapshotMisses +
+                ", accelerated=" + accelerated +
+                ", broadBypass=" + broadBypass +
+                ", liveFallback=" + liveFallback +
+                ", liveChecks=" + liveChecks +
+                ", candidatesVisited=" + candidatesVisited +
+                ", retainedStates=" + States.Count +
+                ", stateResets=" + stateResets +
                 ", currentLiveCap=" + DynamicLiveCap() + ".";
         }
 
