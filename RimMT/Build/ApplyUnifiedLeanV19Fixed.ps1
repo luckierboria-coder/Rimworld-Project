@@ -23,5 +23,12 @@ if (-not $text.Contains($privateCapture)) {
 }
 $text = $text.Replace($privateCapture, $internalCapture)
 
+$privateTopology = '        private sealed class TopologySnapshot'
+$internalTopology = '        internal sealed class TopologySnapshot'
+if (-not $text.Contains($privateTopology)) {
+    throw 'V19 TopologySnapshot accessibility repair anchor not found.'
+}
+$text = $text.Replace($privateTopology, $internalTopology)
+
 Set-Content $tempPath $text -Encoding UTF8
 & $tempPath
