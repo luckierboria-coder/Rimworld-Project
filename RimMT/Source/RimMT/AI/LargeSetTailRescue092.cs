@@ -9,7 +9,7 @@ using Verse.AI;
 namespace RimMT
 {
     /// <summary>
-    /// RC2-T2 Stage3 consolidated for Unified Lean. S5.1 now owns validated <=127 known sets at
+    /// RC2-T2 Stage3 consolidated for Unified Lean. S5.1 owns validated <=127 known sets at
     /// the 16ms threshold, so this layer only rescues >=128 materialized sets. It examines a
     /// bounded best-32 window and falls back to Vanilla when the window cannot prove the result.
     /// </summary>
@@ -24,6 +24,12 @@ namespace RimMT
         [ThreadStatic] private static int[] windowDistSq;
         [ThreadStatic] private static float[] windowPriority;
         private static int failureLogs;
+        private static long observed;
+        private static long largeEligible;
+        private static long boundedProofs;
+        private static long boundedNullFallbacks;
+        private static long unsafePriorityBypass;
+        private static long failures;
 
         static LargeSetTailRescue092()
         {
@@ -69,6 +75,7 @@ namespace RimMT
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return true;
 
+            observed++;
             try
             {
                 ParameterInfo[] ps = __originalMethod.GetParameters();
@@ -86,12 +93,17 @@ namespace RimMT
 
                 ICollection<Thing> collection = searchSet as ICollection<Thing>;
                 if (collection == null || collection.Count < LargeSourceCount || collection.Count > MaxSourceCount) return true;
+                largeEligible++;
 
                 Predicate<Thing> validator = GetDelegateArg<Predicate<Thing>>(ps, __args, "validator");
                 bool validatorFirst = validator != null && IsSafeVanillaWorkValidator(validator);
                 Func<Thing, float> priorityGetter = GetDelegateArg<Func<Thing, float>>(ps, __args, "priorityGetter");
                 bool prioritized = priorityGetter != null;
-                if (prioritized && !IsSafeWorkScannerPriority(priorityGetter)) return true;
+                if (prioritized && !IsSafeWorkScannerPriority(priorityGetter))
+                {
+                    unsafePriorityBypass++;
+                    return true;
+                }
 
                 PathEndMode peMode = GetArg<PathEndMode>(ps, __args, "peMode");
                 TraverseParms traverseParms = GetArg<TraverseParms>(ps, __args, "traverseParams", "traverseParms");
@@ -126,20 +138,32 @@ namespace RimMT
                     }
 
                     __result = thing;
+                    boundedProofs++;
                     ClearWindow(count);
                     return false;
                 }
 
-                // The best-32 window did not prove a result. Vanilla must inspect the rest.
+                boundedNullFallbacks++;
                 ClearWindow(count);
                 return true;
             }
             catch (Exception ex)
             {
+                failures++;
                 if (failureLogs++ < 4)
                     Log.Warning("[RimMT] Unified Stage3 failed closed for one call: " + ex.GetType().Name + ": " + ex.Message);
                 return true;
             }
+        }
+
+        internal static string Summary()
+        {
+            return "Stage3 large-set rescue: observed=" + observed +
+                ", largeEligible=" + largeEligible +
+                ", boundedProofs=" + boundedProofs +
+                ", boundedNullFallbacks=" + boundedNullFallbacks +
+                ", unsafePriorityBypass=" + unsafePriorityBypass +
+                ", failures=" + failures + ".";
         }
 
         private static bool IsSafeVanillaWorkValidator(Delegate d)
