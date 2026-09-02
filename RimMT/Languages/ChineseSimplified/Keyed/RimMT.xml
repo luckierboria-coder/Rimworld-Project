@@ -2,7 +2,7 @@
 <LanguageData>
   <RimMT_SettingsIntro>面向 RimWorld 1.5 的兼容优先性能优化与负载均衡。</RimMT_SettingsIntro>
   <RimMT_AdaptiveBurst>自适应削峰调度</RimMT_AdaptiveBurst>
-  <RimMT_AdaptiveBurstDesc>监测 Tick 计算尖峰；当主线程进入高压状态时暂停后台 Worker 任务，让高优先级计算优先占用 CPU。</RimMT_AdaptiveBurstDesc>
+  <RimMT_AdaptiveBurstDesc>使用滚动 Tick 压力、P95 与滞回判断动态分配后台 Worker 并发额度，同时保证高价值分流任务及时执行。</RimMT_AdaptiveBurstDesc>
   <RimMT_HotPathDiagnostics>监测 PathFinder / JobGiver 热点</RimMT_HotPathDiagnostics>
   <RimMT_HotPathDiagnosticsDesc>统计 PathFinder 与 JobGiver 外层调用的次数、平均耗时、近似 P95 与最大尖峰。具体 WorkGiver 细分探针只在手动诊断时临时启用。</RimMT_HotPathDiagnosticsDesc>
   <RimMT_TextCache>缓存文字尺寸计算</RimMT_TextCache>
@@ -11,8 +11,8 @@
   <RimMT_OverlayCacheDesc>镜头不移动时避免每帧扫描全图所有可显示浮层的物体。实际绘制仍只在主线程执行。</RimMT_OverlayCacheDesc>
   <RimMT_OverlayRefresh>浮层缓存刷新间隔：{0} 帧</RimMT_OverlayRefresh>
   <RimMT_Production>正式性能优化</RimMT_Production>
-  <RimMT_WorkScanAcceleration>加速安全的 Work 搜索（V0.4.6）</RimMT_WorkScanAcceleration>
-  <RimMT_WorkScanAccelerationDesc>只对严格白名单的原版 Work 搜索启用正式 fast-path。V0.4.6 首先处理非优先级搬运：Worker 预建当前 haulable 列表的空间索引，主线程之后只检查附近候选，并继续使用原版 Reachability 与 WorkGiver 最终验证。命中时会真正跳过原版对整个 haulable 列表的 GenClosest 全量扫描；不支持、过期、存在冲突补丁或状态不明确时立即回退原版。</RimMT_WorkScanAccelerationDesc>
+  <RimMT_WorkScanAcceleration>加速安全的 Work / Job 搜索</RimMT_WorkScanAcceleration>
+  <RimMT_WorkScanAccelerationDesc>启用经过验证的 JobGiver、DoBill、搬运与 ReachProfile 正式优化。Worker 只处理可安全分流的快照/预处理，最终验证、预留与 Job 创建仍由主线程实时决定。</RimMT_WorkScanAccelerationDesc>
   <RimMT_Experimental>实验性功能</RimMT_Experimental>
   <RimMT_PathSnapshotWorker>受限 Path 快照一致性验证（V0.4.5.2）</RimMT_PathSnapshotWorker>
   <RimMT_PathSnapshotWorkerDesc>只把 Worker A* 作为有预算的影子验证器运行。V0.4.5.2 仅抽样符合条件的中距离路径，同时最多运行 1 个影子任务，主线程高压时停止接收，并在达到验证额度后完全停止。原版 PawnPath 始终作为最终结果。</RimMT_PathSnapshotWorkerDesc>
@@ -23,6 +23,8 @@
   <RimMT_StartJobGiverCapture>开始临时 JobGiver 详细采样</RimMT_StartJobGiverCapture>
   <RimMT_StopJobGiverCapture>停止 JobGiver 详细采样</RimMT_StopJobGiverCapture>
   <RimMT_JobGiverCaptureActive>JobGiver 详细采样正在运行，预计还剩 {0} 次外层任务包调用。</RimMT_JobGiverCaptureActive>
+  <RimMT_OpenMonitor>打开实时生产性能监视器</RimMT_OpenMonitor>
+  <RimMT_RealtimeMonitorTitle>RimMT 生产性能监视器（可选）</RimMT_RealtimeMonitorTitle>
   <RimMT_LogReport>输出当前运行期兼容性 / 性能报告到日志</RimMT_LogReport>
   <RimMT_RunSelfTest>运行多线程 Worker 自检</RimMT_RunSelfTest>
 </LanguageData>
