@@ -13,7 +13,6 @@ namespace RimMT
     /// Lean form of JS1.1S4. ThingRequest-backed >=256 searches retain the validated fast path.
     /// Once the current JobPackage has already spent 32ms, later >=16 ThingRequest searches and
     /// explicit custom enumerables may use nearest-first validator-first/live-CanReach rescue.
-    /// All telemetry counters and sort timing have been removed from production.
     /// </summary>
     internal static class JobGiverSlowSearch0419S
     {
@@ -28,6 +27,15 @@ namespace RimMT
         private static volatile bool enabled = true;
         private static volatile bool patched;
         private static int failureLogs;
+        private static long observed;
+        private static long staticLargeEligible;
+        private static long tailEligible;
+        private static long customTailEligible;
+        private static long accelerated;
+        private static long acceleratedNull;
+        private static long validatorRejected;
+        private static long reachRejected;
+        private static long failures;
 
         internal static void Apply(Harmony harmony)
         {
@@ -71,6 +79,7 @@ namespace RimMT
             if (!enabled || !JobGiverGlobalNearest04181.InJobGiverScope || !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return true;
 
+            observed++;
             Map map = __1;
             Pawn pawn = __4.pawn;
             if (map == null || map.Disposed || pawn == null || !pawn.Spawned || pawn.Map != map ||
@@ -87,6 +96,7 @@ namespace RimMT
             if (__7 != null)
             {
                 if (Stopwatch.GetTimestamp() - scopeStart < TailRescueThresholdTicks) return true;
+                customTailEligible++;
                 return TryAccelerateCustom(__7, __0, map, __3, __4, __5, __6, ref __result);
             }
 
@@ -98,10 +108,14 @@ namespace RimMT
             int count = source.Count;
             if (count > MaxSourceCount) return true;
             if (count >= LargeSearchThreshold)
+            {
+                staticLargeEligible++;
                 return TryAccelerateList(source, count, __0, map, __3, __4, __5, __6, ref __result);
+            }
             if (count < TailMinSourceCount) return true;
             if (Stopwatch.GetTimestamp() - scopeStart < TailRescueThresholdTicks) return true;
 
+            tailEligible++;
             return TryAccelerateList(source, count, __0, map, __3, __4, __5, __6, ref __result);
         }
 
@@ -168,12 +182,23 @@ namespace RimMT
             for (int i = 0; i < kept; i++)
             {
                 Thing thing = candidates[i].Thing;
-                if (validator != null && !validator(thing)) continue;
-                if (!map.reachability.CanReach(root, new LocalTargetInfo(thing), endMode, traverseParms)) continue;
+                if (validator != null && !validator(thing))
+                {
+                    validatorRejected++;
+                    continue;
+                }
+                if (!map.reachability.CanReach(root, new LocalTargetInfo(thing), endMode, traverseParms))
+                {
+                    reachRejected++;
+                    continue;
+                }
                 result = thing;
+                accelerated++;
                 return false;
             }
             result = null;
+            accelerated++;
+            acceleratedNull++;
             return false;
         }
 
@@ -192,6 +217,7 @@ namespace RimMT
 
         private static bool Failure(Exception ex)
         {
+            failures++;
             if (failureLogs++ < 4)
                 Log.Warning("[RimMT] Unified S4 accelerated search failed closed to Vanilla: " + ex.GetType().Name + ": " + ex.Message);
             return true;
@@ -199,9 +225,18 @@ namespace RimMT
 
         internal static string Summary()
         {
-            return "JobGiver slow-search Unified Lean: patched=" + patched + ", enabled=" + enabled +
+            return "S4 slow-search: patched=" + patched + ", enabled=" + enabled +
+                   ", observed=" + observed +
+                   ", staticLargeEligible=" + staticLargeEligible +
+                   ", tailEligible=" + tailEligible +
+                   ", customTailEligible=" + customTailEligible +
+                   ", accelerated=" + accelerated +
+                   ", acceleratedNull=" + acceleratedNull +
+                   ", validatorRejected=" + validatorRejected +
+                   ", reachRejected=" + reachRejected +
+                   ", failures=" + failures +
                    ", staticThreshold=" + LargeSearchThreshold + ", tailThresholdMs=" + TailRescueThresholdMs +
-                   ", tailMinSource=" + TailMinSourceCount + ", telemetry=external.";
+                   ", tailMinSource=" + TailMinSourceCount + ".";
         }
 
         private struct Candidate
