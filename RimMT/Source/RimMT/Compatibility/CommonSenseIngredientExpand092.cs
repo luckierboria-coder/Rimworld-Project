@@ -10,10 +10,9 @@ using Verse.AI;
 namespace RimMT
 {
     /// <summary>
-    /// The only retained Stage4D Common Sense optimization. The diagnostic build measured an
-    /// overwhelming reuse rate for ingredient expansion while cleaning/path/opportunity/sort
-    /// caches had negligible yield. Misses run Common Sense unchanged; hits replay only the
-    /// previously observed extras and revalidate live state, baseValidator and CanReach.
+    /// The only retained Stage4D Common Sense optimization. Misses run Common Sense unchanged;
+    /// hits replay only previously observed extras and revalidate live state, baseValidator and
+    /// CanReach. V0.9.2 keeps only cheap aggregate counters for on-demand reporting.
     /// </summary>
     [StaticConstructorOnStartup]
     internal static class CommonSenseIngredientExpand092
@@ -23,6 +22,15 @@ namespace RimMT
         private static readonly Dictionary<ExpandKey, ExpandCache> Cache = new Dictionary<ExpandKey, ExpandCache>();
         private static Type settingsType;
         private static int failureLogs;
+        private static bool installed;
+
+        private static long eligibleCalls;
+        private static long cacheHits;
+        private static long cacheMisses;
+        private static long extrasRevalidated;
+        private static long extrasRejectedLive;
+        private static long extrasReplayed;
+        private static long publishes;
 
         internal struct ExpandState
         {
@@ -59,10 +67,12 @@ namespace RimMT
                 harmony.Patch(target,
                     prefix: new HarmonyMethod(typeof(CommonSenseIngredientExpand092), nameof(Prefix)) { priority = Priority.First },
                     postfix: new HarmonyMethod(typeof(CommonSenseIngredientExpand092), nameof(Postfix)) { priority = Priority.Last });
+                installed = true;
                 Log.Message("[RimMT] Unified Common Sense ingredient-expansion memo active; other Stage4D experimental caches are not installed.");
             }
             catch (Exception ex)
             {
+                installed = false;
                 Log.Warning("[RimMT] Common Sense ingredient memo install failed closed: " + ex.GetType().Name + ": " + ex.Message);
             }
         }
@@ -77,24 +87,41 @@ namespace RimMT
                     pawn == null || pawn.Map == null || baseValidator == null || newRelevantThings == null || processedThings == null)
                     return true;
 
+                eligibleCalls++;
                 int tick = CurrentTick();
                 ExpandKey key = BuildKey(pawn, newRelevantThings, processedThings.Count);
                 ExpandCache cached;
                 if (Cache.TryGetValue(key, out cached) && cached != null && cached.Extras != null && tick - cached.Tick <= TtlTicks)
                 {
+                    cacheHits++;
                     Thing[] extras = cached.Extras;
                     for (int i = 0; i < extras.Length; i++)
                     {
+                        extrasRevalidated++;
                         Thing thing = extras[i];
-                        if (thing == null || thing.Destroyed || !thing.Spawned || thing.Map != pawn.Map || thing.def.IsMedicine || processedThings.Contains(thing)) continue;
-                        if (!baseValidator(thing)) continue;
-                        if (!pawn.CanReach(thing, PathEndMode.OnCell, Danger.Deadly)) continue;
+                        if (thing == null || thing.Destroyed || !thing.Spawned || thing.Map != pawn.Map || thing.def.IsMedicine || processedThings.Contains(thing))
+                        {
+                            extrasRejectedLive++;
+                            continue;
+                        }
+                        if (!baseValidator(thing))
+                        {
+                            extrasRejectedLive++;
+                            continue;
+                        }
+                        if (!pawn.CanReach(thing, PathEndMode.OnCell, Danger.Deadly))
+                        {
+                            extrasRejectedLive++;
+                            continue;
+                        }
                         newRelevantThings.Add(thing);
                         processedThings.Add(thing);
+                        extrasReplayed++;
                     }
                     return false;
                 }
 
+                cacheMisses++;
                 __state = new ExpandState
                 {
                     Key = key,
@@ -125,8 +152,26 @@ namespace RimMT
 
                 if (Cache.Count >= MaxEntries) Cache.Clear();
                 Cache[__state.Key] = new ExpandCache { Tick = __state.Tick, Extras = extras.ToArray() };
+                publishes++;
             }
             catch (Exception ex) { LogFailure("ingredient memo publish", ex); }
+        }
+
+        internal static string Summary()
+        {
+            long total = eligibleCalls;
+            long hits = cacheHits;
+            double hitRate = total <= 0 ? 0.0 : hits * 100.0 / total;
+            return "CommonSense ingredient memo: installed=" + installed +
+                ", eligibleCalls=" + total +
+                ", hits=" + hits +
+                ", misses=" + cacheMisses +
+                ", hitRate=" + hitRate.ToString("F2") + "%" +
+                ", extrasRevalidated=" + extrasRevalidated +
+                ", extrasRejectedLive=" + extrasRejectedLive +
+                ", extrasReplayed=" + extrasReplayed +
+                ", publishes=" + publishes +
+                ", entries=" + Cache.Count + ".";
         }
 
         private static ExpandKey BuildKey(Pawn pawn, List<Thing> relevant, int processedCount)
