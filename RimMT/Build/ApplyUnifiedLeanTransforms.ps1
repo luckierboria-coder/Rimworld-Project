@@ -337,7 +337,7 @@ $s4 = Replace-OrThrow $s4 @'
             try
             {
                 Pawn animal = thing as Pawn;
-                if (animal == null || !animal.IsAnimal) return false;
+                if (animal == null || animal.RaceProps == null || !animal.RaceProps.Animal) return false;
                 if (worker == null) return true;
                 if (animal.Position.IsForbidden(worker)) return false;
                 Map map = animal.Map;
@@ -378,5 +378,11 @@ $s4 = Replace-OrThrow $s4 '        private enum RescueRoute { StaticLarge, TailL
 '@ 'S4 Pen prefilter enum'
 
 Set-Content $s4Path $s4 -Encoding UTF8
+
+# Keep the report policy string aligned with the transformed production behavior.
+$diagPath = 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
+$diag = Get-Content $diagPath -Raw
+$diag = Replace-OrThrow $diag 'ReachProfile=V0.4.17 sliced topology + local-first fuse;' 'ReachProfile=V0.4.18 sliced topology + 4-probe lease + local-first fuse;' 'diagnostics ReachProfile policy label'
+Set-Content $diagPath $diag -Encoding UTF8
 
 Write-Host 'Applied Unified Lean transforms: legacy ReachProfile cadence guard; V0.4.18 four-probe profile lease + hard age + finer sliced topology; S4 Pen cheap-negative candidate compaction.'
