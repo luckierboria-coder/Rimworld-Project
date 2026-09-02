@@ -14,6 +14,7 @@ namespace RimMT
         private static int index;
         private static int count;
         private static double emaMs;
+        private static long sampleCount;
         private static long spikes;
         private static long butterFrameSamples;
         private static int pressureValue = (int)LoadPressure.Normal;
@@ -21,6 +22,7 @@ namespace RimMT
         internal static LoadPressure Pressure { get { return (LoadPressure)Volatile.Read(ref pressureValue); } }
         internal static bool AllowBackground { get { LoadPressure p = Pressure; return p == LoadPressure.Low || p == LoadPressure.Normal; } }
         internal static double EmaTickMs { get { lock (Sync) return emaMs; } }
+        internal static long SampleCount { get { return Interlocked.Read(ref sampleCount); } }
         internal static long SpikeCount { get { return Interlocked.Read(ref spikes); } }
         internal static long ButterFrameSamples { get { return Interlocked.Read(ref butterFrameSamples); } }
         internal static string SampleSource { get { return RuntimeCompatibility.ButterPlusPlusActive ? "Butter++ TickManagerUpdate slice" : "DoSingleTick"; } }
@@ -51,6 +53,7 @@ namespace RimMT
 
             long end = Stopwatch.GetTimestamp();
             double ms = (end - startTimestamp) * 1000.0 / Stopwatch.Frequency;
+            Interlocked.Increment(ref sampleCount);
             lock (Sync)
             {
                 TickMs[index] = ms;
