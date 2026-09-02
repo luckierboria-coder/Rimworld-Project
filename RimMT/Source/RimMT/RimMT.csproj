@@ -10,6 +10,32 @@
     <OutputPath>..\..\1.5\Assemblies\</OutputPath>
     <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
   </PropertyGroup>
+
+  <!--
+    V0.9.2 Unified Lean intentionally excludes superseded experiments and deep profilers from
+    the production assembly. They remain in repository history / optional diagnostic projects,
+    but cannot execute or be reflection-discovered from RimMT.dll.
+  -->
+  <ItemGroup>
+    <Compile Remove="AI\AsyncJobCandidatePlan04182.cs" />
+    <Compile Remove="AI\JobPackageLocalSearch0419.cs" />
+    <Compile Remove="AI\ParallelRegionConnectivity.cs" />
+    <Compile Remove="AI\ParallelWorkPrefilter.cs" />
+    <Compile Remove="AI\PathSnapshotWorker.cs" />
+    <Compile Remove="AI\SafePathClassTelemetry0418.cs" />
+    <Compile Remove="AI\SingleCallCandidatePartition.cs" />
+    <Compile Remove="Compatibility\WorkPrefilterCompatibility04171.cs" />
+    <Compile Remove="Compatibility\WorkPrefilterCompatibility04172.cs" />
+    <Compile Remove="Diagnostics\HotPathProfiler.cs" />
+    <Compile Remove="Diagnostics\JobGiverInfrastructureProfiler.cs" />
+    <Compile Remove="Diagnostics\ReachabilityPatchCensus.cs" />
+    <Compile Remove="Diagnostics\WorkGiverProfiler.cs" />
+    <Compile Remove="Patches\HotPathPatches.cs" />
+    <Compile Remove="Patches\PathSnapshotSafetyPatches.cs" />
+    <Compile Remove="Patches\ThingOverlayCache.cs" />
+    <Compile Remove="Patches\WorkGiverDetailPatches.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4063" />
     <PackageReference Include="Lib.Harmony" Version="2.3.3" ExcludeAssets="runtime" />
