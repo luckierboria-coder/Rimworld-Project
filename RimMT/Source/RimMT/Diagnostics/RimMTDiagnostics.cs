@@ -1,122 +1,65 @@
-using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
-using System.Threading;
 using Verse;
 
 namespace RimMT
 {
+    /// <summary>
+    /// Lightweight on-demand diagnostics only. Unified Lean does not install any hot-path
+    /// profiler Harmony hooks from this class. Deep profiling belongs in optional sidecars.
+    /// </summary>
     public static class RimMTDiagnostics
     {
-        private static long reportSerial;
-
         internal static void LogStartupReport()
         {
-            LogReport("startup");
+            LogRuntimeReport();
         }
 
         public static void LogRuntimeReport()
         {
-            LogReport("runtime");
-        }
-
-        private static void LogReport(string kind)
-        {
-            long serial = Interlocked.Increment(ref reportSerial);
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("[RimMT] Compatibility / performance report #" + serial + " [" + kind + "]");
-            sb.AppendLine("ProgramState: " + Current.ProgramState + ", mainThreadFrames=" + RimMTRuntime.MainThreadFrames);
+            sb.AppendLine("[RimMT] V0.9.2 Unified Lean on-demand report");
+            sb.AppendLine("ProgramState=" + Current.ProgramState + ", mainThreadFrames=" + RimMTRuntime.MainThreadFrames);
             sb.AppendLine(RuntimeCompatibility.Summary());
 
             JobScheduler scheduler = RimMTRuntime.Scheduler;
-            sb.AppendLine("CPU scheduler view: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
-                ", RimMTWorkers=" + (scheduler == null ? 0 : scheduler.WorkerCount) +
-                ", workerCap=8 (JS1.1S1 keeps the validated JS1.1R worker cap; selective slow-search is synchronous main-thread work and never waits on workers)");
             if (scheduler != null)
             {
-                sb.AppendLine("Worker queue: pending=" + scheduler.Pending +
+                sb.AppendLine("Scheduler: logicalProcessors=" + RimMTRuntime.DetectedProcessorCount +
+                    ", workers=" + scheduler.WorkerCount +
+                    ", pending=" + scheduler.Pending +
                     ", enqueued=" + scheduler.Enqueued +
                     ", completed=" + scheduler.Completed +
                     ", rejected=" + scheduler.Rejected +
                     ", failures=" + scheduler.Failures +
-                    ", active=" + scheduler.ActiveWorkers + "/" + scheduler.WorkerCount +
+                    ", active=" + scheduler.ActiveWorkers +
                     ", peakActive=" + scheduler.PeakActiveWorkers +
-                    ", highWater=" + scheduler.HighWaterPending +
-                    ", wakeCredits=" + scheduler.WakeReleases +
-                    ", multiWakeCalls=" + scheduler.MultiWakeCalls +
-                    ", parallelBatches=" + scheduler.ParallelBatchesEnqueued +
-                    ", timeoutPollClaims=" + scheduler.TimeoutPollClaims);
+                    ", highWater=" + scheduler.HighWaterPending);
             }
 
             sb.AppendLine(MainThreadDispatcher.Summary());
-            if (RuntimeCompatibility.ButterPlusPlusActive)
-            {
-                bool managerInProgress;
-                bool managerReadable = RuntimeCompatibility.TryGetButterLogicalTickInProgress(out managerInProgress);
-                bool tickListMidTick;
-                bool tickListReadable = RuntimeCompatibility.TryGetButterTickListMidTick(out tickListMidTick);
-                sb.AppendLine("Butter++ dispatcher barrier: logicalTickDrainDeferrals=" + RimMTRuntime.ButterLogicalTickDrainDeferrals +
-                    ", probeFailureDrainDeferrals=" + RimMTRuntime.ButterProbeFailureDrainDeferrals +
-                    ", managerProbeReadable=" + managerReadable +
-                    ", managerInProgress=" + managerInProgress +
-                    ", probe=" + RuntimeCompatibility.ButterProbeDescription +
-                    ", tickListProbeReadable=" + tickListReadable +
-                    ", tickListMidTick=" + tickListMidTick +
-                    ", tickListProbe=" + RuntimeCompatibility.ButterTickListProbeDescription);
-            }
-
-            sb.AppendLine("Policy: JS1.1R stable baseline / JS1.1S1 selective >=256-candidate JobGiver slow-search acceleration / 128-255 source telemetry / embedded rolling ReachProfile safety / main-thread mutable-state commit");
             sb.AppendLine("Load pressure: " + AdaptiveLoadBalancer.Pressure +
-                ", sampleSource=" + AdaptiveLoadBalancer.SampleSource +
-                ", EMA ms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
-                ", P95 ms=" + AdaptiveLoadBalancer.Percentile95().ToString("F3") +
-                ", spikes=" + AdaptiveLoadBalancer.SpikeCount +
-                ", butterFrameSamples=" + AdaptiveLoadBalancer.ButterFrameSamples);
+                ", source=" + AdaptiveLoadBalancer.SampleSource +
+                ", EMAms=" + AdaptiveLoadBalancer.EmaTickMs.ToString("F3") +
+                ", P95ms=" + AdaptiveLoadBalancer.Percentile95().ToString("F3") +
+                ", spikes=" + AdaptiveLoadBalancer.SpikeCount);
+            sb.AppendLine("Text cache: hits=" + TextMetricCache.Hits + ", misses=" + TextMetricCache.Misses);
+            sb.AppendLine("Production policy: diagnostics=external; PathSnapshot=OFF; WorkPrefilter=OFF; ReachNoCache=OFF; OverlayCache=OFF; S5.1 admission=16ms; S4 tail=32ms; RC2 Stage3 >=128; DoBill=persistent membership index; S5.3 mature pruners; CommonSense=ingredientExpand memo only.");
 
-            Dictionary<string,FeatureGate.FeatureState> states = FeatureGate.Snapshot();
-            foreach (KeyValuePair<string,FeatureGate.FeatureState> pair in states)
+            Dictionary<string, FeatureGate.FeatureState> states = FeatureGate.Snapshot();
+            foreach (KeyValuePair<string, FeatureGate.FeatureState> pair in states)
             {
                 FeatureGate.FeatureState state = pair.Value;
-                string status = state.Enabled && !state.Suppressed ? "ACTIVE" : "OFF";
-                sb.Append(" - ").Append(pair.Key).Append(": ").Append(status);
-                if (!string.IsNullOrEmpty(state.Reason))
-                    sb.Append(" (").Append(state.Reason).Append(")");
+                sb.Append(" - ").Append(pair.Key).Append(": ")
+                    .Append(state.Enabled && !state.Suppressed ? "ACTIVE" : "OFF");
+                if (!string.IsNullOrEmpty(state.Reason)) sb.Append(" (").Append(state.Reason).Append(")");
                 sb.AppendLine();
             }
 
-            sb.AppendLine("Text cache: hits=" + TextMetricCache.Hits + ", misses=" + TextMetricCache.Misses);
-            sb.AppendLine("Overlay cache: sourceScans=" + ThingOverlayCache.SourceScans + ", cachedFrames=" + ThingOverlayCache.CachedFrames);
-            sb.AppendLine("Reach NO cache: hits=" + ReachabilityNoCache.Hits + ", stores=" + ReachabilityNoCache.Stores + ", topologyGen=" + ReachabilityNoCache.TopologyGeneration);
-            sb.AppendLine(HaulWorkAccelerator.Summary());
-            sb.AppendLine(GlobalHaulAccelerator.Summary());
-            sb.AppendLine(PersistentMapSearchFabric.Summary());
-            sb.AppendLine(AdaptiveGenClosestAssist.Summary());
-            sb.AppendLine(BroadGenClosestOrder0418.Summary());
-            sb.AppendLine(JobGiverGlobalNearest04181.Summary());
-            sb.AppendLine(JobGiverSlowSearch0419S.Summary());
-            sb.AppendLine(JobPackageLocalSearch0419.Summary());
-            sb.AppendLine("JR1/JR1.1 Regionwise experiments: RETIRED; no Regionwise or global Region.Allows accelerator is installed in JS1.1S1.");
-            sb.AppendLine("Async JobGiver candidate plan V0.4.18.2: RETIRED in V0.4.19-JS1; no cross-package candidate-plan capture/scheduling is installed.");
-            sb.AppendLine(AggressiveReachabilityProfiles.Summary());
-            sb.AppendLine("ReachProfile JS1.1R/JS1.1S/JS1.1S1 policy: prediction/build behavior unchanged; rolling 8192/8 soft fuse, 3600-frame live cooldown, 256-clean forced-shadow probation, 16/256 emergency hard fuse. No extra Reachability Harmony wrapper.");
-            sb.AppendLine(ParallelRegionConnectivity.Summary());
-            sb.AppendLine(ParallelWorkPrefilter.Summary());
-            sb.AppendLine(PathGridInvalidation.Summary());
-            sb.AppendLine(PathSnapshotSafetyPatches.Summary());
-            sb.AppendLine(PathSnapshotWorker.Summary());
-            sb.AppendLine(SafePathClassTelemetry0418.Summary());
-            sb.AppendLine(HotPathProfiler.Summary("TickManager.DoSingleTick"));
-            if (RuntimeCompatibility.ButterPlusPlusActive)
-                sb.AppendLine(HotPathProfiler.Summary("TickManager.TickManagerUpdate[ButterSlice]"));
-            sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath"));
-            sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath[pawn]"));
-            sb.AppendLine(HotPathProfiler.Summary("PathFinder.FindPath[traverseParms]"));
-            sb.AppendLine(HotPathProfiler.Summary("JobGiver_Work.TryIssueJobPackage"));
-            sb.AppendLine(WorkGiverProfiler.Summary(12));
-            sb.AppendLine(JobGiverInfrastructureProfiler.Summary(12));
             foreach (string line in CompatibilityGuard.Report)
                 sb.AppendLine(" * " + line);
+
             Log.Message(sb.ToString());
         }
 
@@ -142,8 +85,7 @@ namespace RimMT
                     long local = 0L;
                     for (int i = from; i < to; i++)
                         local += ((long)i * 31L) ^ (i >> 3);
-                    lock (totalSync)
-                        total += local;
+                    lock (totalSync) total += local;
                 },
                 delegate
                 {
