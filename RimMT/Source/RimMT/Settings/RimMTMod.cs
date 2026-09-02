@@ -20,7 +20,7 @@ namespace RimMT
             Listing_Standard listing = new Listing_Standard();
             listing.Begin(inRect);
             listing.Label("RimMT V0.9.2 Unified Lean — single DLL production build");
-            listing.Label("Runtime profilers, PathSnapshot shadow validation and WorkPrefilter are not resident. Optional diagnostics can be installed separately when needed.");
+            listing.Label("Production counters are lightweight aggregates. The realtime monitor is optional, closed by default, and refreshes its text every 30 rendered frames.");
             listing.GapLine();
 
             listing.CheckboxLabeled("RimMT_AdaptiveBurst".Translate(), ref Settings.AdaptiveBurst, "RimMT_AdaptiveBurstDesc".Translate());
@@ -28,6 +28,8 @@ namespace RimMT
             listing.CheckboxLabeled("RimMT_WorkScanAcceleration".Translate(), ref Settings.WorkScanAcceleration, "RimMT_WorkScanAccelerationDesc".Translate());
 
             listing.GapLine();
+            if (listing.ButtonText("RimMT_OpenMonitor".Translate()))
+                Find.WindowStack.Add(new RimMTMonitorWindow());
             if (listing.ButtonText("RimMT_LogReport".Translate()))
                 RimMTDiagnostics.LogRuntimeReport();
             if (listing.ButtonText("RimMT_RunSelfTest".Translate()))
