@@ -13,26 +13,25 @@ namespace RimMT
 {
     // V0.4.14: persistent-map-fabric consumer.
     //
-    // V0.4.13 proved true worker offload is stable, but its per-IList position snapshots
-    // were invalidated by movement and its broad no-result queries still performed almost
-    // the full Vanilla set of live Reachability/validator calls. V0.4.14 therefore stores
-    // only source membership/order here. Position ownership moves to PersistentMapSearchFabric,
-    // which is maintained incrementally by worker cores.
-    //
-    // Stutter-first admission rule: if the already-built fabric predicts that a query would
-    // require more than MaxLiveChecks live candidates, RimMT does not attempt the query at all.
-    // Vanilla runs directly. This prevents the accelerator itself from creating 30-70 ms
-    // main-thread stalls while the next reachability-offload stage is developed.
+    // Source membership/order is retained on the main thread while primitive positions are
+    // maintained by PersistentMapSearchFabric workers. Broad predicted queries bypass RimMT.
+    // Unified Lean also cold-sleeps this consumer after a long zero-yield interval: the Harmony
+    // prefix stays installed, but only one call in 256 runs the full admission path until a valid
+    // static source or real acceleration appears. This does not disable parallel.jobPartition for
+    // other consumers and Vanilla remains authoritative on every cold bypass.
     internal static class AdaptiveGenClosestAssist
     {
         private const string FeatureId = "parallel.jobPartition";
         private const int MinCandidateCount = 96;
         private const int MaxLiveChecks = 64;
+        private const long ColdAfterObservedWithoutUseful = 50000;
+        private const int ColdProbeMask = 255; // 1/256 calls while cold.
 
         private static readonly ConditionalWeakTable<object, SourceState> States =
             new ConditionalWeakTable<object, SourceState>();
 
         private static volatile bool compatibilityReady;
+        private static volatile bool coldMode;
         private static int nextSourceId;
 
         [ThreadStatic]
@@ -65,6 +64,11 @@ namespace RimMT
         private static long reachabilityChecks;
         private static long validatorChecks;
         private static long failures;
+        private static long lastUsefulObserved;
+        private static long coldBypasses;
+        private static long coldProbes;
+        private static long coldEnters;
+        private static long coldExits;
 
         internal static void Apply(Harmony harmony)
         {
@@ -97,7 +101,7 @@ namespace RimMT
                 prefix.priority = Priority.First + 100;
                 harmony.Patch(target, prefix: prefix);
 
-                Log.Message("[RimMT] parallel.jobPartition V0.4.14 persistent-fabric consumer installed. Source membership/order is cached on the main thread; positions are maintained incrementally by worker cores. Queries predicted to exceed 64 live Reachability/validator checks bypass RimMT and run Vanilla directly.");
+                Log.Message("[RimMT] parallel.jobPartition V0.4.14 persistent-fabric consumer installed with zero-yield cold sleep. After 50k calls without a useful static source/acceleration it probes 1/256 calls until useful work reappears.");
             }
             catch (Exception ex)
             {
@@ -127,10 +131,13 @@ namespace RimMT
             bool ignoreEntirelyForbiddenRegions,
             ref Thing __result)
         {
-            Interlocked.Increment(ref observedCalls);
+            long observedNow = Interlocked.Increment(ref observedCalls);
 
             if (!compatibilityReady || !FeatureGate.IsEnabled(FeatureId) ||
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return true;
+
+            if (ShouldColdBypass(observedNow))
                 return true;
 
             if (map == null || map.Disposed || !root.IsValid || !root.InBounds(map) || customGlobalSearchSet == null)
@@ -221,11 +228,13 @@ namespace RimMT
                     return true;
                 }
 
+                MarkUseful(observedNow);
                 Interlocked.Increment(ref fallbackCalls);
                 return true;
             }
 
             Interlocked.Increment(ref membershipHits);
+            MarkUseful(observedNow);
 
             PersistentMapSearchFabric.SourceSnapshot snapshot;
             if (!PersistentMapSearchFabric.TryGetSourceSnapshot(map, state.SourceId, out snapshot) ||
@@ -283,6 +292,7 @@ namespace RimMT
                 long avoided = count - visited;
                 if (avoided > 0)
                     Interlocked.Add(ref candidatesAvoided, avoided);
+                MarkUseful(observedNow);
                 return false;
             }
             catch (Exception ex)
@@ -296,6 +306,35 @@ namespace RimMT
             {
                 assistDepth = 0;
             }
+        }
+
+        private static bool ShouldColdBypass(long observedNow)
+        {
+            if (!Volatile.Read(ref coldMode))
+            {
+                long useful = Interlocked.Read(ref lastUsefulObserved);
+                if (observedNow - useful < ColdAfterObservedWithoutUseful)
+                    return false;
+                Volatile.Write(ref coldMode, true);
+                Interlocked.Increment(ref coldEnters);
+            }
+
+            if ((observedNow & ColdProbeMask) == 0)
+            {
+                Interlocked.Increment(ref coldProbes);
+                return false;
+            }
+
+            Interlocked.Increment(ref coldBypasses);
+            return true;
+        }
+
+        private static void MarkUseful(long observedNow)
+        {
+            Interlocked.Exchange(ref lastUsefulObserved, observedNow);
+            if (!Volatile.Read(ref coldMode)) return;
+            Volatile.Write(ref coldMode, false);
+            Interlocked.Increment(ref coldExits);
         }
 
         private static SourceState CreateState(object source)
@@ -413,11 +452,16 @@ namespace RimMT
             double maxQueryUs = Interlocked.Read(ref queryTicksMax) * 1000000.0 / Stopwatch.Frequency;
 
             return "Persistent-fabric GenClosest V0.4.14: compatibilityReady=" + compatibilityReady +
+                ", coldMode=" + Volatile.Read(ref coldMode) +
                 ", observed=" + Interlocked.Read(ref observedCalls) +
                 ", eligible=" + eligible +
                 ", accelerated=" + accelerated +
                 ", acceleratedNoResult=" + Interlocked.Read(ref acceleratedNoResult) +
                 ", fallback=" + Interlocked.Read(ref fallbackCalls) +
+                ", coldEnters=" + Interlocked.Read(ref coldEnters) +
+                ", coldExits=" + Interlocked.Read(ref coldExits) +
+                ", coldBypasses=" + Interlocked.Read(ref coldBypasses) +
+                ", coldProbes=" + Interlocked.Read(ref coldProbes) +
                 ", nonListBypass=" + Interlocked.Read(ref nonListBypasses) +
                 ", shapeBypass=" + Interlocked.Read(ref shapeBypasses) +
                 ", smallSetBypass=" + Interlocked.Read(ref smallSetBypasses) +
@@ -443,7 +487,7 @@ namespace RimMT
                 ", reachChecks=" + Interlocked.Read(ref reachabilityChecks) +
                 ", validatorChecks=" + Interlocked.Read(ref validatorChecks) +
                 ", failures=" + Interlocked.Read(ref failures) +
-                ". Stutter-first admission refuses broad queries before any live Reachability/validator work; Vanilla remains authoritative for every bypass.";
+                ". Cold sleep bypasses only this consumer; Vanilla remains authoritative for every bypass.";
         }
 
         private static void UpdateMax(ref long field, long value)
