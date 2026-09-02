@@ -153,11 +153,6 @@ namespace RimMT
                 return false;
             }
 
-            // Vanilla Expanded Framework's PhasingPatches.AllReachable prefix grants true
-            // reachability to phasing pawns. V0.4.16 deliberately runs after it and respects
-            // __runOriginal=false, so this exact known prefix is safe to coexist with. Current
-            // VEF uses OskarPotocki.VEF; VFECore is retained as a legacy-compatible owner ID.
-            // Any other foreign Reachability patch remains blocking.
             if (string.Equals(featureId, AggressiveReachabilityProfiles.FeatureId, StringComparison.Ordinal) &&
                 target != null && target.DeclaringType == typeof(Reachability) && target.Name == nameof(Reachability.CanReach) &&
                 string.Equals(patchKind, "prefix", StringComparison.Ordinal))
@@ -171,13 +166,6 @@ namespace RimMT
                     return true;
             }
 
-            // Pathfinding Framework v0.5.x attaches a diagnostics-only Postfix to this exact
-            // Reachability overload. It does not mutate __result; it only stores the final
-            // result/arguments in LastReachabilityResult for later error reports. Allow only
-            // that exact owner + declaring type + method name. PF's gameplay-authoritative
-            // Region.Allows transpiler is intentionally NOT whitelisted here: V0.4.16 calls
-            // live Region.Allows on the main thread while capturing profiles, so its custom
-            // movement semantics are naturally included in the captured permission arrays.
             if (string.Equals(featureId, AggressiveReachabilityProfiles.FeatureId, StringComparison.Ordinal) &&
                 target != null && target.DeclaringType == typeof(Reachability) && target.Name == nameof(Reachability.CanReach) &&
                 string.Equals(patchKind, "postfix", StringComparison.Ordinal))
@@ -190,11 +178,6 @@ namespace RimMT
                     method != null && string.Equals(method.Name, "Postfix", StringComparison.Ordinal))
                     return true;
 
-                // Hospitality restricts arrived guests to their configured GuestArea. Its
-                // exact CanReach Postfix only changes true -> false and Harmony Postfixes still
-                // run when RimMT's Prefix supplies an authoritative profile result. Therefore
-                // guest-zone authority remains downstream of RimMT and cannot be bypassed.
-                // Do not whitelist the owner broadly: only the exact known restriction patch.
                 if (string.Equals(owner, "Orion.Hospitality", StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(declaring, "Hospitality.Patches.Reachability_Patch+CanReach", StringComparison.Ordinal) &&
                     method != null && string.Equals(method.Name, "Postfix", StringComparison.Ordinal))
@@ -213,7 +196,7 @@ namespace RimMT
             FeatureGate.Suppress("parallel.haulGlobal", reason);
             FeatureGate.Suppress("parallel.jobPartition", reason);
             FeatureGate.Suppress(AggressiveReachabilityProfiles.FeatureId, reason);
-            FeatureGate.Suppress(ParallelRegionConnectivity.FeatureId, reason);
+            FeatureGate.Suppress("parallel.regionHint", reason);
         }
 
         private static bool HasLoadedModName(string token)
