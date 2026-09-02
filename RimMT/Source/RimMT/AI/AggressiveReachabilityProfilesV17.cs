@@ -1429,6 +1429,7 @@ namespace RimMT
                     return Prediction.Unknown;
                 }
 
+                bool rejectedCoarseEndpoint = false;
                 for (int z = rect.minZ; z <= rect.maxZ; z++)
                 {
                     for (int x = rect.minX; x <= rect.maxX; x++)
@@ -1444,12 +1445,13 @@ namespace RimMT
                             if (ReachabilityImmediate.CanReachImmediate(new IntVec3(x, 0, z), dest,
                                 map, peMode, traverseParams.pawn)) return Prediction.Reachable;
                             Interlocked.Increment(ref touchEndpointRejected);
-                            // A rejected coarse endpoint is ambiguous, not proof of no path.
-                            return Prediction.Unknown;
+                            rejectedCoarseEndpoint = true;
                         }
                     }
                 }
-                return Prediction.Unreachable;
+                // Continue looking after a blocked corner; another side may be a legal endpoint.
+                // If no legal endpoint was proven, a coarse rejection must still fail to Vanilla.
+                return rejectedCoarseEndpoint ? Prediction.Unknown : Prediction.Unreachable;
             }
 
             private int GatherStartRegions(IntVec3 start, Map map, TraverseParms traverseParams, int[] output)
