@@ -1,23 +1,30 @@
-VOE Caravan Needs Recovery - V3.1 (RimWorld 1.5)
+VOE Caravan Needs Recovery - V3.2 (RimWorld 1.5)
 
-V3.1 fix:
-- Fixed the recovery Harmony hook for RimWorld 1.5. V3 incorrectly targeted Pawn_NeedsTracker.NeedsTrackerTick; RimWorld 1.5 uses NeedsTrackerTickInterval(int delta).
-- Recovery now uses the game's actual delta directly: gain = 0.166 / 2500 * delta.
-- This removes the separate per-Pawn elapsed-tick bookkeeping and makes the 16.6 percentage-point-per-hour rate deterministic with world ticking.
+V3.2 fix:
+- Corrected the V3 growth implementation after verifying the actual RimWorld 1.5 API: Pawn_NeedsTracker uses NeedsTrackerTick(), matching the already-successful V2 freeze hook.
+- Pawn_NeedsTracker.NeedsTrackerTick now only suppresses normal NeedInterval decay while recovery is active.
+- Actual recovery is performed from Caravan_NeedsTracker.NeedsTrackerTick, the caravan-level need entry point called from Caravan.Tick.
+- Recovery is batched at most once per 150 ticks per caravan. This avoids per-Pawn recovery clocks and avoids traversing every Need every game tick.
+- Outpost tile detection is cached for 250 ticks. Movement state is never cached, so recovery stops immediately when the caravan resumes travel.
 
 Behavior:
 - A caravan stopped on any VOE-compatible Outpost_* tile recovers every Pawn Need.
 - Every Pawn Need recovers by 16.6 percentage points per in-game hour.
 - Recovery is percentage-based, so Needs with MaxLevel other than 1.0 recover at the same relative rate.
 - Recovery is capped at 100%.
-- Normal caravan need satisfaction is suppressed while recovery is active to avoid double recovery and inventory food/drug consumption.
-- Starting to move or leaving the Outpost tile immediately restores normal Need ticking.
+- Vanilla caravan auto-satisfaction is suppressed while recovery is active, so food/drugs are not consumed by that handler during the stay.
+- Starting to move or leaving the Outpost tile restores normal Need ticking.
 
 Compatibility:
 - Vanilla Outposts Expanded.
 - VOE: Additional Outposts and other Outpost_* extensions.
 - Normal caravans.
-- Vehicle Framework vehicle caravans through Vehicle Framework's Caravan compatibility layer, including boarded passengers.
+- Vehicle Framework vehicle caravans. VehicleCaravan inherits Caravan and calls base.Tick(), and Vehicle Framework exposes boarded passengers through the caravan compatibility layer.
+
+Performance:
+- Map-spawned Pawns exit the Pawn patch immediately before any world/caravan lookup.
+- World-object scanning is cached by tile for 250 ticks.
+- Need recovery loops run only once per caravan per >=150 ticks, not every tick and not from every Pawn.
 
 Not changed:
 - Health/Hediff progression is not modified.
