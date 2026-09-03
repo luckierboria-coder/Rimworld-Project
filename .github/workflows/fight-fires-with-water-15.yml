@@ -33,19 +33,72 @@ jobs:
           rm -rf FFWW/1.6
           mkdir -p FFWW/1.5/Assemblies FFWW/1.5/Defs
           cp "$HOME/Steam/steamapps/workshop/content/294100/3631692625/1.6/Defs/Jobs.xml" FFWW/1.5/Defs/Jobs.xml
+          rm -f FFWW/Source/RimWorld/FloatMenuOptionProvider_ForceFightFiresWithWater.cs
+          cat > FFWW/Source/FloatMenuPatch15.cs <<'EOF'
+          using System.Collections.Generic;
+          using HarmonyLib;
+          using RimWorld;
+          using UnityEngine;
+          using Verse;
+          using Verse.AI;
+
+          namespace FightFiresWithWater
+          {
+              [HarmonyPatch(typeof(FloatMenuMakerMap), "AddHumanlikeOrders")]
+              public static class FloatMenuPatch15
+              {
+                  [HarmonyPostfix]
+                  public static void Postfix(Vector3 clickPos, Pawn pawn, List<FloatMenuOption> opts)
+                  {
+                      if (pawn == null || pawn.Map == null || opts == null) return;
+                      IntVec3 cell = IntVec3.FromVector3(clickPos);
+                      if (!cell.InBounds(pawn.Map)) return;
+                      Fire fire = null;
+                      List<Thing> things = cell.GetThingList(pawn.Map);
+                      for (int i = 0; i < things.Count; i++)
+                          if (things[i] is Fire f && !f.Destroyed) { fire = f; break; }
+                      if (fire == null) return;
+                      AcceptanceReport report = PawnCanForceFight(pawn, fire);
+                      string label = "ForceFightFireWithWater".Translate();
+                      if (report.Accepted)
+                      {
+                          Fire captured = fire;
+                          opts.Add(new FloatMenuOption(label, delegate
+                          {
+                              Job job = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("FightFiresWithWaterForced", true), captured);
+                              job.playerForced = true;
+                              pawn.jobs.TryTakeOrderedJob(job, JobTag.Misc);
+                          }));
+                      }
+                      else opts.Add(new FloatMenuOption(label + " (" + report.Reason + ")", null));
+                  }
+
+                  private static AcceptanceReport PawnCanForceFight(Pawn pawn, Fire fire)
+                  {
+                      if (pawn.WorkTypeIsDisabled(WorkTypeDefOf.Firefighter))
+                          return "IncapableOf".Translate().CapitalizeFirst() + " " + WorkTypeDefOf.Firefighter.gerundLabel;
+                      if (!pawn.CanReserveAndReach(fire, PathEndMode.Touch, pawn.NormalMaxDanger(), 1, -1, null, false))
+                          return "NoPath".Translate().CapitalizeFirst();
+                      if (!fire.Position.InAllowedArea(pawn))
+                          return "CannotPrioritizeForbiddenOutsideAllowedArea".Translate();
+                      CompWaterCarrier comp = pawn.GetComp<CompWaterCarrier>();
+                      if ((comp == null || !comp.HasWater()) && !WorkGiver_FightFiresWithWater.TryFindBestWaterSource(pawn, out LocalTargetInfo _))
+                          return "NoWaterSource".Translate();
+                      return true;
+                  }
+              }
+          }
+          EOF
           cat > FFWW/Source/FightFiresWithWater.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
-              <AssemblyName>FightFiresWithWater</AssemblyName>
-              <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
-              <TargetFramework>net48</TargetFramework>
-              <OutputPath>../1.5/Assemblies/</OutputPath>
-              <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-              <DebugType>none</DebugType>
-              <LangVersion>7.3</LangVersion>
+              <AssemblyName>FightFiresWithWater</AssemblyName><GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+              <TargetFramework>net48</TargetFramework><OutputPath>../1.5/Assemblies/</OutputPath>
+              <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath><DebugType>none</DebugType><LangVersion>7.3</LangVersion>
             </PropertyGroup>
             <ItemGroup>
               <PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4063" />
+              <Reference Include="0Harmony"><HintPath>../../DBH/1.5/Assemblies/0Harmony.dll</HintPath><Private>False</Private></Reference>
               <Reference Include="BadHygiene"><HintPath>../../DBH/1.5/Assemblies/BadHygiene.dll</HintPath><Private>False</Private></Reference>
             </ItemGroup>
           </Project>
