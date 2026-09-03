@@ -22,8 +22,8 @@ jobs:
           tar -xzf steamcmd_linux.tar.gz -C steamcmd
       - name: Download Workshop mod
         run: |
-          ./steamcmd/steamcmd.sh +login anonymous +workshop_download_item 294100 3631692625 validate +quit
-          MOD="$HOME/.local/share/Steam/steamapps/workshop/content/294100/3631692625"
+          ./steamcmd/steamcmd.sh +login anonymous +workshop_download_item 294100 3631692625 validate +quit || true
+          MOD="$HOME/Steam/steamapps/workshop/content/294100/3631692625"
           test -d "$MOD"
           find "$MOD" -maxdepth 5 -type f | sort | tee workshop_files.txt
           cp -a "$MOD" workshop_mod
