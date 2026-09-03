@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/build-wtgd-15.yml'
       - 'WTGD-1.5-Port/**'
+      - 'WTGD-CI-Overlay/**'
 
 permissions:
   contents: write
@@ -66,6 +67,14 @@ jobs:
           PY
           grep -n 'Krafs.Rimworld.Ref\|OutputPath' ManifestDeities.csproj
           grep -n 'CompTick\|CompPostTick' CompDivineAvatar.cs CompRealGod.cs DivineAnimalForms.cs | head -20
+
+      - name: Apply uninstall helper source overlay
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 WTGD-CI-Overlay/apply_overlay.py
+          grep -n 'PrepareForUninstall' WTGD-1.5-Port/Source/DivineFavorManager.cs WTGD-1.5-Port/Source/ManifestDeitiesUninstallUtility.cs | head -20
+          grep -n 'MD_PrepareUninstallButton' WTGD-1.5-Port/Source/ManifestDeitiesSettings.cs
 
       - name: Restore and build
         id: compile
