@@ -25,24 +25,48 @@ jobs:
           ./steamcmd/steamcmd.sh +login anonymous +workshop_download_item 294100 3631692625 validate +workshop_download_item 294100 836308268 validate +workshop_download_item 294100 2926675339 validate +quit || true
           ROOT="$HOME/Steam/steamapps/workshop/content/294100"
           for ID in 3631692625 836308268 2926675339; do test -d "$ROOT/$ID"; done
-          cp -a "$ROOT/3631692625" workshop_mod
-          cp -a "$ROOT/836308268" dbh_mod
-          cp -a "$ROOT/2926675339" dbh_medieval_mod
-          find dbh_mod -maxdepth 5 -type f | sort > dbh_files.txt
-          find dbh_medieval_mod -maxdepth 6 -type f | sort > dbh_medieval_files.txt
-      - name: Decompile source DLLs
+          cp -a "$ROOT/3631692625" FFWW
+          cp -a "$ROOT/836308268" DBH
+          cp -a "$ROOT/2926675339" DBHM
+      - name: Prepare exact 1.5 compile probe
         run: |
-          dotnet tool install ilspycmd --tool-path tools
-          mkdir -p decompiled dbh15_decompiled
-          DLL=$(find workshop_mod -iname '*.dll' | head -1)
-          tools/ilspycmd -p -o decompiled "$DLL"
-          DBH15=$(find dbh_mod/1.5 -iname 'BadHygiene.dll' | head -1)
-          test -n "$DBH15"
-          tools/ilspycmd -p -o dbh15_decompiled "$DBH15"
-      - name: Package inspection
+          rm -rf FFWW/1.6
+          mkdir -p FFWW/1.5/Assemblies FFWW/1.5/Defs
+          cp "$HOME/Steam/steamapps/workshop/content/294100/3631692625/1.6/Defs/Jobs.xml" FFWW/1.5/Defs/Jobs.xml
+          cat > FFWW/Source/FightFiresWithWater.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <AssemblyName>FightFiresWithWater</AssemblyName>
+              <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+              <TargetFramework>net48</TargetFramework>
+              <OutputPath>../1.5/Assemblies/</OutputPath>
+              <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+              <DebugType>none</DebugType>
+              <LangVersion>7.3</LangVersion>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4063" />
+              <Reference Include="BadHygiene"><HintPath>../../DBH/1.5/Assemblies/BadHygiene.dll</HintPath><Private>False</Private></Reference>
+            </ItemGroup>
+          </Project>
+          EOF
+      - name: Compile probe
+        id: compile
+        continue-on-error: true
         run: |
-          zip -qr Fight-Fires-With-Water-dependency-inspection.zip workshop_mod decompiled dbh_mod dbh15_decompiled dbh_medieval_mod dbh_files.txt dbh_medieval_files.txt
+          cd FFWW/Source
+          dotnet restore FightFiresWithWater.csproj 2>&1 | tee ../../restore.log
+          dotnet build FightFiresWithWater.csproj -c Release --no-restore 2>&1 | tee ../../build.log
+      - name: Package probe
+        if: always()
+        run: |
+          mkdir -p diagnostics
+          cp restore.log build.log diagnostics/ 2>/dev/null || true
+          cp -a FFWW/Source diagnostics/source
+          cp -a FFWW/1.5 diagnostics/1.5
+          zip -qr FFWW-1.5-compile-probe.zip diagnostics
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: Fight-Fires-With-Water-dependency-inspection
-          path: Fight-Fires-With-Water-dependency-inspection.zip
+          name: FFWW-1.5-compile-probe
+          path: FFWW-1.5-compile-probe.zip
