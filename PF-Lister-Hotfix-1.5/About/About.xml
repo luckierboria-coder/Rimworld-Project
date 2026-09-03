@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Performance Fish Lister Hotfix</name>
+  <author>Allen / OpenAI</author>
+  <packageId>Allen.PerformanceFish.ListerHotfix</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <description>EN: Runtime recovery hotfix for Performance Fish / Fishery ListerThings FishTable corruption ("Failed to find parent index"). Repairs Performance Fish Lister index/type caches only when corruption is detected, while preserving normal Performance Fish behavior otherwise.
+
+中文：修复 Performance Fish / Fishery 在 ListerThings 中出现的 FishTable 结构损坏（“Failed to find parent index”）。仅在检测到损坏时自动恢复 Lister 索引/类型缓存，正常情况下保持 Performance Fish 原有逻辑与性能优化。</description>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>bs.fishery</packageId>
+      <displayName>Fishery - Modding Library</displayName>
+    </li>
+    <li>
+      <packageId>bs.performance</packageId>
+      <displayName>Performance Fish</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>bs.fishery</li>
+    <li>bs.performance</li>
+  </loadAfter>
+</ModMetaData>
