@@ -23,15 +23,24 @@ if "public void PrepareForUninstall()" not in s:
     s = s.replace(needle, insert, 1)
 p.write_text(s, encoding="utf-8")
 
-# Add an explicit, confirmed settings-page action. It does not auto-run.
+# Add the uninstall action at the TOP of the settings page. V1.1 placed it at
+# the bottom of a non-scrollable Listing_Standard, which made it invisible on
+# common UI scales/resolutions.
 p = source / "ManifestDeitiesSettings.cs"
 s = p.read_text(encoding="utf-8-sig")
-needle = """            if (Widgets.ButtonText(listing.GetRect(30f), \"MD_ResetDefaults\".Translate()))\n            {\n                settings.ResetToDefaults();\n            }\n            listing.End();\n"""
-replace = """            if (Widgets.ButtonText(listing.GetRect(30f), \"MD_ResetDefaults\".Translate()))\n            {\n                settings.ResetToDefaults();\n            }\n            listing.Gap(10f);\n            listing.Label(\"MD_UninstallSection\".Translate());\n            if (Widgets.ButtonText(listing.GetRect(34f), \"MD_PrepareUninstallButton\".Translate()))\n            {\n                ManifestDeitiesUninstallUtility.RequestPrepareForUninstall();\n            }\n            listing.End();\n"""
+needle = """            Listing_Standard listing = new Listing_Standard();\n            listing.Begin(inRect);\n"""
+replace = """            Listing_Standard listing = new Listing_Standard();\n            listing.Begin(inRect);\n            listing.Label(\"MD_UninstallSection\".Translate());\n            if (Widgets.ButtonText(listing.GetRect(34f), \"MD_PrepareUninstallButton\".Translate()))\n            {\n                ManifestDeitiesUninstallUtility.RequestPrepareForUninstall();\n            }\n            listing.GapLine();\n"""
 if "MD_PrepareUninstallButton" not in s:
     if needle not in s:
         raise SystemExit("ManifestDeitiesSettings insertion point not found")
     s = s.replace(needle, replace, 1)
+else:
+    # Defensive migration in case a future source snapshot already has the V1.1
+    # bottom placement.
+    old = """            listing.Gap(10f);\n            listing.Label(\"MD_UninstallSection\".Translate());\n            if (Widgets.ButtonText(listing.GetRect(34f), \"MD_PrepareUninstallButton\".Translate()))\n            {\n                ManifestDeitiesUninstallUtility.RequestPrepareForUninstall();\n            }\n"""
+    s = s.replace(old, "", 1)
+    if "listing.Begin(inRect);\n            listing.Label(\"MD_UninstallSection\".Translate());" not in s:
+        s = s.replace(needle, replace, 1)
 p.write_text(s, encoding="utf-8")
 
-print("WTGD 1.5 uninstall overlay applied")
+print("WTGD 1.5 uninstall overlay applied (V1.2 visible-top settings action)")
