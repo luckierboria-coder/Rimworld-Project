@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <PFHotfix_Active>Active. FishTable corruption recovery hooks installed.</PFHotfix_Active>
+  <PFHotfix_Recovered>Recovered corrupted Performance Fish Lister cache during {0}. Fresh cache installed; original exception suppressed. Recovery #{1}.</PFHotfix_Recovered>
+</LanguageData>
