@@ -40,7 +40,7 @@ jobs:
           test -d "$ITEM/Source"
           cp -a "$ITEM" "$GITHUB_WORKSPACE/WTGD-1.5-Port"
 
-      - name: Patch project for exact RimWorld 1.5.4063
+      - name: Patch source/project for exact RimWorld 1.5.4063
         shell: bash
         run: |
           set -euxo pipefail
@@ -48,7 +48,24 @@ jobs:
           sed -i 's/Krafs.Rimworld.Ref" Version="1.6.4871/Krafs.Rimworld.Ref" Version="1.5.4063/' ManifestDeities.csproj
           sed -i 's#..\\1.6\\Assemblies\\#..\\1.5\\Assemblies\\#' ManifestDeities.csproj
           mkdir -p ../1.5/Assemblies
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ('CompDivineAvatar.cs', 'CompRealGod.cs'):
+              p = Path(name)
+              s = p.read_text()
+              old = 'public override void CompTickInterval(int delta)\n        {\n            base.CompTickInterval(delta);'
+              new = 'public override void CompTick()\n        {\n            base.CompTick();'
+              if old not in s: raise SystemExit(f'missing tick pattern in {name}')
+              p.write_text(s.replace(old, new))
+          p = Path('DivineAnimalForms.cs')
+          s = p.read_text()
+          old = 'public override void CompPostTickInterval(ref float severityAdjustment, int delta)\n        {\n            base.CompPostTickInterval(ref severityAdjustment, delta);'
+          new = 'public override void CompPostTick(ref float severityAdjustment)\n        {\n            base.CompPostTick(ref severityAdjustment);'
+          if old not in s: raise SystemExit('missing hediff tick pattern')
+          p.write_text(s.replace(old, new))
+          PY
           grep -n 'Krafs.Rimworld.Ref\|OutputPath' ManifestDeities.csproj
+          grep -n 'CompTick\|CompPostTick' CompDivineAvatar.cs CompRealGod.cs DivineAnimalForms.cs | head -20
 
       - name: Restore and build
         id: compile
