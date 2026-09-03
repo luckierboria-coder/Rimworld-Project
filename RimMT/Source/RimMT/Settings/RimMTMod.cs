@@ -19,7 +19,7 @@ namespace RimMT
         {
             Listing_Standard listing = new Listing_Standard();
             listing.Begin(inRect);
-            listing.Label("RimMT V0.9.2 Unified Lean — single DLL production build");
+            listing.Label("RimMT V0.9.3 Consolidated Stable — single DLL production build");
             listing.Label("Production counters are lightweight aggregates. The realtime monitor is optional, closed by default, and refreshes its text every 30 rendered frames.");
             listing.GapLine();
 
