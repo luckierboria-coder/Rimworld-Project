@@ -36,6 +36,10 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV21Transforms.ps1
 
+      - name: Apply Unified Lean V21 repair
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV21Fixed.ps1
+
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
 
