@@ -20,25 +20,29 @@ jobs:
           mkdir -p steamcmd
           wget -qO steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
           tar -xzf steamcmd_linux.tar.gz -C steamcmd
-      - name: Download Workshop mod
+      - name: Download Workshop mods
         run: |
-          ./steamcmd/steamcmd.sh +login anonymous +workshop_download_item 294100 3631692625 validate +quit || true
-          MOD="$HOME/Steam/steamapps/workshop/content/294100/3631692625"
-          test -d "$MOD"
-          find "$MOD" -maxdepth 5 -type f | sort | tee workshop_files.txt
-          cp -a "$MOD" workshop_mod
-      - name: Decompile DLL
+          ./steamcmd/steamcmd.sh +login anonymous +workshop_download_item 294100 3631692625 validate +workshop_download_item 294100 836308268 validate +workshop_download_item 294100 2926675339 validate +quit || true
+          ROOT="$HOME/Steam/steamapps/workshop/content/294100"
+          for ID in 3631692625 836308268 2926675339; do test -d "$ROOT/$ID"; done
+          cp -a "$ROOT/3631692625" workshop_mod
+          cp -a "$ROOT/836308268" dbh_mod
+          cp -a "$ROOT/2926675339" dbh_medieval_mod
+          find dbh_mod -maxdepth 5 -type f | sort > dbh_files.txt
+          find dbh_medieval_mod -maxdepth 6 -type f | sort > dbh_medieval_files.txt
+      - name: Decompile source DLLs
         run: |
           dotnet tool install ilspycmd --tool-path tools
-          mkdir -p decompiled
+          mkdir -p decompiled dbh15_decompiled
           DLL=$(find workshop_mod -iname '*.dll' | head -1)
-          test -n "$DLL"
-          echo "DLL=$DLL"
           tools/ilspycmd -p -o decompiled "$DLL"
+          DBH15=$(find dbh_mod/1.5 -iname 'BadHygiene.dll' | head -1)
+          test -n "$DBH15"
+          tools/ilspycmd -p -o dbh15_decompiled "$DBH15"
       - name: Package inspection
         run: |
-          zip -qr Fight-Fires-With-Water-original-and-decompiled.zip workshop_mod decompiled workshop_files.txt
+          zip -qr Fight-Fires-With-Water-dependency-inspection.zip workshop_mod decompiled dbh_mod dbh15_decompiled dbh_medieval_mod dbh_files.txt dbh_medieval_files.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Fight-Fires-With-Water-original-and-decompiled
-          path: Fight-Fires-With-Water-original-and-decompiled.zip
+          name: Fight-Fires-With-Water-dependency-inspection
+          path: Fight-Fires-With-Water-dependency-inspection.zip
