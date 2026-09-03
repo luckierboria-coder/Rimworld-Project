@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <PFHotfix_Active>已启用。FishTable 损坏恢复钩子已安装。</PFHotfix_Active>
+  <PFHotfix_Recovered>在 {0} 阶段检测并恢复了损坏的 Performance Fish Lister 缓存。已安装全新缓存并抑制原异常。累计恢复次数：{1}。</PFHotfix_Recovered>
+</LanguageData>
