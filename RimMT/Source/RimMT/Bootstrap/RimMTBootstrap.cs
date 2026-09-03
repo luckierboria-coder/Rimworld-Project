@@ -10,7 +10,7 @@ namespace RimMT
     internal static class RimMTBootstrap
     {
         internal const string HarmonyId = "allen.rimmt";
-        internal const string Version = "0.9.2-unified-lean";
+        internal const string Version = "0.9.3-consolidated-stable";
 
         static RimMTBootstrap()
         {
@@ -34,13 +34,13 @@ namespace RimMT
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.9.2 Unified Lean initialized. Single-DLL production mode: " +
+                Log.Message("[RimMT] V0.9.3 Consolidated Stable initialized. Single-DLL production mode: " +
                     "diagnostic hot-path probes, PathSnapshot shadow validation, SafePath telemetry and WorkPrefilter are not installed. " +
                     "Validated JobGiver/DoBill/ReachProfile/haul/topology paths remain fail-closed and Vanilla-authoritative at final decision boundaries.");
             }
             catch (Exception ex)
             {
-                Log.Error("[RimMT] Unified Lean core initialization failed. RimMT will remain inert. " + ex);
+                Log.Error("[RimMT] Consolidated Stable core initialization failed. RimMT will remain inert. " + ex);
             }
         }
 
