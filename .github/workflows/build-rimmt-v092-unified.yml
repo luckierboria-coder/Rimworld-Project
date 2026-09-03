@@ -20,25 +20,25 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      # Production-stable ReachProfile only. V19-V21 ReachProfile experiments remain excluded.
+      # Stable production core. ReachProfile is pinned to proven V0.4.18.
       - name: Apply Unified Lean V22 Stable transforms
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
 
-      # Independent S4-only development path; this must not modify ReachProfile.
+      # Proven independent S4 pruning only; no ReachProfile changes.
       - name: Apply Unified Lean V23 S4 pruners
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
 
-      # V24 keeps V18 ReachProfile frozen; only S4 telemetry/pruners are changed.
+      # Proven truthful S4 telemetry + FeedHemogen/VisitSick pruning.
       - name: Apply Unified Lean V24 S4 telemetry and pruners
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
 
-      # V25 targets only the remaining JobGiver_Work validator hot set from the V24 report.
-      - name: Apply Unified Lean V25 JobGiver validator memo
+      # Consolidated stable marker only. V25 validator memo and V19-V21 experiments are excluded.
+      - name: Apply Unified Lean V26 Consolidated Stable marker
         shell: pwsh
-        run: ./RimMT/Build/ApplyUnifiedLeanV25JobGiverValidatorMemo.ps1
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
 
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
@@ -75,6 +75,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.2-Unified-Lean-V25-JobGiverValidator
+          name: RimMT-V0.9.2-Unified-Lean-V26-Consolidated-Stable
           path: build/RimMT_V0.9.2_Unified_Lean.zip
           if-no-files-found: error
