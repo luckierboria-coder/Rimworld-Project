@@ -1,0 +1,29 @@
+name: Fetch FFWW
+on:
+  push:
+    branches: [fight-fires-water-15-backport]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fight-fires-water-15-backport
+      - name: Install SteamCMD
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y steamcmd
+      - name: Download Workshop item
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/steam"
+          steamcmd +force_install_dir "$GITHUB_WORKSPACE/steam" +login anonymous +workshop_download_item 294100 3631692625 validate +quit
+          find "$HOME/.steam/steam/steamapps/workshop/content/294100/3631692625" -maxdepth 4 -type f -print || true
+          cp -a "$HOME/.steam/steam/steamapps/workshop/content/294100/3631692625" "$GITHUB_WORKSPACE/FFWW-original"
+      - name: Upload original
+        uses: actions/upload-artifact@v4
+        with:
+          name: FFWW-original
+          path: FFWW-original
