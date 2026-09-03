@@ -1,0 +1,84 @@
+name: Build Performance Fish Lister Hotfix 1.5
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ performancefish-lister-hotfix-15 ]
+    paths:
+      - '.github/workflows/build-pf-lister-hotfix-15.yml'
+      - 'PF-Lister-Hotfix-1.5/**'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: performancefish-lister-hotfix-15
+
+      - name: Publish CI run id
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p CI_STATUS
+          printf '%s\n' "$GITHUB_RUN_ID" > CI_STATUS/pf_lister_latest_run.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CI_STATUS/pf_lister_latest_run.txt
+          git commit -m "Record PF Lister CI run $GITHUB_RUN_ID" || true
+          git push origin HEAD:performancefish-lister-hotfix-15
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Normalize exact 1.5 API namespace
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i 's/RimWorld\.ThingRequestGroup/ThingRequestGroup/g' PF-Lister-Hotfix-1.5/Source/PerformanceFishListerHotfix.cs
+
+      - name: Restore and build exact RimWorld 1.5.4063
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd PF-Lister-Hotfix-1.5/Source
+          dotnet restore PerformanceFishListerHotfix.csproj
+          dotnet build PerformanceFishListerHotfix.csproj -c Release --no-restore
+
+      - name: Validate package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -f PF-Lister-Hotfix-1.5/1.5/Assemblies/PerformanceFishListerHotfix.dll
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          root=Path('PF-Lister-Hotfix-1.5')
+          for p in root.rglob('*.xml'):
+              ET.parse(p)
+              print('XML OK', p)
+          en=ET.parse(root/'Languages/English/Keyed/PFListerHotfix.xml').getroot()
+          zh=ET.parse(root/'Languages/ChineseSimplified/Keyed/PFListerHotfix.xml').getroot()
+          ek={x.tag for x in en}; zk={x.tag for x in zh}
+          assert ek == zk, (ek-zk, zk-ek)
+          PY
+          sha256sum PF-Lister-Hotfix-1.5/1.5/Assemblies/PerformanceFishListerHotfix.dll
+
+      - name: Prepare release folder
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf release
+          mkdir -p 'release/Performance Fish Lister Hotfix'
+          cp -a PF-Lister-Hotfix-1.5/About 'release/Performance Fish Lister Hotfix/'
+          cp -a PF-Lister-Hotfix-1.5/Languages 'release/Performance Fish Lister Hotfix/'
+          cp -a PF-Lister-Hotfix-1.5/1.5 'release/Performance Fish Lister Hotfix/'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Performance-Fish-Lister-Hotfix-1.5
+          path: release/
