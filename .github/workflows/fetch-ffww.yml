@@ -20,7 +20,7 @@ jobs:
       - name: Download Workshop item
         run: |
           "$GITHUB_WORKSPACE/steamcmd/steamcmd.sh" +login anonymous +workshop_download_item 294100 3631692625 validate +quit
-          SRC="$GITHUB_WORKSPACE/steamcmd/steamapps/workshop/content/294100/3631692625"
+          SRC="$HOME/Steam/steamapps/workshop/content/294100/3631692625"
           find "$SRC" -maxdepth 5 -type f -print
           cp -a "$SRC" "$GITHUB_WORKSPACE/FFWW-original"
       - name: Upload original
