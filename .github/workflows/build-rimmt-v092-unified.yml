@@ -20,11 +20,15 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      # Production-stable transform only. V19-V21 ReachProfile experiments are intentionally
-      # excluded after runtime evidence of refresh backlog and >300ms Region.Allows tail stalls.
+      # Production-stable ReachProfile only. V19-V21 ReachProfile experiments remain excluded.
       - name: Apply Unified Lean V22 Stable transforms
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+
+      # Independent S4-only development path; this must not modify ReachProfile.
+      - name: Apply Unified Lean V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
 
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
@@ -61,6 +65,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.2-Unified-Lean-V22-Stable
+          name: RimMT-V0.9.2-Unified-Lean-V23-S4
           path: build/RimMT_V0.9.2_Unified_Lean.zip
           if-no-files-found: error
