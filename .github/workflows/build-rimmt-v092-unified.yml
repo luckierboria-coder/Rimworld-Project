@@ -1,4 +1,4 @@
-name: Build RimMT V0.9.2 Unified Lean
+name: Build RimMT V0.9.3 Consolidated Stable
 
 on:
   push:
@@ -21,22 +21,22 @@ jobs:
           dotnet-version: '8.0.x'
 
       # Stable production core. ReachProfile is pinned to proven V0.4.18.
-      - name: Apply Unified Lean V22 Stable transforms
+      - name: Apply V22 Stable transforms
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
 
       # Proven independent S4 pruning only; no ReachProfile changes.
-      - name: Apply Unified Lean V23 S4 pruners
+      - name: Apply V23 S4 pruners
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
 
       # Proven truthful S4 telemetry + FeedHemogen/VisitSick pruning.
-      - name: Apply Unified Lean V24 S4 telemetry and pruners
+      - name: Apply V24 S4 telemetry and pruners
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
 
-      # Consolidated stable marker only. V25 validator memo and V19-V21 experiments are excluded.
-      - name: Apply Unified Lean V26 Consolidated Stable marker
+      # Public release V0.9.3. V26 is only the internal development codename.
+      - name: Apply RimMT V0.9.3 Consolidated Stable marker
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
 
@@ -53,7 +53,7 @@ jobs:
           $dll = Join-Path $dir 'RimMT.dll'
           if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
           $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
-          if ($all.Count -ne 1) { throw "Unified build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
           Get-Item $dll | Format-List FullName,Length,LastWriteTime
 
       - name: Package
@@ -70,11 +70,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.2_Unified_Lean.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_Consolidated_Stable.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.2-Unified-Lean-V26-Consolidated-Stable
-          path: build/RimMT_V0.9.2_Unified_Lean.zip
+          name: RimMT-V0.9.3-Consolidated-Stable
+          path: build/RimMT_V0.9.3_Consolidated_Stable.zip
           if-no-files-found: error
