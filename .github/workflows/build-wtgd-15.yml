@@ -1,0 +1,86 @@
+name: Build WTGD 1.5 Port
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ wtgd-1.5-port ]
+    paths:
+      - '.github/workflows/build-wtgd-15.yml'
+      - 'WTGD-1.5-Port/**'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wtgd-1.5-port
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download SteamCMD
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$RUNNER_TEMP/steamcmd"
+          curl -L 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz' -o "$RUNNER_TEMP/steamcmd.tar.gz"
+          tar -xzf "$RUNNER_TEMP/steamcmd.tar.gz" -C "$RUNNER_TEMP/steamcmd"
+
+      - name: Download WTGD Workshop item
+        shell: bash
+        run: |
+          set -euxo pipefail
+          "$RUNNER_TEMP/steamcmd/steamcmd.sh" +login anonymous +workshop_download_item 294100 3786323204 validate +quit | tee "$RUNNER_TEMP/steamcmd.log"
+          find "$RUNNER_TEMP/steamcmd" -maxdepth 8 -type d -name 3786323204 -print
+          ITEM="$(find "$RUNNER_TEMP/steamcmd" -maxdepth 8 -type d -name 3786323204 | head -n 1)"
+          test -n "$ITEM"
+          test -d "$ITEM/Source"
+          cp -a "$ITEM" "$GITHUB_WORKSPACE/WTGD-1.5-Port"
+
+      - name: Patch project for exact RimWorld 1.5.4063
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd WTGD-1.5-Port/Source
+          sed -i 's/Krafs.Rimworld.Ref" Version="1.6.4871/Krafs.Rimworld.Ref" Version="1.5.4063/' ManifestDeities.csproj
+          sed -i 's#..\\1.6\\Assemblies\\#..\\1.5\\Assemblies\\#' ManifestDeities.csproj
+          mkdir -p ../1.5/Assemblies
+          grep -n 'Krafs.Rimworld.Ref\|OutputPath' ManifestDeities.csproj
+
+      - name: Restore and build
+        id: compile
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          cd WTGD-1.5-Port/Source
+          dotnet restore ManifestDeities.csproj 2>&1 | tee "$GITHUB_WORKSPACE/restore.log"
+          dotnet build ManifestDeities.csproj -c Release --no-restore 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+
+      - name: Package diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p diagnostics
+          cp restore.log diagnostics/ 2>/dev/null || true
+          cp build.log diagnostics/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/steamcmd.log" diagnostics/ 2>/dev/null || true
+          if [ -f WTGD-1.5-Port/1.5/Assemblies/ManifestDeities.dll ]; then
+            cp WTGD-1.5-Port/1.5/Assemblies/ManifestDeities.dll diagnostics/
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: WTGD-1.5-build-diagnostics
+          path: diagnostics/
+
+      - name: Fail if compile failed
+        if: steps.compile.outcome == 'failure'
+        run: exit 1
