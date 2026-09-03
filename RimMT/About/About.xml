@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimMT V0.9.2 Unified Lean</name>
+  <name>RimMT V0.9.3 Consolidated Stable</name>
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -12,5 +12,5 @@
     </li>
   </modDependencies>
   <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>Single-DLL production build for RimWorld 1.5. Consolidates the validated RimMT scheduler/dispatcher, JobGiver nearest-first and package-local search-plan reuse, S5.1 Hybrid Tail Rescue at the validated 16ms admission point, RC2 large-set early-tail prevention, rolling-fuse ReachProfile, persistent low-churn DoBill indexing, mature S5.3 BuildRoof/Harvest/ClearSnow pruning with Tend/Sow fail-closed compatibility, production haul accelerators, path-topology invalidation, and the validated Common Sense ingredient-expansion memo. Resident hot-path diagnostics, PathSnapshot shadow validation, WorkPrefilter and low-yield Stage4D experiments are excluded from the production path and may be supplied as optional external diagnostics.</description>
+  <description>RimMT V0.9.3 Consolidated Stable for RimWorld 1.5. Single-DLL production build based on the validated V22 stable core with ReachProfile V0.4.18, plus the proven V23/V24 authority-safe S4 pruners and truthful validator telemetry. V25 JobGiver negative memo, V19-V21 ReachProfile experiments, resident hot-path diagnostics, PathSnapshot shadow validation, WorkPrefilter and other retired low-yield experiments are excluded from the production path.</description>
 </ModMetaData>
