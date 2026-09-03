@@ -22,10 +22,9 @@ function Replace-OrThrow {
 
 $diagPath = 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $diag = Get-Content $diagPath -Raw
-$diag = Replace-OrThrow $diag \
-    'S4 tail=32ms + true-validator attribution + authority-safe corpse/holding/feed/visit pruners;' \
-    'V26 Consolidated Stable; S4 tail=32ms + true-validator attribution + authority-safe corpse/holding/feed/visit pruners; V25 validator memo=OFF;' \
-    'V26 production policy marker'
+$oldPolicy = 'S4 tail=32ms + true-validator attribution + authority-safe corpse/holding/feed/visit pruners;'
+$newPolicy = 'V26 Consolidated Stable; S4 tail=32ms + true-validator attribution + authority-safe corpse/holding/feed/visit pruners; V25 validator memo=OFF;'
+$diag = Replace-OrThrow $diag $oldPolicy $newPolicy 'V26 production policy marker'
 Set-Content $diagPath $diag -Encoding UTF8
 
 Write-Host 'Applied Unified Lean V26 Consolidated Stable marker: V22 core + V23/V24 proven S4 pruners; V25 validator memo OFF; ReachProfile remains V0.4.18.'
