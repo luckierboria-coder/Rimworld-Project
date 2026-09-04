@@ -8,12 +8,13 @@ function Replace-OrThrow {
 
 # RimMT V0.9.6 Continuation Fix
 # - one pending state per pawn remains authoritative until completion/invalidation
-# - higher-priority WorkGivers may still preempt; lower-priority WorkGivers cannot pass the pending scanner
-# - unrelated hot scanners are never allowed to replace an existing pending state
+# - higher-priority WorkGivers may preempt; lower-priority WorkGivers cannot pass the pending scanner
+# - unrelated hot scanners never replace an existing pending state
+# - any unsupported/invalidated pending path releases the barrier before falling back to Vanilla
 # - budget is checked before every candidate validator call
 # - atomic validator tails are measured separately from whole-search tails
 # - shape/bypass reasons are split for the next generic-coverage step
-# - ReachProfile V0.4.18 and all other mature production paths remain unchanged
+# - ReachProfile V0.4.18 and other mature production paths remain unchanged
 
 $resumePath = 'RimMT/Source/RimMT/AI/ResumableJobGiver095.cs'
 $resume = Get-Content $resumePath -Raw
@@ -72,6 +73,9 @@ $resume = Replace-OrThrow $resume @'
             currentWorkList = null;
             pendingListIndex = -1;
 
+            if (States.Count > MaxStates)
+                PurgeInvalidStates();
+
             if (__0 != null)
             {
                 ResumeState pending;
@@ -100,9 +104,6 @@ $resume = Replace-OrThrow $resume @'
                     }
                 }
             }
-
-            if (States.Count > MaxStates)
-                PurgeInvalidStates();
         }
 '@ 'package restores exact pending scanner and list position'
 
@@ -148,15 +149,8 @@ $resume = Replace-OrThrow $resume @'
 
             if (ReferenceEquals(__1, pendingScannerForPackage))
             {
-                // If the pending scanner itself is no longer usable, the continuation is obsolete.
-                // Drop it immediately and let lower-priority work proceed normally in this package.
                 if (!__result)
-                {
-                    States.Remove(__0);
-                    pendingScannerForPackage = null;
-                    pendingListIndex = -1;
-                    pendingEligibilityInvalidations++;
-                }
+                    DropPendingContinuation(__0, pendingScannerForPackage, true, false);
                 return;
             }
 
@@ -167,8 +161,7 @@ $resume = Replace-OrThrow $resume @'
             }
             catch { currentIndex = -1; }
 
-            // Preserve Vanilla priority: items before the pending scanner are higher priority and may
-            // still preempt. Items after it are lower priority and may not pass the continuation barrier.
+            // Vanilla priority is preserved: preceding entries may preempt, following entries may not.
             if (pendingListIndex >= 0 && currentIndex > pendingListIndex)
             {
                 __result = false;
@@ -225,8 +218,7 @@ $resume = Replace-OrThrow $resume @'
             States.TryGetValue(pawn, out existingAny);
             bool hasPendingForScanner = existingAny != null && ReferenceEquals(existingAny.Scanner, scanner);
 
-            // Higher-priority scanners are allowed to preempt, but they are not allowed to steal the
-            // single per-pawn continuation slot. They run Vanilla while another scanner is pending.
+            // Higher-priority scanners may preempt, but cannot steal the one continuation slot.
             if (existingAny != null && !hasPendingForScanner)
             {
                 pendingOtherScannerBypass++;
@@ -236,6 +228,23 @@ $resume = Replace-OrThrow $resume @'
             if (!hasPendingForScanner && !JobGiverTailTelemetry094.IsRecurringHot(scanner))
                 return true;
 '@ 'exact closure and continuation ownership admission'
+
+$resume = Replace-OrThrow $resume @'
+            hotAdmissions++;
+            if (!IsAuthoritySafe(__originalMethod))
+            {
+                authorityBypass++;
+                return true;
+            }
+'@ @'
+            hotAdmissions++;
+            if (!IsAuthoritySafe(__originalMethod))
+            {
+                authorityBypass++;
+                if (hasPendingForScanner) DropPendingContinuation(pawn, scanner, false, false);
+                return true;
+            }
+'@ 'pending authority loss releases barrier'
 
 $resume = Replace-OrThrow $resume @'
             if (!TryGetStableSource(__1, __2, __7, out source))
@@ -250,9 +259,64 @@ $resume = Replace-OrThrow $resume @'
                 if (__7 != null) customEnumerableBypass++;
                 else unstableSourceBypass++;
                 shapeBypass++;
+                if (hasPendingForScanner) DropPendingContinuation(pawn, scanner, false, true);
                 return true;
             }
-'@ 'stable source bypass attribution'
+'@ 'stable source bypass attribution and barrier release'
+
+$resume = Replace-OrThrow $resume @'
+            int count;
+            try { count = source.Count; }
+            catch
+            {
+                sourceInvalidations++;
+                return true;
+            }
+            if (count < MinSourceCount) return true;
+            if (count > MaxSourceCount)
+            {
+                capacityBypass++;
+                return true;
+            }
+'@ @'
+            int count;
+            try { count = source.Count; }
+            catch
+            {
+                sourceInvalidations++;
+                if (hasPendingForScanner) DropPendingContinuation(pawn, scanner, false, false);
+                return true;
+            }
+            if (count < MinSourceCount)
+            {
+                if (hasPendingForScanner) DropPendingContinuation(pawn, scanner, false, true);
+                return true;
+            }
+            if (count > MaxSourceCount)
+            {
+                capacityBypass++;
+                if (hasPendingForScanner) DropPendingContinuation(pawn, scanner, false, true);
+                return true;
+            }
+'@ 'pending source shape changes release barrier'
+
+$resume = Replace-OrThrow $resume @'
+            if (state == null)
+            {
+                state = CreateState(pawn, scanner, source, __1, __0, __5);
+                if (state == null) return true;
+            }
+'@ @'
+            if (state == null)
+            {
+                state = CreateState(pawn, scanner, source, __1, __0, __5);
+                if (state == null)
+                {
+                    if (hasPendingForScanner) DropPendingContinuation(pawn, scanner, false, false);
+                    return true;
+                }
+            }
+'@ 'state creation failure releases old barrier'
 
 $resume = Replace-OrThrow $resume @'
                 long sliceStart = Stopwatch.GetTimestamp();
@@ -268,8 +332,8 @@ $resume = Replace-OrThrow $resume @'
 
                 while (state.NextIndex < state.Members.Length)
                 {
-                    // Check before entering every candidate. A single validator cannot be preempted once
-                    // entered, but we never knowingly start another candidate after the slice deadline.
+                    // Check before entering every candidate. One validator is atomic/non-preemptible,
+                    // but another candidate is never knowingly started after the deadline.
                     if (state.NextIndex > 0 && Stopwatch.GetTimestamp() - sliceStart >= budgetTicks)
                     {
                         state.Slices++;
@@ -338,6 +402,20 @@ $resume = Replace-OrThrow $resume @'
 '@ 'clear exact continuation only on completion'
 
 $resume = Replace-OrThrow $resume @'
+            catch (Exception ex)
+            {
+                failures++;
+                States.Remove(pawn);
+                if (failures <= 4)
+'@ @'
+            catch (Exception ex)
+            {
+                failures++;
+                DropPendingContinuation(pawn, scanner, false, false);
+                if (failures <= 4)
+'@ 'exception fallback releases continuation barrier'
+
+$resume = Replace-OrThrow $resume @'
         private static bool IsSupportedScanner(WorkGiver_Scanner scanner)
         {
             if (scanner == null || scanner.def == null) return false;
@@ -349,6 +427,8 @@ $resume = Replace-OrThrow $resume @'
             }
             catch { return false; }
         }
+
+        private static bool TryGetStableSource(Map map, ThingRequest request, IEnumerable<Thing> custom,
 '@ @'
         private static bool IsSupportedScanner(WorkGiver_Scanner scanner)
         {
@@ -363,7 +443,29 @@ $resume = Replace-OrThrow $resume @'
             }
             catch { baseShapeBypass++; return false; }
         }
-'@ 'scanner shape bypass attribution'
+
+        private static void DropPendingContinuation(Pawn pawn, WorkGiver_Scanner scanner, bool eligibility, bool source)
+        {
+            try
+            {
+                ResumeState pending;
+                if (pawn != null && States.TryGetValue(pawn, out pending) && pending != null &&
+                    (scanner == null || ReferenceEquals(pending.Scanner, scanner)))
+                    States.Remove(pawn);
+            }
+            catch { }
+
+            if (scanner == null || ReferenceEquals(pendingScannerForPackage, scanner))
+            {
+                pendingScannerForPackage = null;
+                pendingListIndex = -1;
+            }
+            if (eligibility) pendingEligibilityInvalidations++;
+            if (source) sourceInvalidations++;
+        }
+
+        private static bool TryGetStableSource(Map map, ThingRequest request, IEnumerable<Thing> custom,
+'@ 'scanner shape counters and safe pending-drop helper'
 
 $resume = Replace-OrThrow $resume @'
                    ", customEnumerableBypass=" + customEnumerableBypass +
@@ -386,7 +488,6 @@ $resume = Replace-OrThrow $resume @'
                    ", maxAtomicValidatorUs=" + (maxAtomicValidatorTicks * 1000000.0 / Stopwatch.Frequency).ToString("F1") +
 '@ 'summary detailed bypass and atomic timing'
 
-# Replace diagnostic/install labels in the generated V0.9.5 source.
 $resume = $resume.Replace('V0.9.5 recurring-hot JobGiver tail slicer.', 'V0.9.6 recurring-hot JobGiver continuation slicer.')
 $resume = $resume.Replace('[RimMT] V0.9.5 Resumable JobGiver installed on ', '[RimMT] V0.9.6 Continuation Fix installed on ')
 $resume = $resume.Replace('[RimMT] V0.9.5 Resumable JobGiver failed closed: ', '[RimMT] V0.9.6 Continuation Fix failed closed: ')
@@ -415,8 +516,9 @@ if (Test-Path $settingsPath) {
 
 $aboutPath = 'RimMT/About/About.xml'
 $about = Get-Content $aboutPath -Raw
+$about = $about.Replace('RimMT V0.9.4 Tail Focus','RimMT V0.9.6 Continuation Fix')
 $about = $about.Replace('RimMT V0.9.5 Resumable JobGiver','RimMT V0.9.6 Continuation Fix')
-$about = $about.Replace('adds recurring-hot main-thread validator slicing with priority-preserving suspension/resume and live final Vanilla authority.', 'fixes continuation ownership with a per-pawn pending scanner barrier, checks the budget before every candidate validator, and attributes atomic validator tails while retaining live final Vanilla authority.')
+$about = [regex]::Replace($about, '<description>.*?</description>', '<description>RimMT V0.9.6 Continuation Fix for RimWorld 1.5. Keeps the consolidated stable core, ReachProfile V0.4.18, validated S4 pruners, JobGiver tail telemetry and acceleration-only GenClosest cold sleep. Fixes per-pawn continuation ownership with a priority-preserving pending scanner barrier, checks the time budget before every candidate validator, records atomic validator tails, and releases stale/unsupported continuations before Vanilla fallback. HaulMerge cheap-negative, V25 validator memo, V19-V21 ReachProfile experiments, PathSnapshot and WorkPrefilter remain excluded.</description>', [System.Text.RegularExpressions.RegexOptions]::Singleline)
 Set-Content $aboutPath $about -Encoding UTF8
 
-Write-Host 'Applied RimMT V0.9.6 Continuation Fix: exact pending-state ownership, priority-preserving barrier, pre-validator budget checks, atomic validator tails and split bypass attribution; ReachProfile remains V0.4.18.'
+Write-Host 'Applied RimMT V0.9.6 Continuation Fix: exact pending-state ownership, priority-preserving barrier, safe fallback release, pre-validator budget checks, atomic validator tails and split bypass attribution; ReachProfile remains V0.4.18.'
