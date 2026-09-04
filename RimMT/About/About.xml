@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimMT V0.9.3 Consolidated Stable</name>
+  <name>RimMT V0.9.4 Tail Focus</name>
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -12,5 +12,5 @@
     </li>
   </modDependencies>
   <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>RimMT V0.9.3 Consolidated Stable for RimWorld 1.5. Single-DLL production build based on the validated V22 stable core with ReachProfile V0.4.18, plus the proven V23/V24 authority-safe S4 pruners and truthful validator telemetry. V25 JobGiver negative memo, V19-V21 ReachProfile experiments, resident hot-path diagnostics, PathSnapshot shadow validation, WorkPrefilter and other retired low-yield experiments are excluded from the production path.</description>
+  <description>RimMT V0.9.4 Tail Focus for RimWorld 1.5. Keeps the V0.9.3 consolidated stable core and ReachProfile V0.4.18 unchanged, adds lightweight JobGiver search-tail buckets, authority-safe HaulMerge cheap-negative pruning inside the existing S4 rescue, and acceleration-only cold sleep for the zero-yield Persistent GenClosest consumer. V25 JobGiver negative memo, V19-V21 ReachProfile experiments, resident hot-path profilers, PathSnapshot and WorkPrefilter remain excluded.</description>
 </ModMetaData>
