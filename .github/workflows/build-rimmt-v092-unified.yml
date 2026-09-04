@@ -1,4 +1,4 @@
-name: Build RimMT V0.9.3 Consolidated Stable
+name: Build RimMT V0.9.4 Tail Focus
 
 on:
   push:
@@ -20,25 +20,27 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      # Stable production core. ReachProfile is pinned to proven V0.4.18.
       - name: Apply V22 Stable transforms
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
 
-      # Proven independent S4 pruning only; no ReachProfile changes.
       - name: Apply V23 S4 pruners
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
 
-      # Proven truthful S4 telemetry + FeedHemogen/VisitSick pruning.
       - name: Apply V24 S4 telemetry and pruners
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
 
-      # Public release V0.9.3. V26 is only the internal development codename.
-      - name: Apply RimMT V0.9.3 Consolidated Stable marker
+      # V26 remains the internal consolidated-stable composition step.
+      - name: Apply consolidated stable core marker
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+
+      # Public release V0.9.4: tail attribution + HaulMerge cheap-negative + zero-yield cold sleep.
+      - name: Apply RimMT V0.9.4 Tail Focus
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV094TailFocus.ps1
 
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
@@ -70,11 +72,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_Consolidated_Stable.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.4_Tail_Focus.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.3-Consolidated-Stable
-          path: build/RimMT_V0.9.3_Consolidated_Stable.zip
+          name: RimMT-V0.9.4-Tail-Focus
+          path: build/RimMT_V0.9.4_Tail_Focus.zip
           if-no-files-found: error
