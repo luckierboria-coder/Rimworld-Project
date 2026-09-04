@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Patch>
+  <Operation Class="PatchOperationReplace">
+    <xpath>Defs/ThingDef[defName="Ra2_Bunker"]/fillPercent</xpath>
+    <value>
+      <fillPercent>0.75</fillPercent>
+    </value>
+  </Operation>
+</Patch>
