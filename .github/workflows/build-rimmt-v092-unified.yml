@@ -1,4 +1,4 @@
-name: Build RimMT V0.9.7 Continuation Deferral
+name: Build RimMT V0.9.8 Logical Scanner Identity
 
 on:
   push:
@@ -57,6 +57,11 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV097ContinuationDeferral.ps1
 
+      # V0.9.8 replaces scanner object-reference ownership with WorkGiverDef + runtime-type identity.
+      - name: Apply RimMT V0.9.8 Logical Scanner Identity
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV098LogicalScannerIdentity.ps1
+
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
 
@@ -87,11 +92,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.7_Continuation_Deferral.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.8_Logical_Scanner_Identity.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.7-Continuation-Deferral
-          path: build/RimMT_V0.9.7_Continuation_Deferral.zip
+          name: RimMT-V0.9.8-Logical-Scanner-Identity
+          path: build/RimMT_V0.9.8_Logical_Scanner_Identity.zip
           if-no-files-found: error
