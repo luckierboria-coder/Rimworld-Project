@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Grenade One-Use Patch 1.5</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>allen.grenade.oneuse</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <description>Independent RimWorld 1.5 compatibility patch. Weapons using vanilla grenade-style thrown projectile logic become true consumable throwables: one physical item is consumed after each successful throw. Projectile effects, recipes, AI targeting, reloadable belts and other mod behavior remain unchanged.</description>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+  </loadAfter>
+</ModMetaData>
