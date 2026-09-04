@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>LTS Ammunition - Inventory Fallback Patch</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>allen.ltsammo.inventoryfallback</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <description>Independent patch for [LTS] Ammunition - Framework. Allows compatible ammunition in pawn inventory to be used when no worn kit has usable ammo. Empty kits still reload normally, and compatible inventory ammo is transferred into empty/not-full kits before map ammo is searched.</description>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+    <li><packageId>LimeTreeSnake.Ammunition</packageId><displayName>[LTS]Ammunition - Framework</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>LimeTreeSnake.Ammunition</li>
+  </loadAfter>
+</ModMetaData>
