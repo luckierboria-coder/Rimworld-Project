@@ -101,7 +101,9 @@ namespace LTSAmmoInventoryFallback15
             if (generatePawn != null)
             {
                 var post = new HarmonyMethod(typeof(NpcAmmoGeneration), nameof(NpcAmmoGeneration.GeneratePawnPostfix));
-                post.priority = Priority.Last;
+                // Harmony postfixes execute from lower to higher priority. Priority.First makes this run
+                // after LTS' normal-priority GeneratePawn postfix, so the kit's carry-capacity bonus is included.
+                post.priority = Priority.First;
                 h.Patch(generatePawn, postfix: post);
             }
         }
