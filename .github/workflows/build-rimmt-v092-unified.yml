@@ -1,4 +1,4 @@
-name: Build RimMT V0.9.6 Continuation Fix
+name: Build RimMT V0.9.7 Continuation Deferral
 
 on:
   push:
@@ -47,9 +47,15 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV095ResumableJobGiver.ps1
 
+      # V0.9.6 fixes ownership/barrier and per-validator budget checking.
       - name: Apply RimMT V0.9.6 Continuation Fix
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV096ContinuationFix.ps1
+
+      # V0.9.7 keeps transient PawnCanUse=false as a deferral instead of destroying state.
+      - name: Apply RimMT V0.9.7 Continuation Deferral
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV097ContinuationDeferral.ps1
 
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
@@ -81,11 +87,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.6_Continuation_Fix.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.7_Continuation_Deferral.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.6-Continuation-Fix
-          path: build/RimMT_V0.9.6_Continuation_Fix.zip
+          name: RimMT-V0.9.7-Continuation-Deferral
+          path: build/RimMT_V0.9.7_Continuation_Deferral.zip
           if-no-files-found: error
