@@ -1,4 +1,4 @@
-name: Build LTS Ammo Inventory Fallback 1.5
+name: Build LTS Ammo Inventory System 1.5
 
 on:
   push:
@@ -29,17 +29,21 @@ jobs:
           $stage = 'dist\LTS-Ammunition-Inventory-Fallback-1.5'
           New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
           New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Defs" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Patches" | Out-Null
           Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\About\About.xml' "$stage\About\About.xml"
           Copy-Item $dll "$stage\1.5\Assemblies\LTSAmmoInventoryFallback15.dll"
+          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\1.5\Defs\*.xml' "$stage\1.5\Defs\"
+          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\1.5\Patches\*.xml' "$stage\1.5\Patches\"
           Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\LoadFolders.xml' "$stage\LoadFolders.xml"
           Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\README_CN.txt' "$stage\README_CN.txt"
           $files = Get-ChildItem $stage -Recurse -File
           if ($files.Name -contains '0Harmony.dll') { throw 'Dependency DLL leaked into package.' }
           if ($files.Name -match '\.pdb$') { throw 'PDB leaked into package.' }
-          Compress-Archive -Path $stage -DestinationPath 'dist\LTS-Ammunition-Inventory-Fallback-1.5.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'dist\LTS-Ammunition-Inventory-System-1.5.zip' -Force
       - name: Upload patch zip
         uses: actions/upload-artifact@v4
         with:
-          name: LTS-Ammunition-Inventory-Fallback-1.5
-          path: dist/LTS-Ammunition-Inventory-Fallback-1.5.zip
+          name: LTS-Ammunition-Inventory-System-1.5
+          path: dist/LTS-Ammunition-Inventory-System-1.5.zip
           if-no-files-found: error
