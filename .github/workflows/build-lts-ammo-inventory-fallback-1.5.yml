@@ -25,12 +25,17 @@ jobs:
         run: |
           $dll = 'LTS-Ammunition-Inventory-Fallback-1.5\1.5\Assemblies\LTSAmmoInventoryFallback15.dll'
           if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+          Remove-Item 'dist' -Recurse -Force -ErrorAction SilentlyContinue
           $stage = 'dist\LTS-Ammunition-Inventory-Fallback-1.5'
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\About' $stage -Recurse
-          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\1.5' $stage -Recurse
-          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\LoadFolders.xml' $stage
-          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\README_CN.txt' $stage
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\About\About.xml' "$stage\About\About.xml"
+          Copy-Item $dll "$stage\1.5\Assemblies\LTSAmmoInventoryFallback15.dll"
+          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\LoadFolders.xml' "$stage\LoadFolders.xml"
+          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\README_CN.txt' "$stage\README_CN.txt"
+          $files = Get-ChildItem $stage -Recurse -File
+          if ($files.Name -contains '0Harmony.dll') { throw 'Dependency DLL leaked into package.' }
+          if ($files.Name -match '\.pdb$') { throw 'PDB leaked into package.' }
           Compress-Archive -Path $stage -DestinationPath 'dist\LTS-Ammunition-Inventory-Fallback-1.5.zip' -Force
       - name: Upload patch zip
         uses: actions/upload-artifact@v4
