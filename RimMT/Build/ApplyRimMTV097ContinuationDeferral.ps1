@@ -126,7 +126,7 @@ if (Test-Path $settingsPath) {
 $aboutPath = 'RimMT/About/About.xml'
 $about = Get-Content $aboutPath -Raw
 $about = $about.Replace('RimMT V0.9.6 Continuation Fix','RimMT V0.9.7 Continuation Deferral')
-$about = $about.Replace('fixes continuation ownership with a per-pawn pending scanner barrier, checks time budget before each validator, and attributes atomic validator tails while retaining live final Vanilla authority.', 'defers transiently ineligible pending scanners without discarding their continuation state, while retaining the per-pawn priority barrier, per-validator time budget checks, atomic-tail attribution, and live final Vanilla authority.')
+$about = $about.Replace('Fixes per-pawn continuation ownership with a priority-preserving pending scanner barrier, checks the time budget before every candidate validator, records atomic validator tails, and releases stale/unsupported continuations before Vanilla fallback.', 'Defers transiently ineligible pending scanners without discarding their continuation state; the per-pawn priority barrier is released only for that package and restored on a later eligible package. Time budgets are checked before every candidate validator, atomic validator tails are recorded, and durable invalidations still fail open to Vanilla.')
 Set-Content $aboutPath $about -Encoding UTF8
 
 Write-Host 'Applied RimMT V0.9.7 Continuation Deferral: transient PawnCanUse=false now defers without deleting state; exact pending continuation resumes on later eligible packages; durable invalidation remains fail-open; ReachProfile stays V0.4.18.'
