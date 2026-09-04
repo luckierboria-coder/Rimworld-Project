@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Patch>
+  <Operation Class="PatchOperationSequence">
+    <operations>
+      <li Class="PatchOperationAdd">
+        <xpath>/Defs/ThingDef[defName="LTS_KitSmall"]</xpath>
+        <value>
+          <equippedStatOffsets>
+            <CarryingCapacity>5</CarryingCapacity>
+          </equippedStatOffsets>
+        </value>
+      </li>
+      <li Class="PatchOperationAdd">
+        <xpath>/Defs/ThingDef[defName="LTS_KitMedium"]/equippedStatOffsets</xpath>
+        <value><CarryingCapacity>10</CarryingCapacity></value>
+      </li>
+      <li Class="PatchOperationAdd">
+        <xpath>/Defs/ThingDef[defName="LTS_KitLarge"]/equippedStatOffsets</xpath>
+        <value><CarryingCapacity>15</CarryingCapacity></value>
+      </li>
+    </operations>
+  </Operation>
+</Patch>
