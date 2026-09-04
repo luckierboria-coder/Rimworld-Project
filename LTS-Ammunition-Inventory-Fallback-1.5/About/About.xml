@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>LTS Ammunition - Inventory Fallback Patch</name>
+  <name>LTS Ammunition - Inventory System Patch</name>
   <author>Allen / ChatGPT</author>
   <packageId>allen.ltsammo.inventoryfallback</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
-  <description>Independent patch for [LTS] Ammunition - Framework. Allows compatible ammunition in pawn inventory to be used when no worn kit has usable ammo. Empty kits still reload normally, and compatible inventory ammo is transferred into empty/not-full kits before map ammo is searched.</description>
+  <description>Independent RimWorld 1.5 patch for [LTS] Ammunition. Ammunition is stored and consumed directly from pawn inventory. LTS kits become ordinary carry-capacity backpacks, NPCs spawn with mass-based ammunition, and all pawns can pick visible compatible ammunition within 20 cells only when completely out of ammo.</description>
   <modDependencies>
     <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
-    <li><packageId>LimeTreeSnake.Ammunition</packageId><displayName>[LTS]Ammunition - Framework</displayName></li>
+    <li><packageId>LimeTreeSnake.Ammunition</packageId><displayName>[LTS] Ammunition - Framework</displayName></li>
   </modDependencies>
   <loadAfter>
     <li>brrainz.harmony</li>
     <li>LimeTreeSnake.Ammunition</li>
+    <li>LimeTreeSnake.Ammo</li>
+    <li>LimeTreeSnake.AdvancedAmmoPack</li>
   </loadAfter>
 </ModMetaData>
