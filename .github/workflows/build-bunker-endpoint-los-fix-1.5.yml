@@ -1,0 +1,46 @@
+name: Build Bunker Endpoint LOS Fix 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Bunker-Endpoint-LOS-Fix-1.5/**'
+      - '.github/workflows/build-bunker-endpoint-los-fix-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore Bunker-Endpoint-LOS-Fix-1.5/Source/BunkerEndpointLOSFix15.csproj
+      - name: Build Release
+        run: dotnet build Bunker-Endpoint-LOS-Fix-1.5/Source/BunkerEndpointLOSFix15.csproj --configuration Release --no-restore
+      - name: Verify and package
+        shell: pwsh
+        run: |
+          $dll = 'Bunker-Endpoint-LOS-Fix-1.5\1.5\Assemblies\BunkerEndpointLOSFix15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+          Remove-Item 'dist-bunker-los' -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist-bunker-los\Bunker-Endpoint-LOS-Fix-1.5'
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Patches" | Out-Null
+          Copy-Item 'Bunker-Endpoint-LOS-Fix-1.5\About\About.xml' "$stage\About\About.xml"
+          Copy-Item 'Bunker-Endpoint-LOS-Fix-1.5\LoadFolders.xml' "$stage\LoadFolders.xml"
+          Copy-Item $dll "$stage\1.5\Assemblies\BunkerEndpointLOSFix15.dll"
+          Copy-Item 'Bunker-Endpoint-LOS-Fix-1.5\1.5\Patches\BunkerFillRestore.xml' "$stage\1.5\Patches\BunkerFillRestore.xml"
+          $files = Get-ChildItem $stage -Recurse -File
+          if ($files.Name -contains '0Harmony.dll') { throw 'Dependency DLL leaked into package.' }
+          if ($files.Name -match '\.pdb$') { throw 'PDB leaked into package.' }
+          Compress-Archive -Path $stage -DestinationPath 'dist-bunker-los\Bunker-Endpoint-LOS-Fix-1.5.zip' -Force
+      - name: Upload patch zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bunker-Endpoint-LOS-Fix-1.5
+          path: dist-bunker-los/Bunker-Endpoint-LOS-Fix-1.5.zip
+          if-no-files-found: error
