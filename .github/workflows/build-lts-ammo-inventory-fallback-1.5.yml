@@ -26,7 +26,7 @@ jobs:
           $dll = 'LTS-Ammunition-Inventory-Fallback-1.5\1.5\Assemblies\LTSAmmoInventoryFallback15.dll'
           if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
           Remove-Item 'dist' -Recurse -Force -ErrorAction SilentlyContinue
-          $stage = 'dist\LTS-Ammunition-Inventory-Fallback-1.5'
+          $stage = 'dist\LTS-Ammunition-Inventory-System-1.5'
           New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
           New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
           New-Item -ItemType Directory -Force -Path "$stage\1.5\Defs" | Out-Null
