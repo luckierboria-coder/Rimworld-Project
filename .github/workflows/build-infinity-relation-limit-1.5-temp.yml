@@ -1,0 +1,53 @@
+name: Build Infinity Relation Limit 1.5 temp
+
+on:
+  push:
+    branches: [ compile-infinityrelation-limit-15 ]
+    paths:
+      - 'Infinity-Relation-Limit-1.5/**'
+      - '.github/workflows/build-infinity-relation-limit-1.5-temp.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore Infinity-Relation-Limit-1.5/Source/InfinityRelationLimit15.csproj
+
+      - name: Build Release
+        run: dotnet build Infinity-Relation-Limit-1.5/Source/InfinityRelationLimit15.csproj --configuration Release --no-restore
+
+      - name: Verify and package
+        shell: pwsh
+        run: |
+          $dll = 'Infinity-Relation-Limit-1.5\1.5\Assemblies\InfinityRelationLimit15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+          Remove-Item 'dist-irl' -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist-irl\Infinity-Relation-Limit-Patch'
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          Copy-Item 'Infinity-Relation-Limit-1.5\About\About.xml' "$stage\About\About.xml"
+          Copy-Item 'Infinity-Relation-Limit-1.5\Languages' "$stage\Languages" -Recurse
+          Copy-Item 'Infinity-Relation-Limit-1.5\LoadFolders.xml' "$stage\LoadFolders.xml"
+          Copy-Item 'Infinity-Relation-Limit-1.5\README_CN.txt' "$stage\README_CN.txt"
+          Copy-Item $dll "$stage\1.5\Assemblies\InfinityRelationLimit15.dll"
+          $files = Get-ChildItem $stage -Recurse -File
+          if ($files.Name -contains '0Harmony.dll') { throw 'Dependency DLL leaked into package.' }
+          if ($files.Name -match '\.pdb$') { throw 'PDB leaked into package.' }
+          Compress-Archive -Path $stage -DestinationPath 'dist-irl\Infinity-Relation-Limit-Patch-1.5.zip' -Force
+
+      - name: Upload patch zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Infinity-Relation-Limit-Patch-1.5
+          path: dist-irl/Infinity-Relation-Limit-Patch-1.5.zip
+          if-no-files-found: error
