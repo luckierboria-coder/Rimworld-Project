@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Infinity Relation Limit Patch</name>
+  <author>ShangRuo / Allen</author>
+  <packageId>shangruo.infinityrelation.limit</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <description>Configurable goodwill bounds for Infinity Faction Relationship (Continued). Defaults to -250 / +250. Values outside the configured range are clamped back to the limit.</description>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>zal.infinityfactionrelation</packageId>
+      <displayName>Infinity Faction Relationship (Continued)</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/3306814027</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>zal.infinityfactionrelation</li>
+  </loadAfter>
+</ModMetaData>
