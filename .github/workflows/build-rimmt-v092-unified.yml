@@ -1,4 +1,4 @@
-name: Build RimMT V0.9.4 Tail Focus
+name: Build RimMT V0.9.5 Resumable JobGiver
 
 on:
   push:
@@ -37,10 +37,15 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
 
-      # Public release V0.9.4: tail attribution + HaulMerge cheap-negative + zero-yield cold sleep.
-      - name: Apply RimMT V0.9.4 Tail Focus
+      # V0.9.4 remains in the composition chain for its validated tail buckets and
+      # acceleration-only GenClosest cold sleep. V0.9.5 subsequently retires HaulMerge.
+      - name: Apply RimMT V0.9.4 Tail Focus base
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV094TailFocus.ps1
+
+      - name: Apply RimMT V0.9.5 Resumable JobGiver
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV095ResumableJobGiver.ps1
 
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
@@ -72,11 +77,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.4_Tail_Focus.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.5_Resumable_JobGiver.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.4-Tail-Focus
-          path: build/RimMT_V0.9.4_Tail_Focus.zip
+          name: RimMT-V0.9.5-Resumable-JobGiver
+          path: build/RimMT_V0.9.5_Resumable_JobGiver.zip
           if-no-files-found: error
