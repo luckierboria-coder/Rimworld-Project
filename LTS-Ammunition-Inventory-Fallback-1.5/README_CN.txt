@@ -1,8 +1,13 @@
-LTS Ammunition - Inventory Fallback Patch (RimWorld 1.5.4063)
+LTS Ammunition - Inventory Fallback + Kit Mass Limit Patch (RimWorld 1.5.4063)
 
 规则：
-1. 套件有可用弹药：完全沿用原 LTS 套件逻辑。
+1. 套件有可用弹药：完全沿用原 LTS 套件射击逻辑。
 2. 没有套件，或所有套件都没有可用弹药：检查小人库存中的兼容弹药；有则可射击并正常消耗。
 3. 空套件在“射击资格”上等同无套件，但不会关闭原套件补弹逻辑。
 4. 空/未满套件补弹时，先从小人库存中取该弹袋 ChosenAmmo；库存不足时，原 WorkGiver 继续去地图寻找剩余弹药。
-5. 不修改原 MOD 文件。
+5. 新增套件总弹药真实 Mass 上限：小型 3 kg、中型 6 kg、大型 10 kg。上限按整个套件共享，不是每个 Bag 单独计算。
+6. 原 LTS 的 capacity / ammoWeight 限制继续保留；实际装填同时受 ammoWeight 容量与真实 Mass 总上限约束，取更严格者。
+7. 库存补弹、LTS_FetchAmmo 地图补弹、连续顺手补弹、NPC 生成时预装套件弹药都遵守重量上限。
+8. 旧存档若某套件已经超过新重量上限，不强制删除现有弹药；在重量降回上限以下之前不会继续补入。
+9. 无套件 + 无库存弹药时，不新增主动寻找弹药的 AI。
+10. 不修改原 MOD 文件。
