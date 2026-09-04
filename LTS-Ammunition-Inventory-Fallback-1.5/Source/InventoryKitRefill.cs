@@ -1,15 +1,11 @@
 using System;
-using System.Collections;
 using System.Linq;
-using HarmonyLib;
 using Verse;
 
 namespace LTSAmmoInventoryFallback15
 {
     internal static class InventoryKitRefill
     {
-        private static readonly System.Reflection.MethodInfo GetWornKits = AccessTools.Method(PatchRegistry.AmmoLogic, "GetWornKits");
-
         public static void RefillPrefix(Pawn pawn)
         {
             try { Refill(pawn); }
@@ -18,32 +14,14 @@ namespace LTSAmmoInventoryFallback15
 
         private static void Refill(Pawn pawn)
         {
-            if (pawn?.inventory?.innerContainer == null || GetWornKits == null) return;
-            var kits = GetWornKits.Invoke(null, new object[] { pawn }) as IEnumerable;
-            if (kits == null) return;
+            if (pawn?.inventory?.innerContainer == null) return;
 
-            foreach (var kit in kits)
+            foreach (var kit in KitMassLimit.WornKits(pawn))
             {
-                if (kit == null) continue;
-                var comp = AccessTools.Property(kit.GetType(), "KitComp")?.GetValue(kit, null);
-                if (comp == null) continue;
-                var bags = AccessTools.Property(comp.GetType(), "Bags")?.GetValue(comp, null) as IEnumerable;
-                if (bags == null) continue;
-
-                foreach (var bag in bags)
+                foreach (var bag in KitMassLimit.Bags(kit))
                 {
-                    if (bag == null) continue;
-                    var bt = bag.GetType();
-                    var chosenP = AccessTools.Property(bt, "ChosenAmmo");
-                    var countP = AccessTools.Property(bt, "Count");
-                    var maxP = AccessTools.Property(bt, "MaxCount");
-                    var chosen = chosenP?.GetValue(bag, null) as ThingDef;
-                    if (chosen == null || countP == null || maxP == null) continue;
-
-                    int count = (int)countP.GetValue(bag, null);
-                    int max = (int)maxP.GetValue(bag, null);
-                    int room = max - count;
-                    if (room <= 0) continue;
+                    if (!KitMassLimit.TryReadBag(bag, out var chosen, out var count, out var max)) continue;
+                    if (chosen == null || count >= max) continue;
 
                     var stacks = pawn.inventory.innerContainer
                         .Where(t => t != null && !t.Destroyed && t.stackCount > 0 && t.def == chosen)
@@ -51,13 +29,17 @@ namespace LTSAmmoInventoryFallback15
 
                     foreach (var stack in stacks)
                     {
-                        if (room <= 0) break;
-                        int take = Math.Min(room, stack.stackCount);
+                        if (count >= max) break;
+                        int byMass = KitMassLimit.MaxAdditionalRounds(kit, chosen);
+                        if (byMass <= 0) break;
+
+                        int take = Math.Min(max - count, Math.Min(stack.stackCount, byMass));
+                        if (take <= 0) break;
+
                         var used = stack.SplitOff(take);
-                        used.Destroy(DestroyMode.Vanish);
+                        if (used != null && !used.Destroyed) used.Destroy(DestroyMode.Vanish);
                         count += take;
-                        room -= take;
-                        countP.SetValue(bag, count, null);
+                        KitMassLimit.SetBagCount(bag, count);
                     }
                 }
             }
