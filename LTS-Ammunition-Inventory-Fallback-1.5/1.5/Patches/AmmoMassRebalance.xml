@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Patch>
+  <Operation Class="PatchOperationSequence">
+    <operations>
+      <!-- Simple Ammo Pack. AmmoMedieval is intentionally left at the user's 1 kg value. -->
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="AmmoIndustrial"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="AmmoIndustrial"]/statBases/Mass</xpath><value><Mass>0.02</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="AmmoSpacer"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="AmmoSpacer"]/statBases/Mass</xpath><value><Mass>0.02</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="AmmoExplosive"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="AmmoExplosive"]/statBases/Mass</xpath><value><Mass>0.5</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="AmmoUltratech"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="AmmoUltratech"]/statBases/Mass</xpath><value><Mass>0.015</Mass></value></match></li>
+
+      <!-- Advanced Ammo Pack firearm cartridge families. -->
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[@Name="LTS_22LRBase"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[@Name="LTS_22LRBase"]/statBases/Mass</xpath><value><Mass>0.004</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[@Name="LTS_9mmBase"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[@Name="LTS_9mmBase"]/statBases/Mass</xpath><value><Mass>0.012</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[@Name="LTS_45acpBase"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[@Name="LTS_45acpBase"]/statBases/Mass</xpath><value><Mass>0.021</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[@Name="LTS_357MagBase"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[@Name="LTS_357MagBase"]/statBases/Mass</xpath><value><Mass>0.020</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[@Name="LTS_556mmBase"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[@Name="LTS_556mmBase"]/statBases/Mass</xpath><value><Mass>0.012</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[@Name="LTS_762mmBase"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[@Name="LTS_762mmBase"]/statBases/Mass</xpath><value><Mass>0.017</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[@Name="LTS_338LapuaBase"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[@Name="LTS_338LapuaBase"]/statBases/Mass</xpath><value><Mass>0.045</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[@Name="LTS_50BMGBase"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[@Name="LTS_50BMGBase"]/statBases/Mass</xpath><value><Mass>0.115</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[@Name="LTS_AmmoShotgunBase"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[@Name="LTS_AmmoShotgunBase"]/statBases/Mass</xpath><value><Mass>0.045</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_12GaugeSlug"]</xpath><match Class="PatchOperationAdd"><xpath>/Defs/ThingDef[defName="LTS_12GaugeSlug"]</xpath><value><statBases><Mass>0.055</Mass></statBases></value></match></li>
+
+      <!-- Medieval projectiles. -->
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_MusketBallAmmo"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_MusketBallAmmo"]/statBases/Mass</xpath><value><Mass>0.035</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_RegularBolt"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_RegularBolt"]/statBases/Mass</xpath><value><Mass>0.08</Mass></value></match></li>
+
+      <!-- Arrows. -->
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_ShortArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_ShortArrow"]/statBases/Mass</xpath><value><Mass>0.06</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_ShortFlameArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_ShortFlameArrow"]/statBases/Mass</xpath><value><Mass>0.08</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_RecurveArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_RecurveArrow"]/statBases/Mass</xpath><value><Mass>0.075</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_RecurveFlameArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_RecurveFlameArrow"]/statBases/Mass</xpath><value><Mass>0.095</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_GreatArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_GreatArrow"]/statBases/Mass</xpath><value><Mass>0.10</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_GreatFlameArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_GreatFlameArrow"]/statBases/Mass</xpath><value><Mass>0.12</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_PolymerBroadArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_PolymerBroadArrow"]/statBases/Mass</xpath><value><Mass>0.06</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_PolymerBulletpointArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_PolymerBulletpointArrow"]/statBases/Mass</xpath><value><Mass>0.055</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_PolymerIncendiaryArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_PolymerIncendiaryArrow"]/statBases/Mass</xpath><value><Mass>0.08</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_PolymerEMPArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_PolymerEMPArrow"]/statBases/Mass</xpath><value><Mass>0.12</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_PolymerExplosiveArrow"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_PolymerExplosiveArrow"]/statBases/Mass</xpath><value><Mass>0.12</Mass></value></match></li>
+
+      <!-- Railgun rods. -->
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_6mmRodStandard"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_6mmRodStandard"]/statBases/Mass</xpath><value><Mass>0.03</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_6mmRodShatter"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_6mmRodShatter"]/statBases/Mass</xpath><value><Mass>0.035</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_9mmRodStandard"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_9mmRodStandard"]/statBases/Mass</xpath><value><Mass>0.06</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_9mmRodExplosive"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_9mmRodExplosive"]/statBases/Mass</xpath><value><Mass>0.08</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_12mmRodStandard"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_12mmRodStandard"]/statBases/Mass</xpath><value><Mass>0.12</Mass></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_12mmRodExplosive"]/statBases/Mass</xpath><match Class="PatchOperationReplace"><xpath>/Defs/ThingDef[defName="LTS_12mmRodExplosive"]/statBases/Mass</xpath><value><Mass>0.15</Mass></value></match></li>
+
+      <!-- 84mm recoilless rifle rounds: corrected from 0.02 kg to heavy single-round ammunition. -->
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_RCL441HE"]</xpath><match Class="PatchOperationAdd"><xpath>/Defs/ThingDef[defName="LTS_RCL441HE"]</xpath><value><statBases><Mass>1.6</Mass></statBases></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_RCLEMP"]</xpath><match Class="PatchOperationAdd"><xpath>/Defs/ThingDef[defName="LTS_RCLEMP"]</xpath><value><statBases><Mass>1.8</Mass></statBases></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_RCL469SMK"]</xpath><match Class="PatchOperationAdd"><xpath>/Defs/ThingDef[defName="LTS_RCL469SMK"]</xpath><value><statBases><Mass>1.5</Mass></statBases></value></match></li>
+      <li Class="PatchOperationConditional"><xpath>/Defs/ThingDef[defName="LTS_RCL509ASM"]</xpath><match Class="PatchOperationAdd"><xpath>/Defs/ThingDef[defName="LTS_RCL509ASM"]</xpath><value><statBases><Mass>1.7</Mass></statBases></value></match></li>
+    </operations>
+  </Operation>
+</Patch>
