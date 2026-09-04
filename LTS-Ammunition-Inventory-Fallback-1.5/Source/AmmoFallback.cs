@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -9,7 +8,6 @@ namespace LTSAmmoInventoryFallback15
 {
     internal static class AmmoFallback
     {
-        private static readonly MethodInfo CanUseAmmo = AccessTools.Method(PatchRegistry.AmmoLogic, "WeaponDefCanUseAmmoDef");
         private static readonly Dictionary<Thing, ThingDef> InventoryAmmo = new Dictionary<Thing, ThingDef>();
         private static readonly Dictionary<Thing, ThingDef> ShotAmmo = new Dictionary<Thing, ThingDef>();
         private static readonly HashSet<Thing> PaidBurst = new HashSet<Thing>();
@@ -32,7 +30,7 @@ namespace LTSAmmoInventoryFallback15
                 return;
             }
 
-            var carried = FindCompatible(pawn, weapon);
+            var carried = InventoryAmmoUtility.FindInventoryAmmo(pawn, weapon.def);
             if (carried != null)
             {
                 InventoryAmmo[weapon] = carried.def;
@@ -43,7 +41,13 @@ namespace LTSAmmoInventoryFallback15
             InventoryAmmo.Remove(weapon);
 
             if (!consumeAmmo && PaidBurst.Contains(weapon) && ShotAmmo.ContainsKey(weapon))
+            {
                 __result = true;
+                return;
+            }
+
+            if (InventoryAmmoUtility.RequiresAmmo(weapon))
+                AmmoReloadManager.Request(pawn, weapon);
         }
 
         public static void NextBurstShotPrefix(Verb __instance)
@@ -59,9 +63,7 @@ namespace LTSAmmoInventoryFallback15
                 ShotAmmo[weapon] = ammoDef;
 
                 bool perBullet = GetBoolSetting("UseAmmoPerBullet", true);
-                bool shouldConsume = pawn.IsColonist || GetBoolSetting("NpcUseAmmo", true);
-
-                if (shouldConsume && (perBullet || !PaidBurst.Contains(weapon)))
+                if (perBullet || !PaidBurst.Contains(weapon))
                 {
                     var stack = FindExact(pawn, ammoDef);
                     if (stack != null) ConsumeOne(stack);
@@ -74,7 +76,7 @@ namespace LTSAmmoInventoryFallback15
             }
             catch (Exception e)
             {
-                Log.Error("[LTS Ammo Inventory Fallback 1.5] shot handling failed: " + e);
+                Log.Error("[LTS Ammo Inventory System 1.5] shot handling failed: " + e);
             }
         }
 
@@ -87,21 +89,6 @@ namespace LTSAmmoInventoryFallback15
             if (!ShotAmmo.TryGetValue(weapon, out ammo) && !InventoryAmmo.TryGetValue(weapon, out ammo)) return;
             var bullet = GetBulletDef(ammo);
             if (bullet != null) __result = bullet;
-        }
-
-        private static Thing FindCompatible(Pawn pawn, Thing weapon)
-        {
-            if (pawn.inventory?.innerContainer == null || CanUseAmmo == null) return null;
-            foreach (var t in pawn.inventory.innerContainer)
-            {
-                if (t == null || t.Destroyed || t.stackCount <= 0) continue;
-                try
-                {
-                    if ((bool)CanUseAmmo.Invoke(null, new object[] { weapon.def, t.def })) return t;
-                }
-                catch { }
-            }
-            return null;
         }
 
         private static Thing FindExact(Pawn pawn, ThingDef def)
