@@ -14,6 +14,8 @@ namespace RimMT
     /// Every supported GenClosest call inside one synchronous JobGiver_Work package gets only
     /// two Stopwatch timestamps. Reflection/WorkGiver resolution happens only when the call
     /// itself already exceeded 2ms. No per-candidate timing, allocations or realtime logging.
+    /// V0.9.5 additionally consumes the accumulated per-WorkGiver buckets as a conservative
+    /// recurring-hot admission signal; telemetry behavior itself is unchanged.
     /// </summary>
     internal static class JobGiverTailTelemetry094
     {
@@ -102,11 +104,7 @@ namespace RimMT
                 return;
             }
 
-            string key = scanner.def == null || string.IsNullOrEmpty(scanner.def.defName)
-                ? scanner.GetType().FullName
-                : scanner.def.defName;
-            if (string.IsNullOrEmpty(key)) key = "<unknown>";
-
+            string key = ScannerKey(scanner);
             TailStats stat;
             if (!Stats.TryGetValue(key, out stat))
             {
@@ -122,7 +120,19 @@ namespace RimMT
             if (elapsed > stat.MaxTicks) stat.MaxTicks = elapsed;
         }
 
-        private static WorkGiver_Scanner TryResolveScanner(Predicate<Thing> validator)
+        internal static bool IsRecurringHot(WorkGiver_Scanner scanner)
+        {
+            if (scanner == null || !RimMTThreadGuard.IsMainThread) return false;
+            TailStats stat;
+            if (!Stats.TryGetValue(ScannerKey(scanner), out stat) || stat == null) return false;
+
+            // One genuine >20ms call is sufficient evidence that this scanner can create a visible
+            // tail. Otherwise require two >5ms calls so isolated medium spikes do not opt a scanner
+            // into the resumable path permanently.
+            return stat.Over20 > 0 || stat.Over5 >= 2;
+        }
+
+        internal static WorkGiver_Scanner TryResolveScanner(Predicate<Thing> validator)
         {
             if (validator == null) return null;
             try
@@ -139,6 +149,15 @@ namespace RimMT
                 return scannerField == null ? null : scannerField.GetValue(target) as WorkGiver_Scanner;
             }
             catch { return null; }
+        }
+
+        private static string ScannerKey(WorkGiver_Scanner scanner)
+        {
+            if (scanner == null) return "<unknown>";
+            string key = scanner.def == null || string.IsNullOrEmpty(scanner.def.defName)
+                ? scanner.GetType().FullName
+                : scanner.def.defName;
+            return string.IsNullOrEmpty(key) ? "<unknown>" : key;
         }
 
         private static FieldInfo ResolveScannerField(Type targetType)
