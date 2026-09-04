@@ -17,7 +17,8 @@ function Replace-OrThrow {
 # 1) keep V0.9.3 consolidated stable core and ReachProfile V0.4.18 unchanged;
 # 2) add authority-safe HaulMerge cheap-negative compaction inside the existing S4 rescue only;
 # 3) make Persistent GenClosest cold sleep depend on actual acceleration, not mere membership refresh/hit;
-# 4) lightweight JobGiver tail timing lives in JobGiverTailTelemetry094.cs and is wired separately.
+# 4) add lightweight JobGiver tail buckets with reflection deferred until a search exceeds 2ms;
+# 5) expose a unique public version string everywhere the user sees the build.
 
 $s4Path = 'RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs'
 $s4 = Get-Content $s4Path -Raw
@@ -134,7 +135,37 @@ Set-Content $genPath $gen -Encoding UTF8
 
 $diagPath = 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $diag = Get-Content $diagPath -Raw
+$diag = Replace-OrThrow $diag '[RimMT] V0.9.3 Consolidated Stable on-demand report' '[RimMT] V0.9.4 Tail Focus on-demand report' 'V0.9.4 report title'
+$diag = Replace-OrThrow $diag @'
+            sb.AppendLine(JobGiverSlowSearch0419S.Summary());
+            sb.AppendLine(LargeSetTailRescue092.Summary());
+'@ @'
+            sb.AppendLine(JobGiverSlowSearch0419S.Summary());
+            sb.AppendLine(JobGiverTailTelemetry094.Summary());
+            sb.AppendLine(LargeSetTailRescue092.Summary());
+'@ 'V0.9.4 tail telemetry report line'
 $diag = Replace-OrThrow $diag 'V0.9.3 Consolidated Stable;' 'V0.9.4 Tail Focus; JobGiver tail buckets=ON; HaulMerge cheap-negative=authority-safe; GenClosest cold=acceleration-only;' 'V0.9.4 production policy marker'
 Set-Content $diagPath $diag -Encoding UTF8
+
+$bootPath = 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
+$boot = Get-Content $bootPath -Raw
+$boot = Replace-OrThrow $boot 'internal const string Version = "0.9.3-consolidated-stable";' 'internal const string Version = "0.9.4-tail-focus";' 'V0.9.4 bootstrap version'
+$boot = Replace-OrThrow $boot @'
+                JobGiverGlobalNearest04181.Apply(harmony);
+                JobGiverSlowSearch0419S.Apply(harmony);
+                DoBillTailFabric092.Apply(harmony);
+'@ @'
+                JobGiverGlobalNearest04181.Apply(harmony);
+                JobGiverSlowSearch0419S.Apply(harmony);
+                JobGiverTailTelemetry094.Apply(harmony);
+                DoBillTailFabric092.Apply(harmony);
+'@ 'V0.9.4 tail telemetry bootstrap wiring'
+$boot = Replace-OrThrow $boot '[RimMT] V0.9.3 Consolidated Stable initialized.' '[RimMT] V0.9.4 Tail Focus initialized.' 'V0.9.4 startup label'
+Set-Content $bootPath $boot -Encoding UTF8
+
+$settingsPath = 'RimMT/Source/RimMT/Settings/RimMTMod.cs'
+$settings = Get-Content $settingsPath -Raw
+$settings = Replace-OrThrow $settings 'RimMT V0.9.3 Consolidated Stable — single DLL production build' 'RimMT V0.9.4 Tail Focus — single DLL production build' 'V0.9.4 settings label'
+Set-Content $settingsPath $settings -Encoding UTF8
 
 Write-Host 'Applied RimMT V0.9.4 Tail Focus: lightweight JobGiver tail attribution + authority-safe HaulMerge pruning + acceleration-only GenClosest cold sleep; ReachProfile remains V0.4.18.'
