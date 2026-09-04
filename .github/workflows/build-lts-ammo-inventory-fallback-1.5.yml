@@ -1,0 +1,40 @@
+name: Build LTS Ammo Inventory Fallback 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'LTS-Ammunition-Inventory-Fallback-1.5/**'
+      - '.github/workflows/build-lts-ammo-inventory-fallback-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore LTS-Ammunition-Inventory-Fallback-1.5/Source/LTSAmmoInventoryFallback15.csproj
+      - name: Build Release
+        run: dotnet build LTS-Ammunition-Inventory-Fallback-1.5/Source/LTSAmmoInventoryFallback15.csproj --configuration Release --no-restore
+      - name: Verify and package
+        shell: pwsh
+        run: |
+          $dll = 'LTS-Ammunition-Inventory-Fallback-1.5\1.5\Assemblies\LTSAmmoInventoryFallback15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+          $stage = 'dist\LTS-Ammunition-Inventory-Fallback-1.5'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\About' $stage -Recurse
+          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\1.5' $stage -Recurse
+          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\LoadFolders.xml' $stage
+          Copy-Item 'LTS-Ammunition-Inventory-Fallback-1.5\README_CN.txt' $stage
+          Compress-Archive -Path $stage -DestinationPath 'dist\LTS-Ammunition-Inventory-Fallback-1.5.zip' -Force
+      - name: Upload patch zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: LTS-Ammunition-Inventory-Fallback-1.5
+          path: dist/LTS-Ammunition-Inventory-Fallback-1.5.zip
+          if-no-files-found: error
