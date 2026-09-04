@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+  <JobDef>
+    <defName>LTSIF_TakeAmmoInventory</defName>
+    <driverClass>LTSAmmoInventoryFallback15.JobDriver_TakeAmmoInventory</driverClass>
+    <reportString>taking ammunition.</reportString>
+    <checkOverrideOnDamage>Always</checkOverrideOnDamage>
+    <playerInterruptible>true</playerInterruptible>
+    <suspendable>true</suspendable>
+  </JobDef>
+</Defs>
