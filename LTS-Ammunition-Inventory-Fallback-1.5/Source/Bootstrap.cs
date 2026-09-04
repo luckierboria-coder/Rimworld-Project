@@ -14,7 +14,7 @@ namespace LTSAmmoInventoryFallback15
             {
                 var h = new Harmony("local.ltsammo.inventoryfallback.1.5");
                 PatchRegistry.Apply(h);
-                Log.Message("[LTS Ammo Inventory Fallback 1.5] loaded");
+                Log.Message("[LTS Ammo Inventory Fallback 1.5] loaded (inventory fallback + kit mass limits 3/6/10 kg)");
             }
             catch (Exception e)
             {
@@ -28,6 +28,7 @@ namespace LTSAmmoInventoryFallback15
         internal static readonly Type AmmoLogic = AccessTools.TypeByName("Ammunition.Logic.AmmoLogic");
         internal static readonly Type Settings = AccessTools.TypeByName("Ammunition.Settings.Settings");
         internal static readonly Type LoadKit = AccessTools.TypeByName("Ammunition.WorkGivers.WorkGiver_LoadKit");
+        internal static readonly Type ToilsTake = AccessTools.TypeByName("Ammunition.Toils.Toils_Take");
 
         internal static void Apply(Harmony h)
         {
@@ -64,10 +65,41 @@ namespace LTSAmmoInventoryFallback15
             {
                 var skip = AccessTools.Method(LoadKit, "ShouldSkip");
                 var scan = AccessTools.Method(LoadKit, "PotentialWorkThingsGlobal");
+                var has = AccessTools.Method(LoadKit, "HasJobOnThing");
+                var job = AccessTools.Method(LoadKit, "JobOnThing");
                 var refill = new HarmonyMethod(typeof(InventoryKitRefill), nameof(InventoryKitRefill.RefillPrefix));
-                if (skip != null) h.Patch(skip, prefix: refill);
-                if (scan != null) h.Patch(scan, prefix: refill);
+
+                if (skip != null)
+                {
+                    h.Patch(skip,
+                        prefix: refill,
+                        postfix: new HarmonyMethod(typeof(MassWorkGiver), nameof(MassWorkGiver.ShouldSkipPostfix)));
+                }
+                if (scan != null)
+                {
+                    h.Patch(scan,
+                        prefix: refill,
+                        postfix: new HarmonyMethod(typeof(MassWorkGiver), nameof(MassWorkGiver.PotentialWorkThingsGlobalPostfix)));
+                }
+                if (has != null)
+                    h.Patch(has, postfix: new HarmonyMethod(typeof(MassWorkGiver), nameof(MassWorkGiver.HasJobOnThingPostfix)));
+                if (job != null)
+                    h.Patch(job, postfix: new HarmonyMethod(typeof(MassWorkGiver), nameof(MassWorkGiver.JobOnThingPostfix)));
             }
+
+            if (ToilsTake != null)
+            {
+                var load = AccessTools.Method(ToilsTake, "LoadMagazine");
+                var opportunistic = AccessTools.Method(ToilsTake, "OpportunisticLoadMagazine");
+                if (load != null)
+                    h.Patch(load, prefix: new HarmonyMethod(typeof(MassLoading), nameof(MassLoading.LoadMagazinePrefix)));
+                if (opportunistic != null)
+                    h.Patch(opportunistic, prefix: new HarmonyMethod(typeof(MassLoading), nameof(MassLoading.OpportunisticLoadMagazinePrefix)));
+            }
+
+            var loadSpawnedKit = AccessTools.Method(AmmoLogic, "LoadSpawnedKit");
+            if (loadSpawnedKit != null)
+                h.Patch(loadSpawnedKit, postfix: new HarmonyMethod(typeof(MassLoading), nameof(MassLoading.ClampGeneratedKitPostfix)));
         }
     }
 }
