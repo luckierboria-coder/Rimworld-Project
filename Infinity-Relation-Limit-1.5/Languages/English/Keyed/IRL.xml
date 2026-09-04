@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <IRL_SettingsCategory>Relation Limits</IRL_SettingsCategory>
+  <IRL_MinLabel>Minimum goodwill</IRL_MinLabel>
+  <IRL_MaxLabel>Maximum goodwill</IRL_MaxLabel>
+  <IRL_EffectiveBounds>Effective limits: {0} to {1}</IRL_EffectiveBounds>
+  <IRL_ApplyNow>Apply to existing relations</IRL_ApplyNow>
+  <IRL_Reset>Reset to default ±250</IRL_Reset>
+  <IRL_Description>Defaults are -250 and +250. Goodwill outside the configured range is clamped to the corresponding bound after changes. Existing out-of-range relations are also clamped when a save finishes loading. Edited values are used immediately for subsequent changes; use Apply to clamp all current relations now.</IRL_Description>
+</LanguageData>
