@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Ra2Bunker Endpoint LOS Fix</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>allen.ra2bunker.endpointlosfix</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>AKreedz.Ra2Bunker</packageId>
+      <displayName>Ra2Bunker</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>AKreedz.Ra2Bunker</li>
+  </loadAfter>
+  <description>RimWorld 1.5 patch for Ra2Bunker LOS. Bunker endpoints remain visible/shootable, while LOS from outside to outside is blocked when it passes through the bunker.</description>
+</ModMetaData>
