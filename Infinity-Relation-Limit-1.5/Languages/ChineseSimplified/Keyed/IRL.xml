@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <IRL_SettingsCategory>关系上下限</IRL_SettingsCategory>
+  <IRL_MinLabel>关系下限</IRL_MinLabel>
+  <IRL_MaxLabel>关系上限</IRL_MaxLabel>
+  <IRL_EffectiveBounds>当前实际限制：{0} ～ {1}</IRL_EffectiveBounds>
+  <IRL_ApplyNow>立即应用到现有关系</IRL_ApplyNow>
+  <IRL_Reset>恢复默认 ±250</IRL_Reset>
+  <IRL_Description>默认下限 -250、上限 +250。任何阵营关系在变化后超过范围时会被直接钳制到对应上限/下限；载入存档时也会处理已经越界的关系。修改数值后会即时用于后续关系变化，点击“立即应用”可立刻处理当前存档内已有关系。</IRL_Description>
+</LanguageData>
