@@ -42,21 +42,21 @@ namespace RimMT
             FeatureGate.Register("ai.pathTopology", true, "PathGrid topology invalidation generation");
             FeatureGate.Register("parallel.jobScan", true, "Production haul/work scanner accelerator");
             FeatureGate.Register("parallel.haulGlobal", true, "Direct JobGiver_Haul global accelerator");
-            FeatureGate.Register("parallel.jobPartition", true, "Persistent-map search fabric / candidate partition production path");
+            FeatureGate.Register("parallel.jobPartition", true, "Validated nearest-order / bounded JobGiver search acceleration");
             FeatureGate.Register(JobGiverSlowSearch0419S.FeatureId, true, "Validated slow-search tail rescue");
-            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "ReachProfile V0.4.17 sliced topology + local-first mismatch fuse");
+            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "ReachProfile sliced topology + local-first mismatch fuse");
             FeatureGate.Register(RetiredRegionFeature, false, "Retired: insufficient production yield");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe / not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe / not implemented");
             FeatureGate.Register("parallel.thingTick", false, "Not implemented");
 
-            FeatureGate.Register("diagnostics.hotPaths", false, "External diagnostic layer only in Unified Lean");
+            FeatureGate.Register("diagnostics.hotPaths", false, "External diagnostic layer only in Lean MT Rebase");
             FeatureGate.Register("diagnostics.pathFinder", false, "External diagnostic layer only");
             FeatureGate.Register("diagnostics.jobGiver", false, "External diagnostic layer only");
             FeatureGate.Register("diagnostics.jobGiverDetail", false, "External diagnostic layer only");
             FeatureGate.Register("parallel.pathSnapshot", false, "Retired from production: validation-only shadow path");
             FeatureGate.Register(RetiredWorkPrefilterFeature, false, "Retired from production: measured negative ROI");
-            FeatureGate.Register("ui.overlayCache", false, "Retired from Unified Lean production path");
+            FeatureGate.Register("ui.overlayCache", false, "Retired from production path");
             FeatureGate.Register("ai.reachNoCache", false, "Retired; ReachProfile is the production reachability accelerator");
 
             ApplySettings(RimMTMod.Settings);
@@ -121,9 +121,8 @@ namespace RimMT
                 CompatibilityGuard.RunBaselineScan();
                 HaulWorkAccelerator.MarkCompatibilityReady();
                 GlobalHaulAccelerator.MarkCompatibilityReady();
-                AdaptiveGenClosestAssist.MarkCompatibilityReady();
                 AggressiveReachabilityProfilesV17.MarkCompatibilityReady();
-                Log.Message("[RimMT] Unified Lean compatibility scan complete. Runtime profiling remains external/on-demand.");
+                Log.Message("[RimMT] Lean MT compatibility scan complete. Runtime profiling remains external/on-demand.");
 
                 RimMTDiagnostics.LogRuntimeReport();
             }
