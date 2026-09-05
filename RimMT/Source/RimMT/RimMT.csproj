@@ -12,22 +12,27 @@
   </PropertyGroup>
 
   <!--
-    V0.9.2 Unified Lean intentionally excludes superseded experiments and deep profilers from
-    the production assembly. They remain in repository history / optional diagnostic projects,
-    but cannot execute or be reflection-discovered from RimMT.dll.
+    V0.10.0 Lean MT Rebase keeps only production code with demonstrated useful work or core
+    infrastructure. Superseded experiments, deep profilers, zero-yield consumers and the
+    V0.9.5-V0.9.12 continuation/predictive path stay in repository history but are not emitted
+    into RimMT.dll.
   -->
   <ItemGroup>
+    <Compile Remove="AI\AdaptiveGenClosestAssist.cs" />
     <Compile Remove="AI\AsyncJobCandidatePlan04182.cs" />
+    <Compile Remove="AI\DoBillTailFabric092.cs" />
     <Compile Remove="AI\JobPackageLocalSearch0419.cs" />
     <Compile Remove="AI\ParallelRegionConnectivity.cs" />
     <Compile Remove="AI\ParallelWorkPrefilter.cs" />
     <Compile Remove="AI\PathSnapshotWorker.cs" />
+    <Compile Remove="AI\ResumableJobGiver095.cs" />
     <Compile Remove="AI\SafePathClassTelemetry0418.cs" />
     <Compile Remove="AI\SingleCallCandidatePartition.cs" />
     <Compile Remove="Compatibility\WorkPrefilterCompatibility04171.cs" />
     <Compile Remove="Compatibility\WorkPrefilterCompatibility04172.cs" />
     <Compile Remove="Diagnostics\HotPathProfiler.cs" />
     <Compile Remove="Diagnostics\JobGiverInfrastructureProfiler.cs" />
+    <Compile Remove="Diagnostics\JobGiverTailTelemetry094.cs" />
     <Compile Remove="Diagnostics\ReachabilityPatchCensus.cs" />
     <Compile Remove="Diagnostics\WorkGiverProfiler.cs" />
     <Compile Remove="Patches\HotPathPatches.cs" />
