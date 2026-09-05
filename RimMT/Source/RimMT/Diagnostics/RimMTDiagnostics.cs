@@ -6,8 +6,9 @@ using Verse;
 namespace RimMT
 {
     /// <summary>
-    /// Lightweight on-demand diagnostics only. Unified Lean does not install hot-path profilers;
-    /// production modules expose aggregate counters that are read only when a report/window asks.
+    /// Lightweight on-demand diagnostics only. V0.10 Lean MT Rebase does not install hot-path
+    /// profilers or continuation/predictive admission telemetry. Production modules expose
+    /// aggregate counters that are read only when a report/window asks.
     /// </summary>
     public static class RimMTDiagnostics
     {
@@ -19,7 +20,7 @@ namespace RimMT
         public static void LogRuntimeReport()
         {
             StringBuilder sb = new StringBuilder(8192);
-            sb.AppendLine("[RimMT] V0.9.2 Unified Lean on-demand report");
+            sb.AppendLine("[RimMT] V0.10.0 Lean MT Rebase on-demand report");
             sb.AppendLine("ProgramState=" + Current.ProgramState + ", mainThreadFrames=" + RimMTRuntime.MainThreadFrames);
             sb.AppendLine(RuntimeCompatibility.Summary());
 
@@ -27,18 +28,17 @@ namespace RimMT
             sb.AppendLine(MainThreadDispatcher.Summary());
             AppendLoad(sb);
             sb.AppendLine("Text cache: hits=" + TextMetricCache.Hits + ", misses=" + TextMetricCache.Misses);
-            sb.AppendLine("Production policy: diagnostics=external; PathSnapshot=OFF; WorkPrefilter=OFF; ReachNoCache=OFF; OverlayCache=OFF; S5.1 admission=16ms; S4 tail=32ms + heavy WorkGiver attribution; RC2 Stage3 >=128; DoBill=persistent incremental membership + live readiness + zero-yield-sleeping worker-tail fabric; ReachProfile=V0.4.17 sliced topology + local-first fuse; S5.3 mature pruners; CommonSense=ingredientExpand memo only.");
+            sb.AppendLine("Production policy: diagnostics=external; PathSnapshot=OFF; Resumable/Predictive=OFF; generic GenClosest fabric consumer=OFF; DoBill worker-tail=OFF; S5.1=ON; S4 slow-search=ON; RC2 Stage3=ON; DoBill persistent index/readiness=ON; CommonSense ingredient memo=ON when Common Sense is present; ReachProfile=ON with pressure-capped capture admission; S5.3 mature pruners=ON; haul accelerators=ON; Vanilla final authority/fail-closed boundaries retained.");
 
             sb.AppendLine("--- Production path counters ---");
             sb.AppendLine(PersistentMapSearchFabric.Summary());
-            sb.AppendLine(AdaptiveGenClosestAssist.Summary());
             sb.AppendLine(JobGiverHybridTailS51.Summary());
             sb.AppendLine(JobGiverSlowSearch0419S.Summary());
             sb.AppendLine(LargeSetTailRescue092.Summary());
             sb.AppendLine(PersistentDoBillIndex092.Summary());
-            sb.AppendLine(DoBillTailFabric092.Summary());
             sb.AppendLine(CommonSenseIngredientExpand092.Summary());
             sb.AppendLine(AggressiveReachabilityProfilesV17.Summary());
+            sb.AppendLine(LeanMTProductionGuard100.Summary());
 
             sb.AppendLine("--- Feature gates ---");
             Dictionary<string, FeatureGate.FeatureState> states = FeatureGate.Snapshot();
@@ -93,11 +93,11 @@ namespace RimMT
 
             sb.AppendLine();
             sb.AppendLine(PersistentDoBillIndex092.Summary());
-            sb.AppendLine(DoBillTailFabric092.Summary());
             sb.AppendLine(JobGiverHybridTailS51.Summary());
             sb.AppendLine(JobGiverSlowSearch0419S.Summary());
             sb.AppendLine(LargeSetTailRescue092.Summary());
             sb.AppendLine(CommonSenseIngredientExpand092.Summary());
+            sb.AppendLine(LeanMTProductionGuard100.Summary());
             return sb.ToString();
         }
 
