@@ -1,8 +1,8 @@
-name: Build RimMT V0.9.3 Consolidated Stable
+name: Build RimMT V0.9.3-T0 Tail Observatory
 
 on:
   push:
-    branches: [ rimmt-rollback-v0.9.3-consolidated-stable ]
+    branches: [ rimmt-v0.9.3-t0-tail-observatory ]
     paths:
       - 'RimMT/**'
       - '.github/workflows/build-rimmt-v092-unified.yml'
@@ -36,21 +36,30 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
 
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
 
       - name: Build Release
         run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
 
-      - name: Verify stable version and single DLL
+      - name: Verify T0 version, stable baseline and single DLL
         shell: pwsh
         run: |
           $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
-          if ($bootstrap -notmatch '0\.9\.3-consolidated-stable') { throw 'Bootstrap is not V0.9.3 Consolidated Stable.' }
+          if ($bootstrap -notmatch '0\.9\.3-t0-tail-observatory') { throw 'Bootstrap is not V0.9.3-T0 Tail Observatory.' }
           $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
           if ($reach -notmatch 'V0\.4\.18') { throw 'ReachProfile V0.4.18 transform was not applied.' }
+          if ($reach -notmatch 'NoteReachQueryTicks') { throw 'T0 ReachProfile tail signal was not applied.' }
           $diag = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
-          if ($diag -notmatch 'V0\.9\.3 Consolidated Stable') { throw 'V0.9.3 consolidated marker was not applied.' }
+          if ($diag -notmatch 'V0\.9\.3-T0 Tail Observatory') { throw 'T0 report marker was not applied.' }
+          $tail = Get-Content 'RimMT/Source/RimMT/Diagnostics/TailObservatory093T0.cs' -Raw
+          if ($tail -notmatch 'P99\.9ms') { throw 'T0 percentile observatory source is missing.' }
+          $s4 = Get-Content 'RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs' -Raw
+          if ($s4 -notmatch 'targetedFeedHemogenRejected' -or $s4 -notmatch 'targetedVisitSickRejected') { throw 'V24 stable S4 pruners are missing.' }
           $dir = 'RimMT/1.5/Assemblies'
           $dll = Join-Path $dir 'RimMT.dll'
           if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
@@ -72,11 +81,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_Consolidated_Stable.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T0_Tail_Observatory.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.3-Consolidated-Stable
-          path: build/RimMT_V0.9.3_Consolidated_Stable.zip
+          name: RimMT-V0.9.3-T0-Tail-Observatory
+          path: build/RimMT_V0.9.3_T0_Tail_Observatory.zip
           if-no-files-found: error
