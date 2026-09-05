@@ -1,8 +1,8 @@
-name: Build RimMT V0.9.12 Predictive Admission
+name: Build RimMT V0.9.3 Consolidated Stable
 
 on:
   push:
-    branches: [ rimmt-v0.9.2-unified-lean ]
+    branches: [ rimmt-rollback-v0.9.3-consolidated-stable ]
     paths:
       - 'RimMT/**'
       - '.github/workflows/build-rimmt-v092-unified.yml'
@@ -32,53 +32,9 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
 
-      - name: Apply consolidated stable core marker
+      - name: Apply V26 Consolidated Stable marker
         shell: pwsh
         run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
-
-      - name: Apply RimMT V0.9.4 Tail Focus base
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV094TailFocus.ps1
-
-      - name: Apply RimMT V0.9.5 Resumable JobGiver
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV095ResumableJobGiver.ps1
-
-      - name: Apply RimMT V0.9.6 Continuation Fix
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV096ContinuationFix.ps1
-
-      - name: Apply RimMT V0.9.7 Continuation Deferral
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV097ContinuationDeferral.ps1
-
-      - name: Apply RimMT V0.9.8 Logical Scanner Identity
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV098LogicalScannerIdentity.ps1
-
-      - name: Apply RimMT V0.9.9 Package Context Continuation
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV099PackageContextContinuation.ps1
-
-      - name: Apply RimMT V0.9.10 Source-Reconciled Continuation
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV0910SourceReconciledContinuation.ps1
-
-      - name: Apply RimMT V0.9.10 telemetry fix
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV0910TelemetryFix.ps1
-
-      - name: Apply RimMT V0.9.11 Slow Tail Attribution
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV0911SlowTailAttribution.ps1
-
-      - name: Apply RimMT V0.9.11 compile fix
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV0911CompileFix.ps1
-
-      - name: Apply RimMT V0.9.12 Predictive Admission
-        shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV0912PredictiveAdmission.ps1
 
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
@@ -86,9 +42,15 @@ jobs:
       - name: Build Release
         run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
 
-      - name: Verify single DLL
+      - name: Verify stable version and single DLL
         shell: pwsh
         run: |
+          $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($bootstrap -notmatch '0\.9\.3-consolidated-stable') { throw 'Bootstrap is not V0.9.3 Consolidated Stable.' }
+          $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
+          if ($reach -notmatch 'V0\.4\.18') { throw 'ReachProfile V0.4.18 transform was not applied.' }
+          $diag = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
+          if ($diag -notmatch 'V0\.9\.3 Consolidated Stable') { throw 'V0.9.3 consolidated marker was not applied.' }
           $dir = 'RimMT/1.5/Assemblies'
           $dll = Join-Path $dir 'RimMT.dll'
           if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
@@ -110,11 +72,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.12_Predictive_Admission.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_Consolidated_Stable.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.12-Predictive-Admission
-          path: build/RimMT_V0.9.12_Predictive_Admission.zip
+          name: RimMT-V0.9.3-Consolidated-Stable
+          path: build/RimMT_V0.9.3_Consolidated_Stable.zip
           if-no-files-found: error
