@@ -72,6 +72,10 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV0911SlowTailAttribution.ps1
 
+      - name: Apply RimMT V0.9.11 compile fix
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV0911CompileFix.ps1
+
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
 
