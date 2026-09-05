@@ -1,4 +1,4 @@
-name: Build RimMT V0.9.10 Source-Reconciled Continuation
+name: Build RimMT V0.9.11 Slow Tail Attribution
 
 on:
   push:
@@ -68,6 +68,10 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV0910TelemetryFix.ps1
 
+      - name: Apply RimMT V0.9.11 Slow Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV0911SlowTailAttribution.ps1
+
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
 
@@ -98,11 +102,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.10_Source_Reconciled_Continuation.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.11_Slow_Tail_Attribution.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.10-Source-Reconciled-Continuation
-          path: build/RimMT_V0.9.10_Source_Reconciled_Continuation.zip
+          name: RimMT-V0.9.11-Slow-Tail-Attribution
+          path: build/RimMT_V0.9.11_Slow_Tail_Attribution.zip
           if-no-files-found: error
