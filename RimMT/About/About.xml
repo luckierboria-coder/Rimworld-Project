@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimMT V0.9.5 Resumable JobGiver</name>
+  <name>RimMT V0.9.3 Consolidated Stable</name>
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -12,5 +12,5 @@
     </li>
   </modDependencies>
   <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>RimMT V0.9.5 Resumable JobGiver for RimWorld 1.5. Keeps the consolidated stable core, ReachProfile V0.4.18, V0.9.4 lightweight JobGiver tail buckets and acceleration-only GenClosest cold sleep. Repeatedly slow exact JobGiver_Work thing scanners may spread original main-thread validator work across bounded slices; when a slice suspends, lower-priority WorkGivers are not allowed to pass it in that package. Final Reachability, validator and Job decisions remain live. The zero-yield V0.9.4 HaulMerge cheap-negative experiment is retired and physically excluded. V25 memo, V19-V21 ReachProfile experiments, resident hot-path profilers, PathSnapshot and WorkPrefilter remain excluded.</description>
+  <description>RimMT V0.9.3 Consolidated Stable for RimWorld 1.5. Rollback build using the last consolidated stable production source before the V0.9.4-V0.9.12 continuation and predictive-admission experiments. Keeps the validated JobGiver, DoBill, ReachProfile, haul and topology production paths; resident hot-path profilers, PathSnapshot shadow validation, SafePath telemetry and WorkPrefilter are excluded. Final gameplay decisions remain Vanilla-authoritative and acceleration paths fail closed.</description>
 </ModMetaData>
