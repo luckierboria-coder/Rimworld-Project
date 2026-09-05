@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimMT V0.9.5 Resumable JobGiver</name>
+  <name>RimMT V0.10.0 Lean MT Rebase</name>
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -12,5 +12,5 @@
     </li>
   </modDependencies>
   <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>RimMT V0.9.5 Resumable JobGiver for RimWorld 1.5. Keeps the consolidated stable core, ReachProfile V0.4.18, V0.9.4 lightweight JobGiver tail buckets and acceleration-only GenClosest cold sleep. Repeatedly slow exact JobGiver_Work thing scanners may spread original main-thread validator work across bounded slices; when a slice suspends, lower-priority WorkGivers are not allowed to pass it in that package. Final Reachability, validator and Job decisions remain live. The zero-yield V0.9.4 HaulMerge cheap-negative experiment is retired and physically excluded. V25 memo, V19-V21 ReachProfile experiments, resident hot-path profilers, PathSnapshot and WorkPrefilter remain excluded.</description>
+  <description>RimMT V0.10.0 Lean MT Rebase for RimWorld 1.5. This release returns the project to its original goal: reduce main-thread spikes while moving safe immutable computation to worker cores. Production keeps the optimizations that demonstrated useful work in long-run reports, including S5.1/S4 JobGiver search acceleration, RC2 large-set rescue, persistent DoBill readiness filtering, the Common Sense ingredient-expansion memo, ReachProfile, haul accelerators, text caching and PathGrid topology invalidation. The generic zero-yield GenClosest fabric consumer, DoBill worker-tail path, Resumable JobGiver and V0.9.12 Predictive Admission are removed from the production DLL. New ReachProfile snapshot captures are pressure-capped to prevent main-thread capture bursts. Vanilla remains authoritative at final gameplay decision boundaries and all acceleration paths remain fail-closed.</description>
 </ModMetaData>
