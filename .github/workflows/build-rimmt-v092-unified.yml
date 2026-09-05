@@ -1,4 +1,4 @@
-name: Build RimMT V0.9.8 Logical Scanner Identity
+name: Build RimMT V0.9.9 Package Context Continuation
 
 on:
   push:
@@ -62,6 +62,11 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV098LogicalScannerIdentity.ps1
 
+      # V0.9.9 binds continuation to the creating JobGiver_Work package and emergency lane.
+      - name: Apply RimMT V0.9.9 Package Context Continuation
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV099PackageContextContinuation.ps1
+
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
 
@@ -92,11 +97,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.8_Logical_Scanner_Identity.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.9_Package_Context_Continuation.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.8-Logical-Scanner-Identity
-          path: build/RimMT_V0.9.8_Logical_Scanner_Identity.zip
+          name: RimMT-V0.9.9-Package-Context-Continuation
+          path: build/RimMT_V0.9.9_Package_Context_Continuation.zip
           if-no-files-found: error
