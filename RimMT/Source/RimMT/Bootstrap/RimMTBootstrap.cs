@@ -10,7 +10,7 @@ namespace RimMT
     internal static class RimMTBootstrap
     {
         internal const string HarmonyId = "allen.rimmt";
-        internal const string Version = "0.9.3-consolidated-stable";
+        internal const string Version = "0.10.0-lean-mt-rebase";
 
         static RimMTBootstrap()
         {
@@ -24,23 +24,25 @@ namespace RimMT
                 RimMTPatches.Apply(harmony);
                 PathGridInvalidation.ApplyBulkGuard(harmony);
 
-                AdaptiveGenClosestAssist.Apply(harmony);
+                // Keep only production paths with demonstrated yield. The old generic
+                // PersistentMapSearchFabric consumer and DoBill worker-tail lane are intentionally
+                // not installed: long-run reports showed zero actual accelerations.
                 BroadGenClosestOrder0418.Apply(harmony);
                 JobGiverGlobalNearest04181.Apply(harmony);
                 JobGiverSlowSearch0419S.Apply(harmony);
-                DoBillTailFabric092.Apply(harmony);
                 AggressiveReachabilityProfilesV17.Apply(harmony);
+                LeanMTProductionGuard100.Apply(harmony);
 
                 HaulWorkAccelerator.Apply(harmony);
                 GlobalHaulAccelerator.Apply(harmony);
 
-                Log.Message("[RimMT] V0.9.3 Consolidated Stable initialized. Single-DLL production mode: " +
-                    "diagnostic hot-path probes, PathSnapshot shadow validation, SafePath telemetry and WorkPrefilter are not installed. " +
-                    "Validated JobGiver/DoBill/ReachProfile/haul/topology paths remain fail-closed and Vanilla-authoritative at final decision boundaries.");
+                Log.Message("[RimMT] V0.10.0 Lean MT Rebase initialized. Production policy: keep validated S5.1/S4/RC2/DoBill persistent index/CommonSense/ReachProfile/haul/text-cache/topology paths; " +
+                    "generic zero-yield GenClosest consumer, DoBill worker-tail, Resumable JobGiver and Predictive Admission are not production paths. " +
+                    "New main-thread ReachProfile capture work is pressure-capped; final game-state authority remains Vanilla/fail-closed.");
             }
             catch (Exception ex)
             {
-                Log.Error("[RimMT] Consolidated Stable core initialization failed. RimMT will remain inert. " + ex);
+                Log.Error("[RimMT] Lean MT Rebase core initialization failed. RimMT will remain inert. " + ex);
             }
         }
 
