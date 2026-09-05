@@ -15,3 +15,5 @@ Replace the old `Processor Framework Hotfix 1.5` folder with this version. Load 
 
 Expected startup log:
 `[Processor Framework Hotfix 1.5 v0.1.3 Reservation Safe] Active.`
+
+Build target: RimWorld 1.5.4063 rev1072.
