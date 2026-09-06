@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>LTS Ammunition - Ballistics Tuning Patch</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>allen.ltsammo.ballisticstuning</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <description>Independent add-on for LTS Ammunition Inventory System. Applies ammo-dependent projectile damage, armor penetration, and recurve-arrow bleeding multipliers without changing the inventory or reload system.</description>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+    </li>
+    <li>
+      <packageId>LimeTreeSnake.Ammunition</packageId>
+      <displayName>[LTS] Ammunition - Framework</displayName>
+    </li>
+    <li>
+      <packageId>allen.ltsammo.inventoryfallback</packageId>
+      <displayName>LTS Ammunition - Inventory System Patch</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>LimeTreeSnake.Ammunition</li>
+    <li>LimeTreeSnake.Ammo</li>
+    <li>LimeTreeSnake.AdvancedAmmoPack</li>
+    <li>allen.ltsammo.inventoryfallback</li>
+  </loadAfter>
+</ModMetaData>
