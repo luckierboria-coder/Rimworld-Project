@@ -6,7 +6,7 @@
   <supportedVersions>
     <li>1.5</li>
   </supportedVersions>
-  <description>Fixes Smart Medicine Stock Up availability checks for ThingDefs that RimWorld ResourceCounter intentionally does not count, and expands the Stock Up picker to all haulable items with category selection and search. Keeps vanilla ResourceCounter behavior and the original Smart Medicine DLL unchanged.</description>
+  <description>Fixes Smart Medicine - Continued Stock Up availability checks for ThingDefs that RimWorld ResourceCounter intentionally does not count, and expands the Stock Up picker to all haulable items with category selection and search. Keeps vanilla ResourceCounter behavior and the original Smart Medicine - Continued DLL unchanged.</description>
   <modDependencies>
     <li>
       <packageId>brrainz.harmony</packageId>
@@ -15,15 +15,14 @@
       <downloadUrl>https://github.com/pardeike/HarmonyRimWorld/releases/latest</downloadUrl>
     </li>
     <li>
-      <packageId>Uuugggg.SmartMedicine</packageId>
-      <displayName>Smart Medicine</displayName>
-      <steamWorkshopUrl>steam://url/CommunityFilePage/1309994319</steamWorkshopUrl>
-      <downloadUrl>https://github.com/alextd/RimWorld-SmartMedicine</downloadUrl>
+      <packageId>Memegoddess.SmartMedicine</packageId>
+      <displayName>Smart Medicine - Continued</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/3526251680</steamWorkshopUrl>
     </li>
   </modDependencies>
   <loadAfter>
     <li>brrainz.harmony</li>
-    <li>Uuugggg.SmartMedicine</li>
+    <li>Memegoddess.SmartMedicine</li>
     <li>lwm.deepstorage</li>
   </loadAfter>
 </ModMetaData>
