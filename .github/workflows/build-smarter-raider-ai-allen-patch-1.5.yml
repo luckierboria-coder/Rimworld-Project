@@ -1,0 +1,67 @@
+name: Build Smarter Raider AI Allen Patch 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Smarter-Raider-AI-Allen-Patch-1.5/**'
+      - '.github/workflows/build-smarter-raider-ai-allen-patch-1.5.yml'
+      - '.github/actions/setup-rw15-dotnet/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup RimWorld 1.5 build environment
+        uses: ./.github/actions/setup-rw15-dotnet
+
+      - name: Build pinned original Smarter Raider AI reference
+        shell: pwsh
+        run: |
+          git clone https://github.com/pogoman/Smarter-Raider-AI.git upstream-srai
+          Set-Location upstream-srai
+          git checkout 9943a8ccfedf33a683229a8b562ae059985e93a1
+          dotnet restore Source/Pogoman/PogoAI.csproj
+          dotnet build Source/Pogoman/PogoAI.csproj --configuration Release --no-restore
+          Set-Location ..
+          New-Item -ItemType Directory -Force -Path 'Smarter-Raider-AI-Allen-Patch-1.5\_deps' | Out-Null
+          Copy-Item 'upstream-srai\1.5\Assemblies\PogoAI.dll' 'Smarter-Raider-AI-Allen-Patch-1.5\_deps\PogoAI.dll' -Force
+
+      - name: Restore standalone patch
+        run: dotnet restore Smarter-Raider-AI-Allen-Patch-1.5/Source/AllenSraiPatch15.csproj
+
+      - name: Build standalone patch
+        run: dotnet build Smarter-Raider-AI-Allen-Patch-1.5/Source/AllenSraiPatch15.csproj --configuration Release --no-restore
+
+      - name: Verify and package independent mod
+        shell: pwsh
+        run: |
+          $root = 'Smarter-Raider-AI-Allen-Patch-1.5'
+          $dll = "$root\1.5\Assemblies\AllenSraiPatch15.dll"
+          if (!(Test-Path $dll)) { throw 'Compiled AllenSraiPatch15.dll missing.' }
+
+          Remove-Item dist -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist\Smarter Raider AI - Allen Patch 1.5'
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          Copy-Item "$root\About\About.xml" "$stage\About\About.xml"
+          Copy-Item "$root\LoadFolders.xml" "$stage\LoadFolders.xml"
+          Copy-Item "$root\README_CN.txt" "$stage\README_CN.txt"
+          Copy-Item $dll "$stage\1.5\Assemblies\AllenSraiPatch15.dll"
+
+          $leaks = Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -in @('PogoAI.dll','0Harmony.dll') }
+          if ($leaks) { throw 'Original/dependency DLL leaked into independent patch package.' }
+
+          Get-FileHash $dll -Algorithm SHA256 | Format-List | Out-File "$stage\SHA256.txt"
+          Compress-Archive -Path $stage -DestinationPath 'dist\Smarter_Raider_AI_Allen_Patch_1.5.zip' -Force
+
+      - name: Upload independent patch mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: Smarter_Raider_AI_Allen_Patch_1.5
+          path: dist/Smarter_Raider_AI_Allen_Patch_1.5.zip
+          if-no-files-found: error
