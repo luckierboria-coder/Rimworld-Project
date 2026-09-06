@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using RimWorld;
 using Verse;
 
 namespace LTSAmmoBallisticsTuning15
@@ -31,9 +32,6 @@ namespace LTSAmmoBallisticsTuning15
     {
         internal static readonly Type AmmoLogicType = AccessTools.TypeByName("Ammunition.Logic.AmmoLogic");
         internal static readonly Type InventoryAmmoFallbackType = AccessTools.TypeByName("LTSAmmoInventoryFallback15.AmmoFallback");
-        internal static readonly MethodInfo WeaponCanUseAmmoMethod = AmmoLogicType == null
-            ? null
-            : AccessTools.Method(AmmoLogicType, "WeaponDefCanUseAmmoDef");
         internal static readonly FieldInfo ShotAmmoField = InventoryAmmoFallbackType == null
             ? null
             : AccessTools.Field(InventoryAmmoFallbackType, "ShotAmmo");
@@ -52,6 +50,8 @@ namespace LTSAmmoBallisticsTuning15
                 return;
             }
 
+            AmmoClassifier.BuildProjectileFallbackMap();
+
             var launch = typeof(Projectile).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 .FirstOrDefault(m => m.Name == "Launch" && m.GetParameters().Length == 8);
             if (launch != null)
@@ -65,27 +65,50 @@ namespace LTSAmmoBallisticsTuning15
             if (armorGetter != null)
                 harmony.Patch(armorGetter, postfix: new HarmonyMethod(typeof(BallisticsRuntime), nameof(BallisticsRuntime.ArmorPenetrationPostfix)));
 
+            var bulletImpact = AccessTools.Method(typeof(Bullet), "Impact");
+            if (bulletImpact != null)
+                harmony.Patch(bulletImpact,
+                    prefix: new HarmonyMethod(typeof(BallisticsRuntime), nameof(BallisticsRuntime.ImpactPrefix)),
+                    postfix: new HarmonyMethod(typeof(BallisticsRuntime), nameof(BallisticsRuntime.ImpactPostfix)));
+
+            var fireArrowImpact = AccessTools.Method(typeof(FireArrow), "Impact");
+            if (fireArrowImpact != null)
+                harmony.Patch(fireArrowImpact,
+                    prefix: new HarmonyMethod(typeof(BallisticsRuntime), nameof(BallisticsRuntime.ImpactPrefix)),
+                    postfix: new HarmonyMethod(typeof(BallisticsRuntime), nameof(BallisticsRuntime.ImpactPostfix)));
+
+            var injuryPostAdd = AccessTools.Method(typeof(Hediff_Injury), "PostAdd");
+            if (injuryPostAdd != null)
+                harmony.Patch(injuryPostAdd,
+                    postfix: new HarmonyMethod(typeof(BallisticsRuntime), nameof(BallisticsRuntime.InjuryPostAddPostfix)));
+
+            var injuryRemoved = AccessTools.Method(typeof(Hediff_Injury), "PostRemoved");
+            if (injuryRemoved != null)
+                harmony.Patch(injuryRemoved,
+                    postfix: new HarmonyMethod(typeof(BallisticsRuntime), nameof(BallisticsRuntime.InjuryPostRemovedPostfix)));
+
             var bleedGetter = AccessTools.PropertyGetter(typeof(Hediff_Injury), "BleedRate");
             if (bleedGetter != null)
-                harmony.Patch(bleedGetter, postfix: new HarmonyMethod(typeof(BallisticsRuntime), nameof(BallisticsRuntime.BleedRatePostfix)));
+                harmony.Patch(bleedGetter,
+                    postfix: new HarmonyMethod(typeof(BallisticsRuntime), nameof(BallisticsRuntime.BleedRatePostfix)));
         }
     }
 
-    internal enum WeaponAmmoClass
+    internal enum AmmoEffectClass
     {
-        Ballistic,
+        BallisticOrShell,
         ShortArrow,
         RecurveArrow,
         GreatArrow,
         OtherArrow,
-        Bolt
+        Bolt,
+        Unknown
     }
 
     internal sealed class ShotContext
     {
         internal ThingDef AmmoDef;
-        internal ThingDef WeaponDef;
-        internal float DamageMultiplier;
+        internal AmmoEffectClass EffectClass;
     }
 
     internal static class AmmoClassifier
@@ -108,91 +131,129 @@ namespace LTSAmmoBallisticsTuning15
             "LTS_GreatFlameArrow"
         };
 
-        private static readonly string[] PolymerArrowDefs =
+        private static readonly Dictionary<ThingDef, ThingDef> ProjectileToAmmo = new Dictionary<ThingDef, ThingDef>();
+
+        internal static AmmoEffectClass Classify(ThingDef ammoDef)
         {
-            "LTS_PolymerBroadArrow",
-            "LTS_PolymerBulletpointArrow",
-            "LTS_PolymerIncendiaryArrow",
-            "LTS_PolymerEMPArrow",
-            "LTS_PolymerExplosiveArrow"
-        };
+            if (ammoDef == null) return AmmoEffectClass.Unknown;
+            string name = ammoDef.defName ?? string.Empty;
 
-        private static readonly Dictionary<ThingDef, WeaponAmmoClass> WeaponClassCache = new Dictionary<ThingDef, WeaponAmmoClass>();
+            if (ShortArrows.Contains(name)) return AmmoEffectClass.ShortArrow;
+            if (RecurveArrows.Contains(name)) return AmmoEffectClass.RecurveArrow;
+            if (GreatArrows.Contains(name)) return AmmoEffectClass.GreatArrow;
+            if (name.IndexOf("Arrow", StringComparison.OrdinalIgnoreCase) >= 0) return AmmoEffectClass.OtherArrow;
+            if (name.IndexOf("Bolt", StringComparison.OrdinalIgnoreCase) >= 0) return AmmoEffectClass.Bolt;
 
-        internal static float DamageMultiplier(ThingDef ammoDef, ThingDef weaponDef)
+            // In the LTS ammo packs, non-arrow/non-bolt ammunition is the bullet/shell family:
+            // cartridges, shotgun shells, musket balls, railgun ammunition, cannon/RCL/rocket rounds, etc.
+            return AmmoEffectClass.BallisticOrShell;
+        }
+
+        internal static float DamageMultiplier(AmmoEffectClass effectClass)
         {
-            if (ammoDef != null)
+            switch (effectClass)
             {
-                string name = ammoDef.defName ?? string.Empty;
-                if (ShortArrows.Contains(name)) return 0.90f;
-                if (GreatArrows.Contains(name)) return 1.25f;
-                if (RecurveArrows.Contains(name)) return 1.00f;
-                if (name.IndexOf("Arrow", StringComparison.OrdinalIgnoreCase) >= 0) return 1.00f;
-                if (name.IndexOf("Bolt", StringComparison.OrdinalIgnoreCase) >= 0) return 1.00f;
-            }
-
-            switch (ClassifyWeapon(weaponDef))
-            {
-                case WeaponAmmoClass.ShortArrow: return 0.90f;
-                case WeaponAmmoClass.GreatArrow: return 1.25f;
-                case WeaponAmmoClass.RecurveArrow:
-                case WeaponAmmoClass.OtherArrow:
-                case WeaponAmmoClass.Bolt:
-                    return 1.00f;
-                default:
-                    return 1.50f;
+                case AmmoEffectClass.BallisticOrShell: return 1.50f;
+                case AmmoEffectClass.GreatArrow: return 1.25f;
+                case AmmoEffectClass.ShortArrow: return 0.90f;
+                default: return 1.00f;
             }
         }
 
-        internal static bool IsRecurveWeapon(ThingDef weaponDef)
+        internal static float ArmorPenetrationMultiplier(AmmoEffectClass effectClass)
         {
-            return weaponDef != null && ClassifyWeapon(weaponDef) == WeaponAmmoClass.RecurveArrow;
+            // User rule: ONLY short arrows (normal or flame) get +10% penetration.
+            return effectClass == AmmoEffectClass.ShortArrow ? 1.10f : 1.00f;
         }
 
-        private static WeaponAmmoClass ClassifyWeapon(ThingDef weaponDef)
+        internal static void BuildProjectileFallbackMap()
         {
-            if (weaponDef == null) return WeaponAmmoClass.Ballistic;
+            ProjectileToAmmo.Clear();
+            foreach (ThingDef ammoDef in DefDatabase<ThingDef>.AllDefsListForReading)
+            {
+                ThingDef projectile = GetAmmoProjectile(ammoDef);
+                if (projectile == null) continue;
 
-            WeaponAmmoClass cached;
-            if (WeaponClassCache.TryGetValue(weaponDef, out cached)) return cached;
-
-            WeaponAmmoClass result = WeaponAmmoClass.Ballistic;
-            if (CanUse(weaponDef, "LTS_ShortArrow") || CanUse(weaponDef, "LTS_ShortFlameArrow"))
-                result = WeaponAmmoClass.ShortArrow;
-            else if (CanUse(weaponDef, "LTS_RecurveArrow") || CanUse(weaponDef, "LTS_RecurveFlameArrow"))
-                result = WeaponAmmoClass.RecurveArrow;
-            else if (CanUse(weaponDef, "LTS_GreatArrow") || CanUse(weaponDef, "LTS_GreatFlameArrow"))
-                result = WeaponAmmoClass.GreatArrow;
-            else if (PolymerArrowDefs.Any(a => CanUse(weaponDef, a)))
-                result = WeaponAmmoClass.OtherArrow;
-            else if (CanUse(weaponDef, "LTS_RegularBolt"))
-                result = WeaponAmmoClass.Bolt;
-
-            WeaponClassCache[weaponDef] = result;
-            return result;
+                // If multiple ammo defs share one projectile, do not guess after save/load.
+                ThingDef existing;
+                if (ProjectileToAmmo.TryGetValue(projectile, out existing) && existing != ammoDef)
+                    ProjectileToAmmo[projectile] = null;
+                else if (!ProjectileToAmmo.ContainsKey(projectile))
+                    ProjectileToAmmo.Add(projectile, ammoDef);
+            }
         }
 
-        private static bool CanUse(ThingDef weaponDef, string ammoDefName)
+        internal static ThingDef AmmoFromProjectile(ThingDef projectileDef)
         {
-            if (weaponDef == null || PatchRegistry.WeaponCanUseAmmoMethod == null) return false;
-            ThingDef ammoDef = DefDatabase<ThingDef>.GetNamedSilentFail(ammoDefName);
-            if (ammoDef == null) return false;
+            if (projectileDef == null) return null;
+            ThingDef ammo;
+            return ProjectileToAmmo.TryGetValue(projectileDef, out ammo) ? ammo : null;
+        }
 
-            try
+        private static ThingDef GetAmmoProjectile(ThingDef ammoDef)
+        {
+            if (ammoDef == null || ammoDef.modExtensions == null) return null;
+            foreach (DefModExtension ext in ammoDef.modExtensions)
             {
-                object value = PatchRegistry.WeaponCanUseAmmoMethod.Invoke(null, new object[] { weaponDef, ammoDef });
-                return value is bool && (bool)value;
+                if (ext == null || ext.GetType().FullName != "Ammunition.DefModExtensions.AmmunitionExtension") continue;
+                FieldInfo field = AccessTools.Field(ext.GetType(), "bulletDef");
+                if (field == null) return null;
+                return field.GetValue(ext) as ThingDef;
             }
-            catch
+            return null;
+        }
+    }
+
+    public sealed class RecurveBleedTracker : GameComponent
+    {
+        private List<int> markedInjuryIds = new List<int>();
+        private HashSet<int> markedSet = new HashSet<int>();
+
+        public RecurveBleedTracker(Game game)
+        {
+        }
+
+        public override void ExposeData()
+        {
+            base.ExposeData();
+            Scribe_Collections.Look<int>(ref markedInjuryIds, "ltsRecurveBleedInjuries", LookMode.Value);
+
+            if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
-                return false;
+                if (markedInjuryIds == null) markedInjuryIds = new List<int>();
+                markedSet = new HashSet<int>(markedInjuryIds);
             }
+        }
+
+        internal bool Contains(int id)
+        {
+            return id >= 0 && markedSet.Contains(id);
+        }
+
+        internal void Mark(int id)
+        {
+            if (id < 0 || !markedSet.Add(id)) return;
+            markedInjuryIds.Add(id);
+        }
+
+        internal void Unmark(int id)
+        {
+            if (id < 0 || !markedSet.Remove(id)) return;
+            markedInjuryIds.Remove(id);
+        }
+
+        internal static RecurveBleedTracker Current
+        {
+            get { return Current.Game == null ? null : Current.Game.GetComponent<RecurveBleedTracker>(); }
         }
     }
 
     internal static class BallisticsRuntime
     {
         private static readonly ConditionalWeakTable<Projectile, ShotContext> ProjectileContexts = new ConditionalWeakTable<Projectile, ShotContext>();
+
+        [ThreadStatic]
+        private static ShotContext activeImpactContext;
 
         public static void ProjectileLaunchPostfix(Projectile __instance, Thing equipment)
         {
@@ -208,19 +269,23 @@ namespace LTSAmmoBallisticsTuning15
                         weapon = primary;
                 }
 
-                if (weapon == null) return;
+                ThingDef ammoDef = null;
+                if (weapon != null)
+                {
+                    IDictionary shotAmmo = PatchRegistry.ShotAmmoField.GetValue(null) as IDictionary;
+                    if (shotAmmo != null && shotAmmo.Contains(weapon))
+                        ammoDef = shotAmmo[weapon] as ThingDef;
+                }
 
-                IDictionary shotAmmo = PatchRegistry.ShotAmmoField.GetValue(null) as IDictionary;
-                if (shotAmmo == null || !shotAmmo.Contains(weapon)) return;
+                if (ammoDef == null)
+                    ammoDef = AmmoClassifier.AmmoFromProjectile(__instance.def);
 
-                ThingDef ammoDef = shotAmmo[weapon] as ThingDef;
                 if (ammoDef == null) return;
 
                 var context = new ShotContext
                 {
                     AmmoDef = ammoDef,
-                    WeaponDef = weapon.def,
-                    DamageMultiplier = AmmoClassifier.DamageMultiplier(ammoDef, weapon.def)
+                    EffectClass = AmmoClassifier.Classify(ammoDef)
                 };
 
                 ProjectileContexts.Remove(__instance);
@@ -232,28 +297,79 @@ namespace LTSAmmoBallisticsTuning15
             }
         }
 
+        private static ShotContext GetContext(Projectile projectile)
+        {
+            if (projectile == null) return null;
+
+            ShotContext context;
+            if (ProjectileContexts.TryGetValue(projectile, out context)) return context;
+
+            ThingDef ammoDef = AmmoClassifier.AmmoFromProjectile(projectile.def);
+            if (ammoDef == null) return null;
+
+            context = new ShotContext
+            {
+                AmmoDef = ammoDef,
+                EffectClass = AmmoClassifier.Classify(ammoDef)
+            };
+            ProjectileContexts.Add(projectile, context);
+            return context;
+        }
+
         public static void DamageAmountPostfix(Projectile __instance, ref int __result)
         {
-            ShotContext context;
-            if (__instance == null || !ProjectileContexts.TryGetValue(__instance, out context)) return;
-            if (context == null || Math.Abs(context.DamageMultiplier - 1f) < 0.0001f) return;
+            ShotContext context = GetContext(__instance);
+            if (context == null) return;
 
-            __result = Math.Max(0, (int)Math.Round(__result * context.DamageMultiplier, MidpointRounding.AwayFromZero));
+            float multiplier = AmmoClassifier.DamageMultiplier(context.EffectClass);
+            if (Math.Abs(multiplier - 1f) < 0.0001f) return;
+            __result = Math.Max(0, (int)Math.Round(__result * multiplier, MidpointRounding.AwayFromZero));
         }
 
         public static void ArmorPenetrationPostfix(Projectile __instance, ref float __result)
         {
-            ShotContext context;
-            if (__instance == null || !ProjectileContexts.TryGetValue(__instance, out context) || context == null) return;
-            __result *= 1.10f;
+            ShotContext context = GetContext(__instance);
+            if (context == null) return;
+
+            float multiplier = AmmoClassifier.ArmorPenetrationMultiplier(context.EffectClass);
+            if (Math.Abs(multiplier - 1f) < 0.0001f) return;
+            __result *= multiplier;
+        }
+
+        public static void ImpactPrefix(Projectile __instance, out ShotContext __state)
+        {
+            __state = activeImpactContext;
+            activeImpactContext = GetContext(__instance);
+        }
+
+        public static void ImpactPostfix(ShotContext __state)
+        {
+            activeImpactContext = __state;
+        }
+
+        public static void InjuryPostAddPostfix(Hediff_Injury __instance)
+        {
+            if (__instance == null || activeImpactContext == null) return;
+            if (activeImpactContext.EffectClass != AmmoEffectClass.RecurveArrow) return;
+            if (__instance.def == null || __instance.def.defName != "Stab") return;
+
+            RecurveBleedTracker tracker = RecurveBleedTracker.Current;
+            if (tracker != null) tracker.Mark(__instance.loadID);
+        }
+
+        public static void InjuryPostRemovedPostfix(Hediff_Injury __instance)
+        {
+            if (__instance == null) return;
+            RecurveBleedTracker tracker = RecurveBleedTracker.Current;
+            if (tracker != null) tracker.Unmark(__instance.loadID);
         }
 
         public static void BleedRatePostfix(Hediff_Injury __instance, ref float __result)
         {
             if (__instance == null || __result <= 0f) return;
-            if (__instance.def == null || __instance.def.defName != "Stab") return;
-            if (!AmmoClassifier.IsRecurveWeapon(__instance.sourceDef)) return;
-            __result *= 1.25f;
+            RecurveBleedTracker tracker = RecurveBleedTracker.Current;
+            if (tracker != null && tracker.Contains(__instance.loadID))
+                __result *= 1.25f;
         }
     }
 }
