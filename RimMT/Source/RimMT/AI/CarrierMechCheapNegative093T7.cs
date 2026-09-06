@@ -16,16 +16,10 @@ namespace RimMT
     }
 
     /// <summary>
-    /// V0.9.3-T7: authority-safe deterministic negative pruning for the two remaining
-    /// heavy vanilla Biotech hauling WorkGivers observed after T6.
-    ///
-    /// This helper is called only from the existing S4 accelerated candidate loop after the
-    /// 32ms tail threshold has already been crossed. It never creates a Job, never performs
-    /// reservation/reachability/charger/ingredient searches, and never returns a positive result.
-    /// A true rejection means only that the exact vanilla HasJobOnThing must return false before
-    /// reaching its expensive live checks. Every survivor still runs the original validator.
-    ///
-    /// Foreign Harmony patches on the exact HasJobOnThing method disable the corresponding pruner.
+    /// V0.9.3-T7: deterministic negative pruning for two remaining heavy vanilla Biotech
+    /// hauling WorkGivers. Called only from the existing S4 accelerated loop after its 32ms
+    /// tail threshold. It never creates Jobs and never replaces live reservation/reachability,
+    /// ingredient search, charger search, or the original validator for survivors.
     /// </summary>
     internal static class CarrierMechCheapNegative093T7
     {
@@ -39,8 +33,6 @@ namespace RimMT
         private static readonly MethodInfo HaulMechToChargerHasJob = AccessTools.Method(
             typeof(WorkGiver_HaulMechToCharger), "HasJobOnThing",
             new Type[] { typeof(Pawn), typeof(Thing), typeof(bool) });
-
-        private static readonly Dictionary<Type, FieldInfo> ScannerFieldCache = new Dictionary<Type, FieldInfo>();
         private static readonly Dictionary<string, SlowDetermineStats> SlowDetermines = new Dictionary<string, SlowDetermineStats>();
 
         // 0 unknown, 1 safe, -1 foreign authority present.
@@ -65,13 +57,12 @@ namespace RimMT
         private static long slowDetermineWithHeavyEvidence;
         private static long slowDetermineWithoutHeavyEvidence;
 
-        internal static bool TryPrepare(Predicate<Thing> validator, out CarrierPrunerKind093T7 kind)
+        internal static bool TryPrepare(WorkGiver_Scanner scanner, out CarrierPrunerKind093T7 kind)
         {
             kind = CarrierPrunerKind093T7.None;
             prepareCalls++;
             try
             {
-                WorkGiver_Scanner scanner = ResolveScanner(validator);
                 if (scanner == null)
                 {
                     scannerUnresolved++;
@@ -124,8 +115,7 @@ namespace RimMT
                 {
                     carrierChecks++;
 
-                    // Exact early negatives from vanilla WorkGiver_HaulResourcesToCarrier.HasJobOnThing.
-                    // We intentionally stop before IsForbidden/CanReserve/FindFixedIngredientCount.
+                    // Vanilla rejects these before IsForbidden/CanReserve/FindFixedIngredientCount.
                     if (!target.IsColonyMech || !target.Spawned || target.Downed)
                     {
                         carrierRejects++;
@@ -147,8 +137,8 @@ namespace RimMT
                 {
                     chargerChecks++;
 
-                    // Exact early negatives from vanilla WorkGiver_HaulMechToCharger.HasJobOnThing.
-                    // We intentionally stop before control-group/max-recharge/forbidden/reservation/charger search.
+                    // Vanilla rejects these before control-group/max-recharge/forbidden/
+                    // reservation/GetClosestCharger checks.
                     if (target.RaceProps == null || !target.RaceProps.IsMechanoid || !target.IsColonyMech)
                     {
                         chargerRejects++;
@@ -189,8 +179,7 @@ namespace RimMT
             }
 
             slowDetermineWithHeavyEvidence++;
-            if (SlowDetermines.Count >= MaxSlowDetermineKeys && !SlowDetermines.ContainsKey(workGiver))
-                return;
+            if (SlowDetermines.Count >= MaxSlowDetermineKeys && !SlowDetermines.ContainsKey(workGiver)) return;
 
             SlowDetermineStats stats;
             if (!SlowDetermines.TryGetValue(workGiver, out stats))
@@ -201,36 +190,6 @@ namespace RimMT
             stats.Calls++;
             stats.Rejects += rejects;
             if (elapsedMs > stats.MaxMs) stats.MaxMs = elapsedMs;
-        }
-
-        private static WorkGiver_Scanner ResolveScanner(Predicate<Thing> validator)
-        {
-            if (validator == null) return null;
-            object target = validator.Target;
-            if (target == null) return null;
-
-            Type targetType = target.GetType();
-            FieldInfo scannerField;
-            if (!ScannerFieldCache.TryGetValue(targetType, out scannerField))
-            {
-                scannerField = ResolveScannerField(targetType);
-                ScannerFieldCache[targetType] = scannerField;
-            }
-            return scannerField == null ? null : scannerField.GetValue(target) as WorkGiver_Scanner;
-        }
-
-        private static FieldInfo ResolveScannerField(Type targetType)
-        {
-            if (targetType == null) return null;
-            FieldInfo[] fields = targetType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            FieldInfo fallback = null;
-            for (int i = 0; i < fields.Length; i++)
-            {
-                FieldInfo field = fields[i];
-                if (typeof(WorkGiver_Scanner).IsAssignableFrom(field.FieldType)) return field;
-                if (fallback == null && typeof(WorkGiver).IsAssignableFrom(field.FieldType)) fallback = field;
-            }
-            return fallback;
         }
 
         private static bool AuthoritySafe(CarrierPrunerKind093T7 kind)
@@ -295,17 +254,16 @@ namespace RimMT
                    ", survivors=" + chargerSurvivors +
                    ", rejectRate=" + Rate(chargerRejects, chargerChecks) + "%]" +
                    "; failures=" + failures +
-                   ". Pruner is S4-only after the existing 32ms tail threshold; survivors run original live validator.";
+                   ". S4-only after the existing 32ms tail threshold; survivors run original live validator.";
         }
 
         internal static string SlowDetermineSummary()
         {
-            string top = BuildTopSlowDetermineSummary();
             return "T7 sampled DetermineNextJob >=20ms WorkGiver evidence: calls=" + slowDetermine20 +
                    ", withHeavyS4Evidence=" + slowDetermineWithHeavyEvidence +
                    ", withoutHeavyS4Evidence=" + slowDetermineWithoutHeavyEvidence +
-                   ", top=" + top +
-                   ". Attribution is bounded to existing T2 deep windows and chooses the >=64-reject S4 WorkGiver with the most rejects inside that DetermineNextJob call.";
+                   ", top=" + BuildTopSlowDetermineSummary() +
+                   ". Bounded to existing T2 deep windows; selects the >=64-reject S4 WorkGiver with the most rejects inside that DetermineNextJob call.";
         }
 
         private static string BuildTopSlowDetermineSummary()
