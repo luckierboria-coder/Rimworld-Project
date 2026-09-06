@@ -1,8 +1,8 @@
-name: Build RimMT V0.9.3-T1A Tail Attribution No Global Fuse
+name: Build RimMT V0.9.3-T2 Pawn Tail Attribution
 
 on:
   push:
-    branches: [ rimmt-v0.9.3-t1a-no-global-fuse ]
+    branches: [ rimmt-v0.9.3-t2-pawn-tail-attribution ]
     paths:
       - 'RimMT/**'
       - '.github/workflows/build-rimmt-v092-unified.yml'
@@ -48,31 +48,37 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
 
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
 
       - name: Build Release
         run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
 
-      - name: Verify T1A version, no global fuse, stable baseline and single DLL
+      - name: Verify T2 version, no global fuse, stable baseline and single DLL
         shell: pwsh
         run: |
           $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
-          if ($bootstrap -notmatch '0\.9\.3-t1a-no-global-fuse') { throw 'Bootstrap is not V0.9.3-T1A No Global Fuse.' }
+          if ($bootstrap -notmatch '0\.9\.3-t2-pawn-tail-attribution') { throw 'Bootstrap is not V0.9.3-T2 Pawn Tail Attribution.' }
           if ($bootstrap -notmatch 'TailAttributionPatches093T1\.Apply') { throw 'T1 top-level attribution patches are not installed.' }
+          if ($bootstrap -notmatch 'TailPawnPatches093T2\.Apply') { throw 'T2 pawn attribution patches are not installed.' }
           $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
           if ($reach -notmatch 'V0\.4\.18-T1A') { throw 'ReachProfile T1A no-global-fuse transform was not applied.' }
           if ($reach -match 'UpdateRollingFuseMode\(\);') { throw 'Global fuse gate is still called from ReachProfile prefix.' }
           if ($reach -match 'ObserveRollingSample\(true, __state\.Slot\);') { throw 'Mismatch still feeds global fuse state.' }
           if ($reach -notmatch 'globalFuse=OFF') { throw 'No-global-fuse policy marker missing.' }
-          if ($reach -notmatch 'NoteReachQueryTicks') { throw 'T0 ReachProfile tail signal was not applied.' }
           $diag = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
-          if ($diag -notmatch 'V0\.9\.3-T1A Tail Attribution No Global Fuse') { throw 'T1A report marker was not applied.' }
-          if ($diag -notmatch 'RecentSevereSummary') { throw 'T1 recent severe tail report is missing.' }
+          if ($diag -notmatch 'V0\.9\.3-T2 Pawn Tail Attribution') { throw 'T2 report marker was not applied.' }
+          if ($diag -notmatch 'TailPawnAttribution093T2\.Summary') { throw 'T2 report lines are missing.' }
           $tail = Get-Content 'RimMT/Source/RimMT/Diagnostics/TailObservatory093T0.cs' -Raw
-          if ($tail -notmatch 'P99\.9ms' -or $tail -notmatch 'TailAttribution093T1\.EndTick') { throw 'T0/T1 lifecycle integration is missing.' }
-          $attr = Get-Content 'RimMT/Source/RimMT/Diagnostics/TailAttribution093T1.cs' -Raw
-          if ($attr -notmatch 'TickListRare' -or $attr -notmatch 'tail50WithGC') { throw 'T1 phase/GC attribution source is missing.' }
+          if ($tail -notmatch 'P99\.9ms' -or $tail -notmatch 'TailPawnAttribution093T2\.EndTick') { throw 'T0/T2 lifecycle integration is missing.' }
+          $attr = Get-Content 'RimMT/Source/RimMT/Diagnostics/TailPawnAttribution093T2.cs' -Raw
+          if ($attr -notmatch 'DetermineNextJob' -or $attr -notmatch 'BurstTicksAfterSevere = 4') { throw 'T2 bounded Pawn/AI attribution source is missing.' }
+          $patch = Get-Content 'RimMT/Source/RimMT/Patches/TailPawnPatches093T2.cs' -Raw
+          if ($patch -notmatch 'Pawn_JobTracker' -or $patch -notmatch 'Pawn_PathFollower') { throw 'T2 Pawn/AI patches are missing.' }
           $s4 = Get-Content 'RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs' -Raw
           if ($s4 -notmatch 'targetedFeedHemogenRejected' -or $s4 -notmatch 'targetedVisitSickRejected') { throw 'V24 stable S4 pruners are missing.' }
           $dir = 'RimMT/1.5/Assemblies'
@@ -96,11 +102,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T1A_No_Global_Fuse.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T2_Pawn_Tail_Attribution.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.3-T1A-No-Global-Fuse
-          path: build/RimMT_V0.9.3_T1A_No_Global_Fuse.zip
+          name: RimMT-V0.9.3-T2-Pawn-Tail-Attribution
+          path: build/RimMT_V0.9.3_T2_Pawn_Tail_Attribution.zip
           if-no-files-found: error
