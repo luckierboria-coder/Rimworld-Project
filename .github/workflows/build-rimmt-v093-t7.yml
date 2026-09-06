@@ -1,0 +1,147 @@
+name: Build RimMT V0.9.3-T7 Carrier Pruners
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t7-carrier-pruners ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t7.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply V22 Stable transforms
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+
+      - name: Apply V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
+
+      - name: Apply V24 S4 telemetry and pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
+
+      - name: Apply V26 Consolidated Stable marker
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+
+      - name: Apply T1 Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1TailAttribution.ps1
+
+      - name: Apply T1A no-global-fuse policy
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
+
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+
+      - name: Apply T3 bounded FindPath layer
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T3HeavyWorkGiverEarlyRescue.ps1
+
+      - name: Apply T4 HaulMerge partner index and revert T3 early rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
+
+      - name: Apply T5 HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+
+      - name: Apply T6 exact CommonSense coexistence
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T6CommonSenseHaulMergeCoexist.ps1
+
+      - name: Apply T7 carrier/mech cheap negatives
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T7CarrierPruners.ps1
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify T7 narrow pruners and stable safety policies
+        shell: pwsh
+        run: |
+          $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($bootstrap -notmatch '0\.9\.3-t7-carrier-pruners') { throw 'Bootstrap is not V0.9.3-T7.' }
+          if ($bootstrap -notmatch 'WorkGiverMergePartnerIndex093T4\.Apply') { throw 'T4 HaulMerge partner index is missing.' }
+          if ($bootstrap -notmatch 'HaulMergePatchCensus093T5\.Apply') { throw 'T5 census is missing.' }
+
+          $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
+          if ($reach -notmatch 'V0\.4\.18-T1A' -or $reach -notmatch 'globalFuse=OFF') { throw 'No-global-fuse policy missing.' }
+          if ($reach -match 'UpdateRollingFuseMode\(\);') { throw 'Global fuse gate is active.' }
+
+          $s4 = Get-Content 'RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs' -Raw
+          if ($s4 -match 'earlyKnownCustomAdmissions\+\+' -or $s4 -match 'earlyKnownListAdmissions\+\+') { throw 'T3 8ms early rescue is active.' }
+          if ($s4 -notmatch 'earlyKnownPolicy=OFF') { throw 'Early rescue OFF marker missing.' }
+          if ($s4 -notmatch 'CarrierMechCheapNegative093T7\.TryPrepare\(resolvedScanner') { throw 'T7 does not reuse the already resolved S4 scanner.' }
+          if ($s4 -notmatch 'CarrierMechCheapNegative093T7\.Reject') { throw 'T7 candidate negative pruning missing.' }
+          if ($s4 -notmatch 'T7BeginDetermineAttribution' -or $s4 -notmatch 'T7EndDetermineAttribution') { throw 'T7 bounded Determine attribution lifecycle missing.' }
+
+          $t7 = Get-Content 'RimMT/Source/RimMT/AI/CarrierMechCheapNegative093T7.cs' -Raw
+          if ($t7 -notmatch 'WorkGiver_HaulResourcesToCarrier' -or $t7 -notmatch 'HaulToCarrier') { throw 'T7 HaulToCarrier pruner missing.' }
+          if ($t7 -notmatch 'WorkGiver_HaulMechToCharger' -or $t7 -notmatch 'HaulMechsToCharger') { throw 'T7 HaulMechsToCharger pruner missing.' }
+          if ($t7 -notmatch 'HasForeignPatch') { throw 'T7 foreign-Harmony authority guard missing.' }
+          if ($t7 -notmatch 'FindFixedIngredientCount' -or $t7 -notmatch 'GetClosestCharger') { throw 'T7 safety comments/markers for expensive live checks missing.' }
+
+          $t2 = Get-Content 'RimMT/Source/RimMT/Patches/TailPawnPatches093T2.cs' -Raw
+          if ($t2 -notmatch 'DetermineNextJob"\), nameof\(DeterminePrefix\)') { throw 'T7 Determine-specific deep prefix missing.' }
+          if ($t2 -notmatch 'JobGiverSlowSearch0419S\.T7EndDetermineAttribution') { throw 'T7 sampled slow-Determine evidence hook missing.' }
+
+          $merge = Get-Content 'RimMT/Source/RimMT/AI/WorkGiverMergePartnerIndex093T4.cs' -Raw
+          if ($merge -notmatch 'HasForeignPostfixExceptAcceptedCommonSense') { throw 'T6 narrow CommonSense coexistence gate missing.' }
+          if ($merge -notmatch 'commonSenseMonotonicPostfixAccepted') { throw 'T6 coexistence report marker missing.' }
+          if ($merge -notmatch 'HasPartnerFor') { throw 'T4 necessary-condition proof missing.' }
+
+          $diag = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
+          if ($diag -notmatch 'V0\.9\.3-T7 Carrier Pruners') { throw 'T7 report title missing.' }
+          if ($diag -notmatch 'CarrierMechCheapNegative093T7\.Summary') { throw 'T7 pruner summary missing.' }
+          if ($diag -notmatch 'CarrierMechCheapNegative093T7\.SlowDetermineSummary') { throw 'T7 slow-Determine evidence summary missing.' }
+          if ($diag -notmatch 'T7 S4-only carrier/mech cheap negatives') { throw 'T7 policy marker missing.' }
+
+          $dir = 'RimMT/1.5/Assemblies'
+          $dll = Join-Path $dir 'RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'RimMT/About' $stage -Recurse
+          Copy-Item 'RimMT/Languages' $stage -Recurse
+          Copy-Item 'RimMT/1.5' $stage -Recurse
+          Copy-Item 'RimMT/LoadFolders.xml' $stage
+          if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
+          $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
+          if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T7_Carrier_Pruners.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T7-Carrier-Pruners
+          path: build/RimMT_V0.9.3_T7_Carrier_Pruners.zip
+          if-no-files-found: error
