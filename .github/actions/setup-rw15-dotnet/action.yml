@@ -1,0 +1,16 @@
+name: Setup RimWorld 1.5 .NET Build Environment
+description: Reusable build environment for RimWorld 1.5 net472 mods in this repository.
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    - name: Print build environment
+      shell: pwsh
+      run: |
+        dotnet --info
+        Write-Host 'RimWorld target: 1.5'
+        Write-Host 'Preferred target framework: net472'
+        Write-Host 'Preferred refs: Krafs.Rimworld.Ref 1.5.x + Lib.Harmony, unless a project requires exact local game assemblies.'
