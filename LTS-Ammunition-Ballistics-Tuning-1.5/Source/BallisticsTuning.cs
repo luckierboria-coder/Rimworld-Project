@@ -144,8 +144,6 @@ namespace LTSAmmoBallisticsTuning15
             if (name.IndexOf("Arrow", StringComparison.OrdinalIgnoreCase) >= 0) return AmmoEffectClass.OtherArrow;
             if (name.IndexOf("Bolt", StringComparison.OrdinalIgnoreCase) >= 0) return AmmoEffectClass.Bolt;
 
-            // In the LTS ammo packs, non-arrow/non-bolt ammunition is the bullet/shell family:
-            // cartridges, shotgun shells, musket balls, railgun ammunition, cannon/RCL/rocket rounds, etc.
             return AmmoEffectClass.BallisticOrShell;
         }
 
@@ -162,7 +160,6 @@ namespace LTSAmmoBallisticsTuning15
 
         internal static float ArmorPenetrationMultiplier(AmmoEffectClass effectClass)
         {
-            // User rule: ONLY short arrows (normal or flame) get +10% penetration.
             return effectClass == AmmoEffectClass.ShortArrow ? 1.10f : 1.00f;
         }
 
@@ -174,7 +171,6 @@ namespace LTSAmmoBallisticsTuning15
                 ThingDef projectile = GetAmmoProjectile(ammoDef);
                 if (projectile == null) continue;
 
-                // If multiple ammo defs share one projectile, do not guess after save/load.
                 ThingDef existing;
                 if (ProjectileToAmmo.TryGetValue(projectile, out existing) && existing != ammoDef)
                     ProjectileToAmmo[projectile] = null;
@@ -242,9 +238,9 @@ namespace LTSAmmoBallisticsTuning15
             markedInjuryIds.Remove(id);
         }
 
-        internal static RecurveBleedTracker Current
+        internal static RecurveBleedTracker Instance
         {
-            get { return Current.Game == null ? null : Current.Game.GetComponent<RecurveBleedTracker>(); }
+            get { return Verse.Current.Game == null ? null : Verse.Current.Game.GetComponent<RecurveBleedTracker>(); }
         }
     }
 
@@ -353,21 +349,21 @@ namespace LTSAmmoBallisticsTuning15
             if (activeImpactContext.EffectClass != AmmoEffectClass.RecurveArrow) return;
             if (__instance.def == null || __instance.def.defName != "Stab") return;
 
-            RecurveBleedTracker tracker = RecurveBleedTracker.Current;
+            RecurveBleedTracker tracker = RecurveBleedTracker.Instance;
             if (tracker != null) tracker.Mark(__instance.loadID);
         }
 
         public static void InjuryPostRemovedPostfix(Hediff_Injury __instance)
         {
             if (__instance == null) return;
-            RecurveBleedTracker tracker = RecurveBleedTracker.Current;
+            RecurveBleedTracker tracker = RecurveBleedTracker.Instance;
             if (tracker != null) tracker.Unmark(__instance.loadID);
         }
 
         public static void BleedRatePostfix(Hediff_Injury __instance, ref float __result)
         {
             if (__instance == null || __result <= 0f) return;
-            RecurveBleedTracker tracker = RecurveBleedTracker.Current;
+            RecurveBleedTracker tracker = RecurveBleedTracker.Instance;
             if (tracker != null && tracker.Contains(__instance.loadID))
                 __result *= 1.25f;
         }
