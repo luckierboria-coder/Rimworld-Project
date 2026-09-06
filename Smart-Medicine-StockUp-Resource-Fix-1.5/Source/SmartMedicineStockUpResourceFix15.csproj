@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>SmartMedicineStockUpResourceFix15</AssemblyName>
+    <RootNamespace>Allen.SmartMedicineStockUpResourceFix15</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>../1.5/Assemblies/</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4069" PrivateAssets="all" />
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="SmartMedicine">
+      <HintPath>Lib/SmartMedicine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
