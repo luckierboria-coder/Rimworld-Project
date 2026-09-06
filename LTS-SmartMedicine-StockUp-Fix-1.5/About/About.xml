@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>LTS Ammo - Smart Medicine Stock Up Fix</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>allen.ltsammo.smartmedicinestockupfix</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <description>Compatibility patch for LTS ammunition and Smart Medicine stock-up. Uses actual spawned ammo stacks plus colonist inventories when Smart Medicine checks whether enough LTS ammunition exists to enable a stock-up setting.</description>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+    <li><packageId>LimeTreeSnake.Ammunition</packageId><displayName>[LTS] Ammunition - Framework</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>LimeTreeSnake.Ammunition</li>
+    <li>Uuugggg.SmartMedicine</li>
+    <li>allen.ltsammo.inventoryfallback</li>
+  </loadAfter>
+</ModMetaData>
