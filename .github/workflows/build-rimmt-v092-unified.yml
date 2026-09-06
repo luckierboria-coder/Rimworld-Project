@@ -1,8 +1,8 @@
-name: Build RimMT V0.9.3-T4 HaulMerge Partner Index
+name: Build RimMT V0.9.3-T5 HaulMerge Patch Census
 
 on:
   push:
-    branches: [ rimmt-v0.9.3-t4-haulmerge-partner-index ]
+    branches: [ rimmt-v0.9.3-t5-haulmerge-patch-census ]
     paths:
       - 'RimMT/**'
       - '.github/workflows/build-rimmt-v092-unified.yml'
@@ -60,21 +60,26 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
 
+      - name: Apply T5 measurement-only HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
 
       - name: Build Release
         run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
 
-      - name: Verify T4 version, HaulMerge index, no early rescue, no global fuse and single DLL
+      - name: Verify T5 census, unchanged T4 safety, no early rescue, no global fuse and single DLL
         shell: pwsh
         run: |
           $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
-          if ($bootstrap -notmatch '0\.9\.3-t4-haulmerge-partner-index') { throw 'Bootstrap is not V0.9.3-T4.' }
+          if ($bootstrap -notmatch '0\.9\.3-t5-haulmerge-patch-census') { throw 'Bootstrap is not V0.9.3-T5.' }
           if ($bootstrap -notmatch 'TailAttributionPatches093T1\.Apply') { throw 'T1 top-level attribution patches are not installed.' }
           if ($bootstrap -notmatch 'TailPawnPatches093T2\.Apply') { throw 'T2 pawn attribution patches are not installed.' }
           if ($bootstrap -notmatch 'TailPathfinderPatches093T3\.Apply') { throw 'T3 bounded PathFinder attribution is not installed.' }
           if ($bootstrap -notmatch 'WorkGiverMergePartnerIndex093T4\.Apply') { throw 'T4 HaulMerge partner index is not installed.' }
+          if ($bootstrap -notmatch 'HaulMergePatchCensus093T5\.Apply') { throw 'T5 patch census is not scheduled.' }
 
           $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
           if ($reach -notmatch 'V0\.4\.18-T1A') { throw 'ReachProfile T1A no-global-fuse transform was not applied.' }
@@ -85,7 +90,7 @@ jobs:
           $s4 = Get-Content 'RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs' -Raw
           if ($s4 -match 'earlyKnownCustomAdmissions\+\+') { throw 'T3 custom 8ms early admission is still active.' }
           if ($s4 -match 'earlyKnownListAdmissions\+\+') { throw 'T3 list 8ms early admission is still active.' }
-          if ($s4 -notmatch 'earlyKnownPolicy=OFF') { throw 'T4 early-rescue-off marker is missing.' }
+          if ($s4 -notmatch 'earlyKnownPolicy=OFF') { throw 'T4/T5 early-rescue-off marker is missing.' }
           if ($s4 -notmatch 'targetedFeedHemogenRejected' -or $s4 -notmatch 'targetedVisitSickRejected') { throw 'V24 stable S4 pruners are missing.' }
 
           $merge = Get-Content 'RimMT/Source/RimMT/AI/WorkGiverMergePartnerIndex093T4.cs' -Raw
@@ -94,11 +99,19 @@ jobs:
           if ($merge -notmatch 'UsesSupportedVanillaStackSemantics') { throw 'T4 stack-semantics fail-open guard is missing.' }
           if ($merge -notmatch 'HasForeignPatch') { throw 'T4 foreign-Harmony authority guard is missing.' }
           if ($merge -notmatch 'HasPartnerFor') { throw 'T4 necessary-condition proof is missing.' }
+          if ($merge -notmatch 'return HasForeign\(info\.Prefixes\) \|\| HasForeign\(info\.Postfixes\)') { throw 'T4 strict foreign-patch blocker was changed.' }
+
+          $census = Get-Content 'RimMT/Source/RimMT/Diagnostics/HaulMergePatchCensus093T5.cs' -Raw
+          if ($census -notmatch 'class HaulMergePatchCensus093T5') { throw 'T5 census source is missing.' }
+          if ($census -notmatch 'WorkGiver_Merge\.JobOnThing' -or $census -notmatch 'Thing\.CanStackWith' -or $census -notmatch 'ThingWithComps\.CanStackWith' -or $census -notmatch 'MinifiedThing\.CanStackWith') { throw 'T5 census does not cover all four T4 authority targets.' }
+          if ($census -notmatch 'FOREIGN/BLOCKER' -or $census -notmatch 'patch\.owner' -or $census -notmatch 'patch\.priority' -or $census -notmatch 'PatchMethod') { throw 'T5 census does not report owner/priority/method blocker details.' }
 
           $diag = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
-          if ($diag -notmatch 'V0\.9\.3-T4 HaulMerge Partner Index') { throw 'T4 report marker was not applied.' }
+          if ($diag -notmatch 'V0\.9\.3-T5 HaulMerge Patch Census') { throw 'T5 report marker was not applied.' }
           if ($diag -notmatch 'WorkGiverMergePartnerIndex093T4\.Summary') { throw 'T4 report line is missing.' }
-          if ($diag -notmatch 'S4 early rescue=OFF') { throw 'T4 production policy does not state early rescue is OFF.' }
+          if ($diag -notmatch 'HaulMergePatchCensus093T5\.DetailedSummary') { throw 'T5 detailed census report line is missing.' }
+          if ($diag -notmatch 'S4 early rescue=OFF') { throw 'T5 production policy does not state early rescue is OFF.' }
+          if ($diag -notmatch 'T5 Harmony authority census=measurement-only') { throw 'T5 measurement-only policy marker missing.' }
 
           $pawn = Get-Content 'RimMT/Source/RimMT/Diagnostics/TailPawnAttribution093T2.cs' -Raw
           if ($pawn -notmatch 'TailPathfinderAttribution093T3\.BeginTick' -or $pawn -notmatch 'TailPathfinderAttribution093T3\.EndTick') { throw 'T2/T3 deep-window lifecycle integration is missing.' }
@@ -126,11 +139,11 @@ jobs:
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') {
             throw "Package contains unexpected DLL set: $($packDlls.Name -join ', ')"
           }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T4_HaulMerge_Partner_Index.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T5_HaulMerge_Patch_Census.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.3-T4-HaulMerge-Partner-Index
-          path: build/RimMT_V0.9.3_T4_HaulMerge_Partner_Index.zip
+          name: RimMT-V0.9.3-T5-HaulMerge-Patch-Census
+          path: build/RimMT_V0.9.3_T5_HaulMerge_Patch_Census.zip
           if-no-files-found: error
