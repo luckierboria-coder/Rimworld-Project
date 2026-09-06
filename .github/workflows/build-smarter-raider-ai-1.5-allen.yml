@@ -1,0 +1,89 @@
+name: Build Smarter Raider AI 1.5 AllenTweaks
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Smarter-Raider-AI-1.5-AllenTweaks/**'
+      - '.github/workflows/build-smarter-raider-ai-1.5-allen.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Allen build repo
+        uses: actions/checkout@v4
+
+      - name: Setup reusable .NET build environment
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Fetch pinned Smarter Raider AI 1.5 source
+        shell: pwsh
+        run: |
+          git clone https://github.com/pogoman/Smarter-Raider-AI.git upstream-srai
+          Set-Location upstream-srai
+          git checkout 9943a8ccfedf33a683229a8b562ae059985e93a1
+          Set-Location ..
+
+      - name: Apply AllenTweaks and JobLoopFix
+        shell: pwsh
+        run: |
+          $src = 'Smarter-Raider-AI-1.5-AllenTweaks\Patches'
+          $dst = 'upstream-srai\Source\Pogoman\Patches'
+          Copy-Item "$src\AvoidGrid.cs" "$dst\AvoidGrid.cs" -Force
+          Copy-Item "$src\JobGiver_AITrashBuildingsDistant.cs" "$dst\JobGiver_AITrashBuildingsDistant.cs" -Force
+          Copy-Item "$src\JobLoopGuard.cs" "$dst\JobLoopGuard.cs" -Force
+
+      - name: Restore
+        run: dotnet restore upstream-srai/Source/Pogoman/PogoAI.csproj
+
+      - name: Build Release
+        run: dotnet build upstream-srai/Source/Pogoman/PogoAI.csproj --configuration Release --no-restore
+
+      - name: Verify and package replacement DLL
+        shell: pwsh
+        run: |
+          $dll = 'upstream-srai\1.5\Assemblies\PogoAI.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled PogoAI.dll missing.' }
+
+          Remove-Item dist -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist\Smarter_Raider_AI_1.5_AllenTweaks_JobLoopFix'
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          Copy-Item $dll "$stage\1.5\Assemblies\PogoAI.dll"
+
+          @'
+Smarter Raider AI 1.5 - AllenTweaks + JobLoopFix
+
+RimWorld target: 1.5
+Upstream pinned commit: 9943a8ccfedf33a683229a8b562ae059985e93a1
+Workshop ID: 2945497357
+
+Install:
+1. Close RimWorld.
+2. Back up the original Smarter Raider AI/1.5/Assemblies/PogoAI.dll.
+3. Replace it with 1.5/Assemblies/PogoAI.dll from this package.
+
+Contains:
+- Mannable turrets only contribute LOS danger when actually manned.
+- Raid-time progressive LOS-risk relaxation, preserving configured base Path Selection Cost ratio.
+- JobGiver_AITrashBuildingsDistant -> AISapper return-value propagation.
+- Mount transition guard against SRAI Follow/Attack/Mine injection.
+- Same-current-job suppression for SRAI-generated jobs.
+- Reachability/target validation for Follow, AttackMelee and Mine.
+- 30-tick vanilla fallback after an invalid SRAI-generated job to break 10-jobs-in-10-ticks storms.
+
+No global Pawn_JobTracker patch. No change to base path-selection cost setting.
+'@ | Set-Content "$stage\README_CN.txt" -Encoding UTF8
+
+          Get-FileHash $dll -Algorithm SHA256 | Format-List | Out-File "$stage\SHA256.txt"
+          Compress-Archive -Path "$stage\*" -DestinationPath 'dist\Smarter_Raider_AI_1.5_AllenTweaks_JobLoopFix_DLL.zip' -Force
+
+      - name: Upload compiled DLL package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Smarter_Raider_AI_1.5_AllenTweaks_JobLoopFix_DLL
+          path: dist/Smarter_Raider_AI_1.5_AllenTweaks_JobLoopFix_DLL.zip
+          if-no-files-found: error
