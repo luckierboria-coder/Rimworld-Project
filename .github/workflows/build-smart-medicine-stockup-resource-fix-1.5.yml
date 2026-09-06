@@ -1,0 +1,54 @@
+name: Build Smart Medicine StockUp Resource Fix 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Smart-Medicine-StockUp-Resource-Fix-1.5/**'
+      - '.github/workflows/build-smart-medicine-stockup-resource-fix-1.5.yml'
+      - '.github/actions/setup-rw15-dotnet/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup RimWorld 1.5 build environment
+        uses: ./.github/actions/setup-rw15-dotnet
+
+      - name: Restore
+        run: dotnet restore Smart-Medicine-StockUp-Resource-Fix-1.5/Source/SmartMedicineStockUpResourceFix15.csproj
+
+      - name: Build
+        run: dotnet build Smart-Medicine-StockUp-Resource-Fix-1.5/Source/SmartMedicineStockUpResourceFix15.csproj --configuration Release --no-restore
+
+      - name: Verify and package independent mod
+        shell: pwsh
+        run: |
+          $root = 'Smart-Medicine-StockUp-Resource-Fix-1.5'
+          $dll = "$root\1.5\Assemblies\SmartMedicineStockUpResourceFix15.dll"
+          if (!(Test-Path $dll)) { throw 'Compiled SmartMedicineStockUpResourceFix15.dll missing.' }
+
+          Remove-Item dist -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist\Smart Medicine StockUp Resource Fix 1.5'
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\Assemblies" | Out-Null
+          Copy-Item "$root\About\About.xml" "$stage\About\About.xml"
+          Copy-Item "$root\README_CN.txt" "$stage\README_CN.txt"
+          Copy-Item $dll "$stage\Assemblies\SmartMedicineStockUpResourceFix15.dll"
+
+          $leaks = Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -in @('SmartMedicine.dll','0Harmony.dll','Assembly-CSharp.dll') }
+          if ($leaks) { throw 'Dependency/original DLL leaked into independent patch package.' }
+
+          Get-FileHash $dll -Algorithm SHA256 | Format-List | Out-File "$stage\SHA256.txt"
+          Compress-Archive -Path $stage -DestinationPath 'dist\Smart_Medicine_StockUp_Resource_Fix_1.5.zip' -Force
+
+      - name: Upload independent patch mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: Smart_Medicine_StockUp_Resource_Fix_1.5
+          path: dist/Smart_Medicine_StockUp_Resource_Fix_1.5.zip
+          if-no-files-found: error
