@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -22,20 +23,50 @@ namespace Allen.SmartMedicineStockUpResourceFix15
         }
     }
 
-    [HarmonyPatch(typeof(SmartMedicine.StockUpUtility), nameof(SmartMedicine.StockUpUtility.EnoughAvailable), new[] { typeof(ThingDef), typeof(Map) })]
+    [HarmonyPatch]
     public static class EnoughAvailablePatch
     {
+        private static readonly Type StockUpUtilityType = AccessTools.TypeByName("SmartMedicine.StockUpUtility");
+        private static readonly Type SmartMedicineModType = AccessTools.TypeByName("SmartMedicine.Mod");
+        private static readonly MethodInfo StockUpCountMethod = StockUpUtilityType == null ? null : AccessTools.Method(StockUpUtilityType, "StockUpCount", new[] { typeof(Pawn), typeof(ThingDef) });
+        private static readonly MethodInfo HasItemCountMethod = StockUpUtilityType == null ? null : AccessTools.Method(StockUpUtilityType, "HasItemCount", new[] { typeof(Pawn), typeof(ThingDef) });
+        private static readonly FieldInfo SettingsField = SmartMedicineModType == null ? null : AccessTools.Field(SmartMedicineModType, "settings");
+
+        public static MethodBase TargetMethod()
+        {
+            return StockUpUtilityType == null
+                ? null
+                : AccessTools.Method(StockUpUtilityType, "EnoughAvailable", new[] { typeof(ThingDef), typeof(Map) });
+        }
+
+        public static bool Prepare()
+        {
+            if (TargetMethod() == null || StockUpCountMethod == null || HasItemCountMethod == null || SettingsField == null)
+            {
+                Log.Error("[Smart Medicine StockUp Resource Fix 1.5] Smart Medicine API not found; patch not applied.");
+                return false;
+            }
+            return true;
+        }
+
         public static bool Prefix(ThingDef thingDef, Map map, ref bool __result)
         {
             if (thingDef == null || map == null)
                 return true;
 
-            // ResourceCounter is correct for defs RimWorld actually registers as resources.
-            // Preserve Smart Medicine's original path for those defs.
+            // Keep Smart Medicine's original ResourceCounter path for defs RimWorld actually counts.
             if (thingDef.CountAsResource && thingDef.resourceReadoutPriority != ResourceCountPriority.Uncounted)
                 return true;
 
-            float enough = SmartMedicine.Mod.settings.stockUpEnough;
+            object settings = SettingsField.GetValue(null);
+            if (settings == null)
+                return true;
+
+            FieldInfo stockUpEnoughField = AccessTools.Field(settings.GetType(), "stockUpEnough");
+            if (stockUpEnoughField == null)
+                return true;
+
+            float enough = (float)stockUpEnoughField.GetValue(settings);
             if (enough == 0f)
             {
                 __result = true;
@@ -44,8 +75,8 @@ namespace Allen.SmartMedicineStockUpResourceFix15
 
             long available = 0L;
 
-            // Match ResourceCounter's storage semantics, but without requiring CountAsResource.
-            // SlotGroup.HeldThings includes normal shelves and LWM Deep Storage storage cells.
+            // Match ResourceCounter's "stored resources" meaning without requiring CountAsResource.
+            // LWM Deep Storage keeps its contents in normal storage SlotGroups, so HeldThings covers it.
             var groups = map.haulDestinationManager?.AllGroupsListForReading;
             if (groups != null)
             {
@@ -73,8 +104,8 @@ namespace Allen.SmartMedicineStockUpResourceFix15
                 if (pawn == null || pawn.inventory == null)
                     continue;
 
-                requested += pawn.StockUpCount(thingDef);
-                available += pawn.HasItemCount(thingDef);
+                requested += (int)StockUpCountMethod.Invoke(null, new object[] { pawn, thingDef });
+                available += (int)HasItemCountMethod.Invoke(null, new object[] { pawn, thingDef });
             }
 
             __result = available >= requested * (double)enough;
