@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Smarter Raider AI - Allen Patch</name>
+  <author>Allen / OpenAI</author>
+  <packageId>allen.smarterraiderai.patch15</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+    </li>
+    <li>
+      <packageId>pogo.ai</packageId>
+      <displayName>Smarter Raider AI</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>pogo.ai</li>
+  </loadAfter>
+  <description>RimWorld 1.5 compatibility/behavior patch for Smarter Raider AI. Keeps the original mod intact and applies Allen's turret threat, raid-time LOS-risk relaxation, and JobLoop fixes as a separate Harmony patch.</description>
+</ModMetaData>
