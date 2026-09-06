@@ -48,36 +48,34 @@ jobs:
         run: |
           $dll = 'upstream-srai\1.5\Assemblies\PogoAI.dll'
           if (!(Test-Path $dll)) { throw 'Compiled PogoAI.dll missing.' }
-
           Remove-Item dist -Recurse -Force -ErrorAction SilentlyContinue
           $stage = 'dist\Smarter_Raider_AI_1.5_AllenTweaks_JobLoopFix'
           New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
           Copy-Item $dll "$stage\1.5\Assemblies\PogoAI.dll"
-
-          @'
-Smarter Raider AI 1.5 - AllenTweaks + JobLoopFix
-
-RimWorld target: 1.5
-Upstream pinned commit: 9943a8ccfedf33a683229a8b562ae059985e93a1
-Workshop ID: 2945497357
-
-Install:
-1. Close RimWorld.
-2. Back up the original Smarter Raider AI/1.5/Assemblies/PogoAI.dll.
-3. Replace it with 1.5/Assemblies/PogoAI.dll from this package.
-
-Contains:
-- Mannable turrets only contribute LOS danger when actually manned.
-- Raid-time progressive LOS-risk relaxation, preserving configured base Path Selection Cost ratio.
-- JobGiver_AITrashBuildingsDistant -> AISapper return-value propagation.
-- Mount transition guard against SRAI Follow/Attack/Mine injection.
-- Same-current-job suppression for SRAI-generated jobs.
-- Reachability/target validation for Follow, AttackMelee and Mine.
-- 30-tick vanilla fallback after an invalid SRAI-generated job to break 10-jobs-in-10-ticks storms.
-
-No global Pawn_JobTracker patch. No change to base path-selection cost setting.
-'@ | Set-Content "$stage\README_CN.txt" -Encoding UTF8
-
+          $readme = @(
+            'Smarter Raider AI 1.5 - AllenTweaks + JobLoopFix',
+            '',
+            'RimWorld target: 1.5',
+            'Upstream pinned commit: 9943a8ccfedf33a683229a8b562ae059985e93a1',
+            'Workshop ID: 2945497357',
+            '',
+            'Install:',
+            '1. Close RimWorld.',
+            '2. Back up the original Smarter Raider AI/1.5/Assemblies/PogoAI.dll.',
+            '3. Replace it with 1.5/Assemblies/PogoAI.dll from this package.',
+            '',
+            'Contains:',
+            '- Mannable turrets only contribute LOS danger when actually manned.',
+            '- Raid-time progressive LOS-risk relaxation while preserving the configured base Path Selection Cost ratio.',
+            '- JobGiver_AITrashBuildingsDistant to AISapper return-value propagation.',
+            '- Mount transition guard against SRAI Follow/Attack/Mine injection.',
+            '- Same-current-job suppression for SRAI-generated jobs.',
+            '- Reachability and target validation for Follow, AttackMelee and Mine.',
+            '- 30-tick vanilla fallback after an invalid SRAI-generated job to break 10-jobs-in-10-ticks storms.',
+            '',
+            'No global Pawn_JobTracker patch. No change to base path-selection cost setting.'
+          )
+          $readme | Set-Content "$stage\README_CN.txt" -Encoding UTF8
           Get-FileHash $dll -Algorithm SHA256 | Format-List | Out-File "$stage\SHA256.txt"
           Compress-Archive -Path "$stage\*" -DestinationPath 'dist\Smarter_Raider_AI_1.5_AllenTweaks_JobLoopFix_DLL.zip' -Force
 
