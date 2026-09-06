@@ -6,7 +6,7 @@
   <supportedVersions>
     <li>1.5</li>
   </supportedVersions>
-  <description>Fixes Smart Medicine Stock Up availability checks for ThingDefs that RimWorld ResourceCounter intentionally does not count, such as many ammo, arrows, tools, and special items. Keeps vanilla ResourceCounter behavior unchanged.</description>
+  <description>Fixes Smart Medicine Stock Up availability checks for ThingDefs that RimWorld ResourceCounter intentionally does not count, and expands the Stock Up picker to all haulable items with category selection and search. Keeps vanilla ResourceCounter behavior and the original Smart Medicine DLL unchanged.</description>
   <modDependencies>
     <li>
       <packageId>brrainz.harmony</packageId>
