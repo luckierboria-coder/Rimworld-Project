@@ -1,0 +1,58 @@
+name: Build MA Duel Render Safety 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Melee-Animation-Duel-Render-Safety-1.5/**'
+      - '.github/workflows/build-melee-animation-duel-render-safety-1.5.yml'
+      - '.github/actions/setup-rw15-dotnet/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup RimWorld 1.5 build environment
+        uses: ./.github/actions/setup-rw15-dotnet
+
+      - name: Restore
+        run: dotnet restore Melee-Animation-Duel-Render-Safety-1.5/Source/MeleeAnimationDuelRenderSafety15.csproj
+
+      - name: Build
+        run: dotnet build Melee-Animation-Duel-Render-Safety-1.5/Source/MeleeAnimationDuelRenderSafety15.csproj --configuration Release --no-restore
+
+      - name: Verify and package independent mod
+        shell: pwsh
+        run: |
+          $dll = 'Melee-Animation-Duel-Render-Safety-1.5\1.5\Assemblies\MeleeAnimationDuelRenderSafety15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+
+          Remove-Item 'dist-ma-duel-safety' -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist-ma-duel-safety\MA-Duel-Render-Safety-1.5'
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+
+          Copy-Item 'Melee-Animation-Duel-Render-Safety-1.5\About\About.xml' "$stage\About\About.xml"
+          Copy-Item 'Melee-Animation-Duel-Render-Safety-1.5\README_CN.txt' "$stage\README_CN.txt"
+          Copy-Item $dll "$stage\1.5\Assemblies\MeleeAnimationDuelRenderSafety15.dll"
+
+          $files = Get-ChildItem $stage -Recurse -File
+          if ($files.Name -contains '0Harmony.dll') { throw 'Harmony DLL leaked into package.' }
+          if ($files.Name -contains 'zAnimationMod.dll') { throw 'Melee Animation DLL leaked into package.' }
+          if ($files.Name -contains 'SimpleSidearms.dll') { throw 'Simple Sidearms DLL leaked into package.' }
+          if ($files.Name -match '\.pdb$') { throw 'PDB leaked into package.' }
+
+          $hash = (Get-FileHash "$stage\1.5\Assemblies\MeleeAnimationDuelRenderSafety15.dll" -Algorithm SHA256).Hash
+          Set-Content -Path "$stage\SHA256.txt" -Value "MeleeAnimationDuelRenderSafety15.dll SHA256: $hash" -Encoding UTF8
+          Compress-Archive -Path $stage -DestinationPath 'dist-ma-duel-safety\MA-Duel-Render-Safety-1.5.zip' -Force
+
+      - name: Upload independent patch mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: MA-Duel-Render-Safety-1.5
+          path: dist-ma-duel-safety/MA-Duel-Render-Safety-1.5.zip
+          if-no-files-found: error
