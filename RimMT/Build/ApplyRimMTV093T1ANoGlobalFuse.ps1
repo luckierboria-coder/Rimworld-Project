@@ -50,8 +50,8 @@ $reach = Replace-OrThrow $reach @'
                 }
 '@ 'remove probation sampling mode'
 
-$reach = Replace-OrThrow $reach '                ObserveRollingSample(false, __state.Slot);' '' 'remove clean lease-probe global fuse observation'
-$reach = Replace-OrThrow $reach '                ObserveRollingSample(false, __state.Slot);' '' 'remove clean shadow global fuse observation'
+# String.Replace removes every identical clean-path observation in one call.
+$reach = Replace-OrThrow $reach '                ObserveRollingSample(false, __state.Slot);' '' 'remove clean global fuse observations'
 $reach = Replace-OrThrow $reach '            ObserveRollingSample(true, __state.Slot);' '' 'remove mismatch global fuse observation'
 
 $reach = Replace-OrThrow $reach @'
