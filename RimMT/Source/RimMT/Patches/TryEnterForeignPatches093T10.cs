@@ -9,7 +9,7 @@ namespace RimMT
 {
     /// <summary>
     /// T10 diagnostic-only probes for the exact foreign TryEnterNextPathCell postfix methods seen in T9.
-    /// The foreign methods are timed directly; no unpatch/repatch ordering, transpiler, result mutation or skip is used.
+    /// The foreign methods are timed directly; no patch-order manipulation, IL rewrite, result mutation or skip is used.
     /// </summary>
     internal static class TryEnterForeignPatches093T10
     {
