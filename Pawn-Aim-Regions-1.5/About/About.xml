@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Pawn Aim Regions 1.5</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>allen.pawnaimregions</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <description>Independent RimWorld 1.5 combat targeting mod. Player humanlike pawns can choose Head, Torso, or Lower Body aim from a per-pawn Gizmo. Player pawns default to Torso. NPC humanlike pawns receive a persistent random aim preference: Head 35%, Torso 45%, Lower Body 20%. Applies to normal melee and ranged injury hit-part selection while preserving vanilla damage, armor, penetration, coverage weighting, and explicit hit-part assignments from other systems.</description>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+  </loadAfter>
+</ModMetaData>
