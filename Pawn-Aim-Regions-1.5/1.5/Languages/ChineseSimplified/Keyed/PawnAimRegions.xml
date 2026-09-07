@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <PAR_AimRegionLabel>瞄准：{0}</PAR_AimRegionLabel>
+  <PAR_AimRegionDesc>选择该小人在攻击敌对目标时优先命中的身体区域。近战与远程的常规伤害均适用；伤害、护甲、穿甲和命中率本身不作修改。</PAR_AimRegionDesc>
+  <PAR_Head>头部</PAR_Head>
+  <PAR_Torso>躯干</PAR_Torso>
+  <PAR_LowerBody>下身</PAR_LowerBody>
+</LanguageData>
