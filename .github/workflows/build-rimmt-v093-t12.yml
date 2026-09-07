@@ -1,4 +1,4 @@
-name: Build RimMT V0.9.3-T12 Clean TryEnter Attribution
+name: Build RimMT V0.9.3-T12.1 Clean TryEnter Hotfix
 
 on:
   push:
@@ -72,22 +72,26 @@ jobs:
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV093T12CleanTryEnterAttribution.ps1
 
+      - name: Apply T12.1 StageStat hotfix
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T12_1TryEnterHotfix.ps1
+
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
 
       - name: Build Release
         run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
 
-      - name: Verify T12 clean T8 child and stable safety policies
+      - name: Verify T12.1 clean T8 child and hotfix safety
         shell: pwsh
         run: |
           $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
-          if ($bootstrap -notmatch '0\.9\.3-t12-clean-tryenter-attribution') { throw 'Bootstrap is not V0.9.3-T12.' }
+          if ($bootstrap -notmatch '0\.9\.3-t12\.1-clean-tryenter-hotfix') { throw 'Bootstrap is not V0.9.3-T12.1.' }
           if ($bootstrap -notmatch 'TryEnterCleanPatches093T12\.Apply') { throw 'T12 clean TryEnter probes missing.' }
-          if ($bootstrap -match 'PatherInternalPatches093T9|TryEnterForeignPatches093T10|GenerateNewPathForeignPatches093T11') { throw 'T9/T10/T11 probe chain leaked into T12 bootstrap.' }
-          if (Test-Path 'RimMT/Source/RimMT/Patches/PatherInternalPatches093T9.cs') { throw 'T9 source leaked into clean T12 branch.' }
-          if (Test-Path 'RimMT/Source/RimMT/Patches/TryEnterForeignPatches093T10.cs') { throw 'T10 source leaked into clean T12 branch.' }
-          if (Test-Path 'RimMT/Source/RimMT/Patches/GenerateNewPathForeignPatches093T11.cs') { throw 'T11 source leaked into clean T12 branch.' }
+          if ($bootstrap -match 'PatherInternalPatches093T9|TryEnterForeignPatches093T10|GenerateNewPathForeignPatches093T11') { throw 'T9/T10/T11 probe chain leaked into T12.1 bootstrap.' }
+          if (Test-Path 'RimMT/Source/RimMT/Patches/PatherInternalPatches093T9.cs') { throw 'T9 source leaked into clean T12.1 branch.' }
+          if (Test-Path 'RimMT/Source/RimMT/Patches/TryEnterForeignPatches093T10.cs') { throw 'T10 source leaked into clean T12.1 branch.' }
+          if (Test-Path 'RimMT/Source/RimMT/Patches/GenerateNewPathForeignPatches093T11.cs') { throw 'T11 source leaked into clean T12.1 branch.' }
 
           $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
           if ($reach -notmatch 'V0\.4\.18-T1A' -or $reach -notmatch 'globalFuse=OFF') { throw 'No-global-fuse policy missing.' }
@@ -99,23 +103,25 @@ jobs:
           if ($s4 -notmatch 'CarrierMechCheapNegative093T8\.TryPrepare\(resolvedScanner') { throw 'T8 carrier/mech pruners missing.' }
 
           $merge = Get-Content 'RimMT/Source/RimMT/AI/WorkGiverMergePartnerIndex093T4.cs' -Raw
-          if ($merge -match 'HasForeignPostfixExceptAcceptedCommonSense' -or $merge -match 'commonSenseMonotonicPostfixAccepted') { throw 'T6 Common Sense HaulMerge coexistence leaked into T12.' }
+          if ($merge -match 'HasForeignPostfixExceptAcceptedCommonSense' -or $merge -match 'commonSenseMonotonicPostfixAccepted') { throw 'T6 Common Sense HaulMerge coexistence leaked into T12.1.' }
           if ($merge -notmatch 'return HasForeign\(info\.Prefixes\) \|\| HasForeign\(info\.Postfixes\)') { throw 'T5 strict T4 blocker changed.' }
 
           $t12 = Get-Content 'RimMT/Source/RimMT/Diagnostics/TryEnterCleanAttribution093T12.cs' -Raw
           $t12Patch = Get-Content 'RimMT/Source/RimMT/Patches/TryEnterCleanPatches093T12.cs' -Raw
-          if ($t12 -notmatch 'TailPawnAttribution093T2\.DeepActive' -or $t12 -notmatch 'RimMTThreadGuard\.IsMainThread') { throw 'T12 is not bounded to T2 deep/main-thread windows.' }
-          if ($t12Patch -notmatch 'PropertySetter\(typeof\(Thing\), nameof\(Thing\.Position\)\)') { throw 'T12 Position setter attribution missing.' }
+          if ($t12 -notmatch 'private static readonly StageStat\[\] StageStats = CreateStageStats\(\);') { throw 'T12.1 StageStats are not initialized.' }
+          if ($t12 -notmatch 'for \(int i = 0; i < stats\.Length; i\+\+\) stats\[i\] = new StageStat\(\);') { throw 'T12.1 StageStat slot factory missing.' }
+          if ($t12 -notmatch 'if \(s == null\) return;') { throw 'T12.1 EndStage null fail-closed guard missing.' }
+          if ($t12 -notmatch 'TailPawnAttribution093T2\.DeepActive' -or $t12 -notmatch 'RimMTThreadGuard\.IsMainThread') { throw 'T12.1 is not bounded to T2 deep/main-thread windows.' }
+          if ($t12Patch -notmatch 'PropertySetter\(typeof\(Thing\), nameof\(Thing\.Position\)\)') { throw 'T12.1 Position setter attribution missing.' }
           foreach ($marker in @('GenClamor.DoClamor','Notify_EnteredNewCell','SnowGrid.AddDepth','CheckFriendlyTouched','NeedNewPath','TrySetNewPath','SetupMoveIntoNextCell')) {
-            if ($t12Patch -notmatch [regex]::Escape($marker)) { throw "T12 helper marker missing: $marker" }
+            if ($t12Patch -notmatch [regex]::Escape($marker)) { throw "T12.1 helper marker missing: $marker" }
           }
-          if ($t12Patch -match 'Transpiler|Unpatch|__result|StartJob\(') { throw 'T12 contains behavior/order-changing machinery.' }
-          if ($t12 -notmatch 'Diagnostic-only; built directly on T8 without T9/T10/T11 probes') { throw 'T12 clean-baseline marker missing.' }
+          if ($t12Patch -match 'Transpiler|Unpatch|__result|StartJob\(') { throw 'T12.1 contains behavior/order-changing machinery.' }
 
           $diag = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
-          if ($diag -notmatch 'V0\.9\.3-T12 Clean TryEnter Attribution') { throw 'T12 report title missing.' }
-          if ($diag -notmatch 'TryEnterCleanAttribution093T12\.Recent10Summary' -or $diag -notmatch 'TryEnterCleanAttribution093T12\.Recent20Summary') { throw 'T12 separate recent rings missing.' }
-          if ($diag -notmatch 'T9/T10/T11=ABSENT' -or $diag -notmatch 'T6 HaulMerge coexistence=ABSENT') { throw 'T12 report baseline markers missing.' }
+          if ($diag -notmatch 'V0\.9\.3-T12\.1 Clean TryEnter Attribution Hotfix') { throw 'T12.1 report title missing.' }
+          if ($diag -notmatch 'TryEnterCleanAttribution093T12\.Recent10Summary' -or $diag -notmatch 'TryEnterCleanAttribution093T12\.Recent20Summary') { throw 'T12.1 separate recent rings missing.' }
+          if ($diag -notmatch 'T9/T10/T11=ABSENT' -or $diag -notmatch 'T6 HaulMerge coexistence=ABSENT') { throw 'T12.1 report baseline markers missing.' }
 
           $dir = 'RimMT/1.5/Assemblies'
           $dll = Join-Path $dir 'RimMT.dll'
@@ -136,11 +142,11 @@ jobs:
           if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
           $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
           if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
-          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T12_Clean_TryEnter_Attribution.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T12.1_Clean_TryEnter_Hotfix.zip' -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimMT-V0.9.3-T12-Clean-TryEnter-Attribution
-          path: build/RimMT_V0.9.3_T12_Clean_TryEnter_Attribution.zip
+          name: RimMT-V0.9.3-T12.1-Clean-TryEnter-Hotfix
+          path: build/RimMT_V0.9.3_T12.1_Clean_TryEnter_Hotfix.zip
           if-no-files-found: error
