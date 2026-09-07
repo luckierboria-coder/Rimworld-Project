@@ -1,0 +1,166 @@
+name: Build RimMT V0.9.3-T11 GenerateNewPath Attribution
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t11-generatenewpath-attribution ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t11.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply V22 Stable transforms
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+
+      - name: Apply V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
+
+      - name: Apply V24 S4 telemetry and pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
+
+      - name: Apply V26 Consolidated Stable marker
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+
+      - name: Apply T1 Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1TailAttribution.ps1
+
+      - name: Apply T1A no-global-fuse policy
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
+
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+
+      - name: Apply T3 bounded FindPath layer
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T3HeavyWorkGiverEarlyRescue.ps1
+
+      - name: Apply T4 HaulMerge partner index and revert T3 early rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
+
+      - name: Apply T5 measurement-only HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+
+      - name: Apply T8 clean T5 carrier/mech cheap negatives
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T8T5CarrierPruners.ps1
+
+      - name: Apply T9 bounded Pather internal attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T9PatherInternalAttribution.ps1
+
+      - name: Apply T10 bounded PF/VFE TryEnter attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T10TryEnterForeignAttribution.ps1
+
+      - name: Apply T11 bounded GenerateNewPath attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T11GenerateNewPathAttribution.ps1
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify T11 diagnostic-only GenerateNewPath layer and stable policies
+        shell: pwsh
+        run: |
+          $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($bootstrap -notmatch '0\.9\.3-t11-generatenewpath-attribution') { throw 'Bootstrap is not V0.9.3-T11.' }
+          foreach ($marker in @('PatherInternalPatches093T9.Apply','TryEnterForeignPatches093T10.Apply','GenerateNewPathForeignPatches093T11.Apply')) {
+            if ($bootstrap -notmatch [regex]::Escape($marker)) { throw "Missing bootstrap marker: $marker" }
+          }
+          if ($bootstrap -match 'V0\.9\.3-T6 CommonSense HaulMerge Coexist') { throw 'T6 behavior leaked into T11.' }
+
+          $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
+          if ($reach -notmatch 'V0\.4\.18-T1A' -or $reach -notmatch 'globalFuse=OFF') { throw 'No-global-fuse policy missing.' }
+          if ($reach -match 'UpdateRollingFuseMode\(\);') { throw 'Global fuse gate is active.' }
+
+          $s4 = Get-Content 'RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs' -Raw
+          if ($s4 -match 'earlyKnownCustomAdmissions\+\+' -or $s4 -match 'earlyKnownListAdmissions\+\+') { throw 'T3 8ms early rescue is active.' }
+          if ($s4 -notmatch 'earlyKnownPolicy=OFF') { throw 'Early rescue OFF marker missing.' }
+          if ($s4 -notmatch 'CarrierMechCheapNegative093T8\.TryPrepare\(resolvedScanner') { throw 'T8 carrier/mech pruners missing.' }
+
+          $merge = Get-Content 'RimMT/Source/RimMT/AI/WorkGiverMergePartnerIndex093T4.cs' -Raw
+          if ($merge -match 'HasForeignPostfixExceptAcceptedCommonSense' -or $merge -match 'commonSenseMonotonicPostfixAccepted') { throw 'T6 Common Sense HaulMerge coexistence leaked into T11.' }
+          if ($merge -notmatch 'return HasForeign\(info\.Prefixes\) \|\| HasForeign\(info\.Postfixes\)') { throw 'T5 strict T4 foreign-patch blocker changed.' }
+
+          $carrier = Get-Content 'RimMT/Source/RimMT/AI/CarrierMechCheapNegative093T8.cs' -Raw
+          if ($carrier -match 'FindFixedIngredientCount\(' -or $carrier -match 'GetClosestCharger\(' -or $carrier -match 'CanReserve\(') { throw 'T8 cheap-negative helper performs expensive live work.' }
+
+          $patherPatch = Get-Content 'RimMT/Source/RimMT/Patches/PatherInternalPatches093T9.cs' -Raw
+          foreach ($marker in @('TryEnterForeignAttribution093T10.BeginTryEnter','TryEnterForeignAttribution093T10.EndTryEnter','GenerateNewPathAttribution093T11.BeginGenerate','GenerateNewPathAttribution093T11.EndGenerate')) {
+            if ($patherPatch -notmatch [regex]::Escape($marker)) { throw "Missing Pather hook: $marker" }
+          }
+
+          $pathfinderDiag = Get-Content 'RimMT/Source/RimMT/Diagnostics/TailPathfinderAttribution093T3.cs' -Raw
+          if ($pathfinderDiag -notmatch 'GenerateNewPathAttribution093T11\.NoteFindPath\(us\)') { throw 'T3-to-T11 nested FindPath bridge missing.' }
+
+          $t11 = Get-Content 'RimMT/Source/RimMT/Diagnostics/GenerateNewPathAttribution093T11.cs' -Raw
+          $t11Patch = Get-Content 'RimMT/Source/RimMT/Patches/GenerateNewPathForeignPatches093T11.cs' -Raw
+          if ($t11 -notmatch 'Recent10Capacity = 16' -or $t11 -notmatch 'Recent20Capacity = 32') { throw 'T11 separate recent rings missing.' }
+          if ($t11 -notmatch 'normalFindDominant20' -or $t11 -notmatch 'vfeSkippedFindDominant20') { throw 'T11 >=20ms classifications missing.' }
+          if ($t11 -notmatch 'DistanceSquared' -or $t11 -notmatch 'PathEndMode') { throw 'T11 path context evidence missing.' }
+          if ($t11Patch -notmatch 'OskarPotocki\.VFECore' -or $t11Patch -notmatch 'pathfinding\.framework') { throw 'T11 exact foreign owners missing.' }
+          if ($t11Patch -notmatch 'GenerateNewPath_Prefix' -or $t11Patch -notmatch 'PathDebugging') { throw 'T11 exact foreign method discovery missing.' }
+          if ($t11Patch -notmatch 'Harmony\.GetPatchInfo' -or $t11Patch -notmatch 'PatchMethod') { throw 'T11 installed-patch discovery missing.' }
+          if ($t11Patch -match 'harmony\.Unpatch' -or $t11Patch -match 'CodeInstruction' -or $t11Patch -match '__result\s*=') { throw 'T11 contains behavior/order-changing machinery.' }
+
+          $diag = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
+          if ($diag -notmatch 'V0\.9\.3-T11 GenerateNewPath Attribution') { throw 'T11 report title missing.' }
+          foreach ($marker in @('GenerateNewPathAttribution093T11.Summary','GenerateNewPathAttribution093T11.Recent10Summary','GenerateNewPathAttribution093T11.Recent20Summary')) {
+            if ($diag -notmatch [regex]::Escape($marker)) { throw "Missing T11 report marker: $marker" }
+          }
+          if ($diag -notmatch 'T6 HaulMerge coexistence=ABSENT') { throw 'T11 report does not retain T6 absence.' }
+
+          $dir = 'RimMT/1.5/Assemblies'
+          $dll = Join-Path $dir 'RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'RimMT/About' $stage -Recurse
+          Copy-Item 'RimMT/Languages' $stage -Recurse
+          Copy-Item 'RimMT/1.5' $stage -Recurse
+          Copy-Item 'RimMT/LoadFolders.xml' $stage
+          if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
+          $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
+          if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T11_GenerateNewPath_Attribution.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T11-GenerateNewPath-Attribution
+          path: build/RimMT_V0.9.3_T11_GenerateNewPath_Attribution.zip
+          if-no-files-found: error
