@@ -106,6 +106,28 @@ namespace LTSAmmoInventoryFallback15
                 post.priority = Priority.First;
                 h.Patch(generatePawn, postfix: post);
             }
+
+            // Some pawn-generation / faction / tech-filter mods can redress a generated pawn after its
+            // first equipment pass. Re-run the same idempotent NPC ammo check after RedressPawn so the
+            // inventory ammo always matches the pawn's final primary weapon. Existing compatible ammo
+            // is left untouched, so this cannot double-fill an already-correct pawn.
+            var redressPawn = AccessTools.Method(typeof(PawnGenerator), "RedressPawn");
+            if (redressPawn != null)
+            {
+                var post = new HarmonyMethod(typeof(NpcAmmoRedressBridge), nameof(NpcAmmoRedressBridge.RedressPawnPostfix));
+                post.priority = Priority.First;
+                h.Patch(redressPawn, postfix: post);
+            }
+        }
+    }
+
+    internal static class NpcAmmoRedressBridge
+    {
+        public static void RedressPawnPostfix(Pawn pawn)
+        {
+            // Reuse the exact same checks and 5% +/-15% mass budget as normal pawn generation.
+            // NpcAmmoGeneration exits immediately if the pawn already has compatible inventory ammo.
+            NpcAmmoGeneration.GeneratePawnPostfix(pawn);
         }
     }
 }
