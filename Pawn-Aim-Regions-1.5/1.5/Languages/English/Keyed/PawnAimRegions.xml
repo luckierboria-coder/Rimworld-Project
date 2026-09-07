@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <PAR_AimRegionLabel>Aim: {0}</PAR_AimRegionLabel>
+  <PAR_AimRegionDesc>Choose this pawn's preferred hit region for hostile targets. Applies to normal melee and ranged injury hit-part selection. Damage, armor, penetration, and hit chance are otherwise unchanged.</PAR_AimRegionDesc>
+  <PAR_Head>Head</PAR_Head>
+  <PAR_Torso>Torso</PAR_Torso>
+  <PAR_LowerBody>Lower body</PAR_LowerBody>
+</LanguageData>
