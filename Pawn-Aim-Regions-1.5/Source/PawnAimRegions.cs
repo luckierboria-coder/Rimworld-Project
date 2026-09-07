@@ -168,7 +168,7 @@ namespace PawnAimRegions15
     [HarmonyPatch(typeof(DamageWorker_AddInjury), "ChooseHitPart")]
     internal static class ChooseHitPartPatch
     {
-        private const float PreferredRegionWeight = 3f;
+        private const float PreferredRegionWeight = 6f;
 
         private static bool Prefix(DamageInfo dinfo, Pawn pawn, ref BodyPartRecord __result)
         {
@@ -212,7 +212,7 @@ namespace PawnAimRegions15
                 : region == AimRegion.LowerBody ? BodyPartHeight.Bottom : BodyPartHeight.Middle;
 
             // Keep every normally valid body part in the lottery. The selected region only gets
-            // 3x its vanilla hit weight; it is NOT guaranteed to be hit.
+            // 6x its vanilla hit weight; it is NOT guaranteed to be hit.
             if (all.TryRandomElementByWeight(
                     p => VanillaWeight(p, dinfo) *
                          (IsInAimedRegion(p, region, hasSemanticRegion, fallbackHeight) ? PreferredRegionWeight : 1f),
