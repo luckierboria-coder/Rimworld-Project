@@ -1,0 +1,146 @@
+name: Build RimMT V0.9.3-T12 Clean TryEnter Attribution
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t12-clean-tryenter-attribution ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t12.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply V22 Stable transforms
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+
+      - name: Apply V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
+
+      - name: Apply V24 S4 telemetry and pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
+
+      - name: Apply V26 Consolidated Stable marker
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+
+      - name: Apply T1 Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1TailAttribution.ps1
+
+      - name: Apply T1A no-global-fuse policy
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
+
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+
+      - name: Apply T3 bounded FindPath layer
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T3HeavyWorkGiverEarlyRescue.ps1
+
+      - name: Apply T4 HaulMerge partner index and revert T3 early rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
+
+      - name: Apply T5 measurement-only HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+
+      - name: Apply T8 clean T5 carrier/mech cheap negatives
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T8T5CarrierPruners.ps1
+
+      - name: Apply T12 clean TryEnter attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T12CleanTryEnterAttribution.ps1
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify T12 clean T8 child and stable safety policies
+        shell: pwsh
+        run: |
+          $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($bootstrap -notmatch '0\.9\.3-t12-clean-tryenter-attribution') { throw 'Bootstrap is not V0.9.3-T12.' }
+          if ($bootstrap -notmatch 'TryEnterCleanPatches093T12\.Apply') { throw 'T12 clean TryEnter probes missing.' }
+          if ($bootstrap -match 'PatherInternalPatches093T9|TryEnterForeignPatches093T10|GenerateNewPathForeignPatches093T11') { throw 'T9/T10/T11 probe chain leaked into T12 bootstrap.' }
+          if (Test-Path 'RimMT/Source/RimMT/Patches/PatherInternalPatches093T9.cs') { throw 'T9 source leaked into clean T12 branch.' }
+          if (Test-Path 'RimMT/Source/RimMT/Patches/TryEnterForeignPatches093T10.cs') { throw 'T10 source leaked into clean T12 branch.' }
+          if (Test-Path 'RimMT/Source/RimMT/Patches/GenerateNewPathForeignPatches093T11.cs') { throw 'T11 source leaked into clean T12 branch.' }
+
+          $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
+          if ($reach -notmatch 'V0\.4\.18-T1A' -or $reach -notmatch 'globalFuse=OFF') { throw 'No-global-fuse policy missing.' }
+          if ($reach -match 'UpdateRollingFuseMode\(\);') { throw 'Global fuse gate is active.' }
+
+          $s4 = Get-Content 'RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs' -Raw
+          if ($s4 -match 'earlyKnownCustomAdmissions\+\+' -or $s4 -match 'earlyKnownListAdmissions\+\+') { throw 'T3 8ms early rescue is active.' }
+          if ($s4 -notmatch 'earlyKnownPolicy=OFF') { throw 'Early rescue OFF marker missing.' }
+          if ($s4 -notmatch 'CarrierMechCheapNegative093T8\.TryPrepare\(resolvedScanner') { throw 'T8 carrier/mech pruners missing.' }
+
+          $merge = Get-Content 'RimMT/Source/RimMT/AI/WorkGiverMergePartnerIndex093T4.cs' -Raw
+          if ($merge -match 'HasForeignPostfixExceptAcceptedCommonSense' -or $merge -match 'commonSenseMonotonicPostfixAccepted') { throw 'T6 Common Sense HaulMerge coexistence leaked into T12.' }
+          if ($merge -notmatch 'return HasForeign\(info\.Prefixes\) \|\| HasForeign\(info\.Postfixes\)') { throw 'T5 strict T4 blocker changed.' }
+
+          $t12 = Get-Content 'RimMT/Source/RimMT/Diagnostics/TryEnterCleanAttribution093T12.cs' -Raw
+          $t12Patch = Get-Content 'RimMT/Source/RimMT/Patches/TryEnterCleanPatches093T12.cs' -Raw
+          if ($t12 -notmatch 'TailPawnAttribution093T2\.DeepActive' -or $t12 -notmatch 'RimMTThreadGuard\.IsMainThread') { throw 'T12 is not bounded to T2 deep/main-thread windows.' }
+          if ($t12Patch -notmatch 'PropertySetter\(typeof\(Thing\), nameof\(Thing\.Position\)\)') { throw 'T12 Position setter attribution missing.' }
+          foreach ($marker in @('GenClamor.DoClamor','Notify_EnteredNewCell','SnowGrid.AddDepth','CheckFriendlyTouched','NeedNewPath','TrySetNewPath','SetupMoveIntoNextCell')) {
+            if ($t12Patch -notmatch [regex]::Escape($marker)) { throw "T12 helper marker missing: $marker" }
+          }
+          if ($t12Patch -match 'Transpiler|Unpatch|__result|StartJob\(') { throw 'T12 contains behavior/order-changing machinery.' }
+          if ($t12 -notmatch 'Diagnostic-only; built directly on T8 without T9/T10/T11 probes') { throw 'T12 clean-baseline marker missing.' }
+
+          $diag = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
+          if ($diag -notmatch 'V0\.9\.3-T12 Clean TryEnter Attribution') { throw 'T12 report title missing.' }
+          if ($diag -notmatch 'TryEnterCleanAttribution093T12\.Recent10Summary' -or $diag -notmatch 'TryEnterCleanAttribution093T12\.Recent20Summary') { throw 'T12 separate recent rings missing.' }
+          if ($diag -notmatch 'T9/T10/T11=ABSENT' -or $diag -notmatch 'T6 HaulMerge coexistence=ABSENT') { throw 'T12 report baseline markers missing.' }
+
+          $dir = 'RimMT/1.5/Assemblies'
+          $dll = Join-Path $dir 'RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'RimMT/About' $stage -Recurse
+          Copy-Item 'RimMT/Languages' $stage -Recurse
+          Copy-Item 'RimMT/1.5' $stage -Recurse
+          Copy-Item 'RimMT/LoadFolders.xml' $stage
+          if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
+          $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
+          if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T12_Clean_TryEnter_Attribution.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T12-Clean-TryEnter-Attribution
+          path: build/RimMT_V0.9.3_T12_Clean_TryEnter_Attribution.zip
+          if-no-files-found: error
