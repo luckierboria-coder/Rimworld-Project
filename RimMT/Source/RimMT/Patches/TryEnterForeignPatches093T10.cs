@@ -107,7 +107,7 @@ namespace RimMT
 
         private static bool PatchDirect(Harmony harmony, MethodBase target, string prefixName, string postfixName)
         {
-            if (target == null) return false;
+            if (target == null) return default(bool);
             try
             {
                 harmony.Patch(target,
@@ -118,20 +118,20 @@ namespace RimMT
             catch (Exception ex)
             {
                 Log.Warning("[RimMT] T10 direct foreign timer failed closed for " + target.DeclaringType + "." + target.Name + ": " + ex.GetType().Name);
-                return false;
+                return default(bool);
             }
         }
 
         private static bool PatchPrefixOnly(Harmony harmony, MethodBase target, string prefixName)
         {
-            if (target == null) return false;
+            if (target == null) return default(bool);
             try
             {
                 harmony.Patch(target,
                     prefix: new HarmonyMethod(typeof(TryEnterForeignPatches093T10), prefixName) { priority = Priority.First });
                 return true;
             }
-            catch { return false; }
+            catch { return default(bool); }
         }
 
         private static MethodBase FindIsPhasing(Assembly asm)
