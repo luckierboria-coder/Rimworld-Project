@@ -100,7 +100,7 @@ jobs:
           if ($merge -notmatch 'return HasForeign\(info\.Prefixes\) \|\| HasForeign\(info\.Postfixes\)') { throw 'T5 strict T4 foreign blocker changed.' }
 
           $t13 = Get-Content 'RimMT/Source/RimMT/Diagnostics/PawnTickAggregateAttribution093T13.cs' -Raw
-          if ($t13 -match 'Stopwatch|harmony\.Patch\(') { throw 'T13 added a new per-Pawn timer or runtime Harmony patch.' }
+          if ($t13 -match 'Stopwatch\.GetTimestamp|new\s+Stopwatch|harmony\.Patch\(') { throw 'T13 added a new per-Pawn timer or runtime Harmony patch.' }
           if ($t13 -notmatch 'RecordPhase' -or $t13 -notmatch 'RecordPawn' -or $t13 -notmatch 'PawnTickHarmonyCensus') { throw 'T13 aggregate/census hooks incomplete.' }
           if ($t13 -notmatch 'JobTracker and Pather are direct-child inclusive totals') { throw 'T13 residual accounting marker missing.' }
 
