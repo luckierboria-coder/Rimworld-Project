@@ -36,11 +36,7 @@ namespace PawnAimRegions15
     {
         internal static AimRegionGameComponent Instance;
 
-        // Pawn thingID -> AimRegion integer.
         private Dictionary<int, int> modes = new Dictionary<int, int>();
-        // Pawn thingID -> true when the pawn was last managed as a player pawn.
-        // This lets newly recruited NPCs reset to the requested player default (Torso),
-        // and former player pawns become NPC-random again if they later leave the player faction.
         private Dictionary<int, bool> playerManaged = new Dictionary<int, bool>();
 
         public AimRegionGameComponent(Game game)
@@ -80,7 +76,6 @@ namespace PawnAimRegions15
 
             if (isPlayer)
             {
-                // Colonists/player humanlikes always enter player control at the requested default: torso.
                 if (!modes.ContainsKey(id) || !wasPlayer)
                 {
                     modes[id] = (int)AimRegion.Torso;
@@ -89,8 +84,6 @@ namespace PawnAimRegions15
             }
             else
             {
-                // NPCs get one persistent random choice. If a former player pawn becomes an NPC,
-                // reroll once so it follows NPC rules rather than retaining a player order forever.
                 if (!modes.ContainsKey(id) || wasPlayer)
                 {
                     modes[id] = (int)RollNpcMode();
@@ -183,9 +176,6 @@ namespace PawnAimRegions15
                 if (!(dinfo.Instigator is Pawn attacker)) return true;
                 if (attacker == pawn || attacker.RaceProps == null || !attacker.RaceProps.Humanlike) return true;
                 if (!attacker.HostileTo(pawn)) return true;
-
-                // Respect another system that already deliberately constrained body height.
-                // Explicit HitPart never reaches ChooseHitPart in vanilla, so it is inherently preserved too.
                 if (dinfo.Height != BodyPartHeight.Undefined) return true;
 
                 AimRegion region = AimRegionGameComponent.GetMode(attacker);
@@ -211,9 +201,6 @@ namespace PawnAimRegions15
             if (all.Count == 0) return false;
 
             var candidates = all.Where(p => IsPreferredPart(p, region)).ToList();
-
-            // Modded humanlike bodies do not always use the vanilla FullHead/Torso/Legs groups.
-            // If the semantic group does not exist, fall back to the engine's Top/Middle/Bottom height system.
             if (candidates.Count == 0)
             {
                 BodyPartHeight fallbackHeight = region == AimRegion.Head
@@ -224,7 +211,6 @@ namespace PawnAimRegions15
 
             if (candidates.Count == 0) return false;
 
-            // Preserve vanilla weighting inside the chosen region.
             if (candidates.TryRandomElementByWeight(
                     p => p.coverageAbs * p.def.GetHitChanceFactorFor(dinfo.Def), out chosen))
                 return true;
@@ -240,8 +226,9 @@ namespace PawnAimRegions15
                     return HasGroupInSelfOrAncestors(part, BodyPartGroupDefOf.FullHead);
 
                 case AimRegion.Torso:
-                    // Torso-tagged chest/internal organs, but pelvis belongs to the lower-body order.
-                    return HasDirectGroup(part, BodyPartGroupDefOf.Torso) && !IsLowerBody(part);
+                    return HasGroupInSelfOrAncestors(part, BodyPartGroupDefOf.Torso)
+                           && !HasGroupInSelfOrAncestors(part, BodyPartGroupDefOf.FullHead)
+                           && !IsLowerBody(part);
 
                 case AimRegion.LowerBody:
                     return IsLowerBody(part);
