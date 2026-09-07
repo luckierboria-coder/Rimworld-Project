@@ -168,6 +168,8 @@ namespace PawnAimRegions15
     [HarmonyPatch(typeof(DamageWorker_AddInjury), "ChooseHitPart")]
     internal static class ChooseHitPartPatch
     {
+        private const float PreferredRegionWeight = 3f;
+
         private static bool Prefix(DamageInfo dinfo, Pawn pawn, ref BodyPartRecord __result)
         {
             try
@@ -176,6 +178,8 @@ namespace PawnAimRegions15
                 if (!(dinfo.Instigator is Pawn attacker)) return true;
                 if (attacker == pawn || attacker.RaceProps == null || !attacker.RaceProps.Humanlike) return true;
                 if (!attacker.HostileTo(pawn)) return true;
+
+                // Respect systems that already explicitly constrain body height / hit part.
                 if (dinfo.Height != BodyPartHeight.Undefined) return true;
 
                 AimRegion region = AimRegionGameComponent.GetMode(attacker);
@@ -200,22 +204,36 @@ namespace PawnAimRegions15
                 .ToList();
             if (all.Count == 0) return false;
 
-            var candidates = all.Where(p => IsPreferredPart(p, region)).ToList();
-            if (candidates.Count == 0)
-            {
-                BodyPartHeight fallbackHeight = region == AimRegion.Head
-                    ? BodyPartHeight.Top
-                    : region == AimRegion.LowerBody ? BodyPartHeight.Bottom : BodyPartHeight.Middle;
-                candidates = all.Where(p => p.height == fallbackHeight).ToList();
-            }
+            // Normal humanlike bodies use semantic body-part groups. Modded bodies that do not
+            // expose those groups fall back to RimWorld's Top/Middle/Bottom heights.
+            bool hasSemanticRegion = all.Any(p => IsPreferredPart(p, region));
+            BodyPartHeight fallbackHeight = region == AimRegion.Head
+                ? BodyPartHeight.Top
+                : region == AimRegion.LowerBody ? BodyPartHeight.Bottom : BodyPartHeight.Middle;
 
-            if (candidates.Count == 0) return false;
-
-            if (candidates.TryRandomElementByWeight(
-                    p => p.coverageAbs * p.def.GetHitChanceFactorFor(dinfo.Def), out chosen))
+            // Keep every normally valid body part in the lottery. The selected region only gets
+            // 3x its vanilla hit weight; it is NOT guaranteed to be hit.
+            if (all.TryRandomElementByWeight(
+                    p => VanillaWeight(p, dinfo) *
+                         (IsInAimedRegion(p, region, hasSemanticRegion, fallbackHeight) ? PreferredRegionWeight : 1f),
+                    out chosen))
                 return true;
 
-            return candidates.TryRandomElementByWeight(p => p.coverageAbs, out chosen);
+            // Defensive fallback if a modded DamageDef returns zero hit chance for every part.
+            return all.TryRandomElementByWeight(
+                p => p.coverageAbs *
+                     (IsInAimedRegion(p, region, hasSemanticRegion, fallbackHeight) ? PreferredRegionWeight : 1f),
+                out chosen);
+        }
+
+        private static float VanillaWeight(BodyPartRecord part, DamageInfo dinfo)
+        {
+            return part.coverageAbs * part.def.GetHitChanceFactorFor(dinfo.Def);
+        }
+
+        private static bool IsInAimedRegion(BodyPartRecord part, AimRegion region, bool hasSemanticRegion, BodyPartHeight fallbackHeight)
+        {
+            return hasSemanticRegion ? IsPreferredPart(part, region) : part.height == fallbackHeight;
         }
 
         private static bool IsPreferredPart(BodyPartRecord part, AimRegion region)
