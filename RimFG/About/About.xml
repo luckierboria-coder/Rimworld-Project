@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimFG</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimfg</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <description>Experimental GPU-oriented frame generation bridge for RimWorld. RimFG keeps interpolation work outside RimWorld simulation and targets near-zero CPU/TPS overhead.</description>
+</ModMetaData>
