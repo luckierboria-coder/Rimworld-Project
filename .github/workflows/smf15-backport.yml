@@ -1,0 +1,86 @@
+name: SMF 1.5 Backport
+
+on:
+  push:
+    branches: [smf-1.5-backport]
+    paths:
+      - '.github/workflows/smf15-backport.yml'
+      - 'SMF15/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_PROCESSOR_COUNT: 2
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Checkout SimplyMoreFPS 0.3.12
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v0.3.12 https://github.com/olligod/SimplyMoreFPS.git upstream
+      - name: Apply RimWorld 1.5.4063 backport baseline
+        shell: pwsh
+        run: |
+          $p = 'upstream/RimWorldRefs.props'
+          $s = Get-Content $p -Raw
+          $s = $s.Replace('Version="1.6.4871"', 'Version="1.5.4063"')
+          # WorldGrid planet-layer hooks are 1.6-only metadata exclusions; remove them for 1.5 ref generation.
+          $s = $s.Replace('    <DoNotPublicize Include="Assembly-CSharp:RimWorld.Planet.WorldGrid.OnPlanetLayerAdded" />' + [Environment]::NewLine, '')
+          $s = $s.Replace('    <DoNotPublicize Include="Assembly-CSharp:RimWorld.Planet.WorldGrid.OnPlanetLayerRemoved" />' + [Environment]::NewLine, '')
+          Set-Content $p $s -Encoding UTF8
+
+          $about = 'upstream/About/About.xml'
+          $a = Get-Content $about -Raw
+          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha1</modVersion>')
+          $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
+          Set-Content $about $a -Encoding UTF8
+
+          if (Test-Path 'SMF15/patch.ps1') {
+            & 'SMF15/patch.ps1' -Root (Resolve-Path 'upstream')
+          }
+      - name: Compile managed solution against RimWorld 1.5.4063
+        working-directory: upstream
+        shell: pwsh
+        run: dotnet build SimplyMoreFPS.sln -c Release -m:1 -p:UseRimWorldReferenceAssemblies=true
+      - name: Run managed tests
+        working-directory: upstream
+        shell: pwsh
+        run: dotnet run --project tests/Smf.Tests -c Release --no-build
+      - name: Build native renderer
+        working-directory: upstream
+        shell: pwsh
+        run: python tools/build-renderer-windows.py --output build --tests
+      - name: Stage 1.5 mod
+        working-directory: upstream
+        shell: pwsh
+        run: python tools/build.py --reference-assemblies --runtime win-x64 --native-directory build --output staging/SimplyMoreFPS
+      - name: Re-apply 1.5 metadata after staging
+        shell: pwsh
+        run: |
+          $about = 'upstream/staging/SimplyMoreFPS/About/About.xml'
+          $a = Get-Content $about -Raw
+          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha1</modVersion>')
+          $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
+          Set-Content $about $a -Encoding UTF8
+      - name: Package Windows ZIP
+        working-directory: upstream
+        shell: pwsh
+        run: python tools/package-release.py --mod staging/SimplyMoreFPS --runtimes win-x64 --output packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SimplyMoreFPS-0.3.12-rw15-alpha1-win-x64
+          path: upstream/packages/*.zip
+          if-no-files-found: error
