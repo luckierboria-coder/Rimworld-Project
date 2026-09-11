@@ -1,3 +1,4 @@
+# RimWorld 1.5.4063 backport CI
 name: SMF 1.5 Backport
 
 on:
@@ -37,7 +38,6 @@ jobs:
           $p = 'upstream/RimWorldRefs.props'
           $s = Get-Content $p -Raw
           $s = $s.Replace('Version="1.6.4871"', 'Version="1.5.4063"')
-          # WorldGrid planet-layer hooks are 1.6-only metadata exclusions; remove them for 1.5 ref generation.
           $s = $s.Replace('    <DoNotPublicize Include="Assembly-CSharp:RimWorld.Planet.WorldGrid.OnPlanetLayerAdded" />' + [Environment]::NewLine, '')
           $s = $s.Replace('    <DoNotPublicize Include="Assembly-CSharp:RimWorld.Planet.WorldGrid.OnPlanetLayerRemoved" />' + [Environment]::NewLine, '')
           Set-Content $p $s -Encoding UTF8
