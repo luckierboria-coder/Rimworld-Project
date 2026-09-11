@@ -3,10 +3,12 @@ $ErrorActionPreference = 'Stop'
 
 function Replace-OrThrow {
     param([string]$Path,[string]$Old,[string]$New,[string]$Label)
-    $text = Get-Content $Path -Raw
-    if (-not $text.Contains($Old)) { throw "SMF15 patch anchor not found: $Label ($Path)" }
-    $text = $text.Replace($Old,$New)
-    Set-Content $Path $text -Encoding UTF8
+    $text = (Get-Content $Path -Raw).Replace("`r`n", "`n")
+    $oldNorm = $Old.Replace("`r`n", "`n")
+    $newNorm = $New.Replace("`r`n", "`n")
+    if (-not $text.Contains($oldNorm)) { throw "SMF15 patch anchor not found: $Label ($Path)" }
+    $text = $text.Replace($oldNorm,$newNorm)
+    [IO.File]::WriteAllText($Path, $text, [Text.UTF8Encoding]::new($false))
 }
 
 # CameraDriver.PanToMapLocAndSize is new in 1.6. RimWorld 1.5 already has the same
@@ -31,10 +33,10 @@ Replace-OrThrow $p '            bool coverage = !WorldComponent_GravshipControll
 # In 1.5 there is no world-background render mode. WorldRenderedNow is therefore the exact
 # equivalent of 1.6 WorldSelected for deciding whether the colony map camera is selected.
 $p = Join-Path $Root 'src/Smf.Mod/Rendering/RimWorldSceneOwner.cs'
-$text = Get-Content $p -Raw
+$text = (Get-Content $p -Raw).Replace("`r`n", "`n")
 if (($text.Split('WorldRendererUtility.WorldSelected').Count - 1) -ne 2) { throw 'Unexpected RimWorldSceneOwner WorldSelected count' }
 $text = $text.Replace('WorldRendererUtility.WorldSelected', 'WorldRendererUtility.WorldRenderedNow')
-Set-Content $p $text -Encoding UTF8
+[IO.File]::WriteAllText($p, $text, [Text.UTF8Encoding]::new($false))
 
 # MapCoverageCapture: adapt the 1.6 map-draw envelope to the 1.5 Map.MapUpdate shape.
 $p = Join-Path $Root 'src/Smf.Mod/Rendering/MapCoverageCapture.cs'
@@ -46,10 +48,10 @@ Replace-OrThrow $p @'
     private static readonly MethodInfo DrawStart = AccessTools.Method(typeof(MapDrawer), "MapMeshDrawerUpdate_First");
 '@ 'map draw start anchor'
 Replace-OrThrow $p '            if (def.doNotUpdate || original.targetTexture == null || original.commandBufferCount != 0 ||' '            if (original.targetTexture == null || original.commandBufferCount != 0 ||' 'remove SubcameraDef.doNotUpdate (1.6 field)'
-$text = Get-Content $p -Raw
+$text = (Get-Content $p -Raw).Replace("`r`n", "`n")
 if (($text.Split('WorldRendererUtility.DrawingMap').Count - 1) -ne 2) { throw 'Unexpected MapCoverageCapture DrawingMap count' }
 $text = $text.Replace('WorldRendererUtility.DrawingMap', '!WorldRendererUtility.WorldRenderedNow')
-Set-Content $p $text -Encoding UTF8
+[IO.File]::WriteAllText($p, $text, [Text.UTF8Encoding]::new($false))
 Replace-OrThrow $p @'
         Material edge = map.MapEdgeMaterial;
         if (!map.DrawMapClippers ||
@@ -69,10 +71,10 @@ Replace-OrThrow $p @'
 # is ScreenFader + gravship cutscene; only ScreenFader exists/has meaning in 1.5.
 $p = Join-Path $Root 'src/Smf.Mod/Rendering/CameraControl/CameraOwnershipAdapter.cs'
 Replace-OrThrow $p '            || !Current.Game.PlayerHasControl' '            || ScreenFader.IsFading()' 'PlayerHasControl -> ScreenFader'
-$text = Get-Content $p -Raw
+$text = (Get-Content $p -Raw).Replace("`r`n", "`n")
 if (($text.Split('WorldRendererUtility.WorldSelected').Count - 1) -ne 2) { throw 'Unexpected CameraOwnershipAdapter WorldSelected count' }
 $text = $text.Replace('WorldRendererUtility.WorldSelected', 'WorldRendererUtility.WorldRenderedNow')
-Set-Content $p $text -Encoding UTF8
+[IO.File]::WriteAllText($p, $text, [Text.UTF8Encoding]::new($false))
 Replace-OrThrow $p @'
             && driver.config.autoPanSpeed == 0f
             && !driver.config.gravshipFreeCam;
