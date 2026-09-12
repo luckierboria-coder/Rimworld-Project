@@ -14,7 +14,7 @@ permissions:
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
-  DOTNET_PROCESSOR_COUNT: 2
+  DOTNET_PROCESS_COUNT: 2
 
 jobs:
   build-windows:
@@ -45,11 +45,12 @@ jobs:
 
           $about = 'upstream/About/About.xml'
           $a = Get-Content $about -Raw
-          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha3</modVersion>')
+          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha4</modVersion>')
           $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
           Set-Content $about $a -Encoding UTF8
 
           & 'SMF15/patch.ps1' -Root (Resolve-Path 'upstream')
+          & 'SMF15/patch-alpha4.ps1' -Root (Resolve-Path 'upstream')
 
       - name: Generate Unity 2019.4.30f1 Shader and AssetBundle schemas
         shell: pwsh
@@ -69,15 +70,20 @@ jobs:
           & 'SMF15/patch-shader2019.ps1' -Root (Resolve-Path 'upstream')
           & 'SMF15/patch-shader2019-alpha3.ps1' -Root (Resolve-Path 'upstream')
 
-      - name: Verify alpha3 source profile
+      - name: Verify alpha4 source profile
         shell: pwsh
         run: |
-          $p = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/GuiShaderBundleAssembler.cs' -Raw
+          $shader = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/GuiShaderBundleAssembler.cs' -Raw
           foreach ($marker in @('2019.4.30f1','SerializedVersion = 21','BundleVersion = 6','ED2A06CE7FB8203F6EFB5AB5E0CE20D5','ResolveRequests','Field(value, "m_ParsedForm/m_Name").AsString')) {
-            if ($p -notmatch [regex]::Escape($marker)) { throw "Missing alpha3 shader marker: $marker" }
+            if ($shader -notmatch [regex]::Escape($marker)) { throw "Missing alpha4 shader marker: $marker" }
           }
-          if ($p -match 'string name = Field\(value, "m_Name"\)\.AsString') { throw 'Alpha2 root m_Name resolver leaked into alpha3.' }
-          if ($p -match 'Version = 22' -or $p -match 'bundle.Header.Version == 8') { throw 'Unity 2022 container generation leaked into alpha3.' }
+          if ($shader -match 'string name = Field\(value, "m_Name"\)\.AsString') { throw 'Alpha2 root m_Name resolver leaked into alpha4.' }
+          if ($shader -match 'Version = 22' -or $shader -match 'bundle.Header.Version == 8') { throw 'Unity 2022 container generation leaked into alpha4.' }
+          $coverage = Get-Content 'upstream/src/Smf.Mod/Rendering/MapCoverageCapture.cs' -Raw
+          foreach ($marker in @('MapComponentUpdate','RequireTarget(typeof(Root_Play), "Update")','RequireTarget(typeof(Map), "MapUpdate")','MapMeshDrawerUpdate_First','FleckManagerDraw')) {
+            if ($coverage -notmatch [regex]::Escape($marker)) { throw "Missing alpha4 coverage marker: $marker" }
+          }
+          if ($coverage -match 'MapComponentOnDraw') { throw '1.6 MapComponentOnDraw leaked into alpha4.' }
           $s48 = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/class-48.json' -Raw
           if ($s48 -notmatch '2019\.4\.30f1' -or $s48 -notmatch '"SerializedVersion":21') { throw '2019 Shader schema was not installed.' }
 
@@ -86,17 +92,17 @@ jobs:
         shell: pwsh
         run: dotnet build SimplyMoreFPS.sln -c Release -m:1 -p:UseRimWorldReferenceAssemblies=true
 
-      - name: Audit all core runtime patch targets against RimWorld 1.5.4063 metadata
+      - name: Print dynamic AccessTools sites for review
+        shell: pwsh
+        run: |
+          Get-ChildItem upstream/src/Smf.Mod -Recurse -Filter *.cs | Select-String -Pattern 'AccessTools\.(Method|Field|Property|Constructor)' | ForEach-Object { $_.Path + ':' + $_.LineNumber + ' ' + $_.Line.Trim() }
+
+      - name: Audit core runtime targets against exact RimWorld 1.5.4063 metadata
         shell: pwsh
         run: |
           $refDir = Join-Path $env:USERPROFILE '.nuget\packages\krafs.rimworld.ref\1.5.4063\ref\net472'
           if (!(Test-Path $refDir)) { throw "RimWorld 1.5 ref directory missing: $refDir" }
           dotnet run --project SMF15/ApiAudit/ApiAudit.csproj -- $refDir
-
-      - name: Print dynamic AccessTools sites for manual review
-        shell: pwsh
-        run: |
-          Get-ChildItem upstream/src/Smf.Mod -Recurse -Filter *.cs | Select-String -Pattern 'AccessTools\.(Method|Field|Property|Constructor)' | ForEach-Object { $_.Path + ':' + $_.LineNumber + ' ' + $_.Line.Trim() }
 
       - name: Run managed tests
         working-directory: upstream
@@ -113,29 +119,37 @@ jobs:
         shell: pwsh
         run: python tools/build.py --reference-assemblies --runtime win-x64 --native-directory build --output staging/SimplyMoreFPS
 
-      - name: Re-apply 1.5 alpha3 metadata after staging
+      - name: Re-apply 1.5 alpha4 metadata after staging
         shell: pwsh
         run: |
           $about = 'upstream/staging/SimplyMoreFPS/About/About.xml'
           $a = Get-Content $about -Raw
-          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha3</modVersion>')
+          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha4</modVersion>')
           $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
           Set-Content $about $a -Encoding UTF8
           @'
-          SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha3
+          SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha4
 
-          Alpha3 retains the alpha2 Unity 2019.4.30f1 / SerializedFile v21 / UnityFS v6 backport and fixes built-in Shader discovery.
+          Alpha4 is the first build gated by an exact 1.5.4063 runtime-target audit.
+          - Keeps Unity 2019.4.30f1 / SerializedFile v21 / UnityFS v6 shader backport.
+          - Keeps m_ParsedForm/m_Name built-in Shader discovery.
+          - Maps RimWorld 1.6 MapComponentOnDraw coverage scope to RimWorld 1.5 MapComponentUpdate(Map).
+          - Preflights coverage Harmony targets before installing any coverage patch.
+          - CI verifies the core renderer, selection-overlay and TPS-boost targets against Krafs.Rimworld.Ref 1.5.4063 metadata.
+
           This is an unofficial backport. Upstream SimplyMoreFPS remains targeted at RimWorld 1.6.
           '@ | Set-Content 'upstream/staging/SimplyMoreFPS/BACKPORT-NOTES.txt' -Encoding UTF8
 
-      - name: Verify staged assembly embeds Unity 2019 profile
+      - name: Verify staged assembly profile
         shell: pwsh
         run: |
           $dll = 'upstream/staging/SimplyMoreFPS/Assemblies/Smf.Mod.dll'
           if (!(Test-Path $dll)) { throw 'Smf.Mod.dll missing from stage.' }
           $bytes = [IO.File]::ReadAllBytes($dll)
           $ascii = [Text.Encoding]::UTF8.GetString($bytes)
-          if ($ascii -notmatch '2019\.4\.30f1') { throw 'Staged Smf.Mod.dll does not contain Unity 2019 profile.' }
+          foreach ($marker in @('2019.4.30f1','MapComponentUpdate','required coverage target is absent')) {
+            if ($ascii -notmatch [regex]::Escape($marker)) { throw "Staged Smf.Mod.dll missing alpha4 marker: $marker" }
+          }
 
       - name: Package Windows ZIP
         working-directory: upstream
@@ -144,6 +158,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SimplyMoreFPS-0.3.12-rw15-alpha3-win-x64
+          name: SimplyMoreFPS-0.3.12-rw15-alpha4-win-x64
           path: upstream/packages/*.zip
           if-no-files-found: error
