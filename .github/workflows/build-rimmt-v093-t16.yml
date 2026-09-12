@@ -1,0 +1,170 @@
+name: Build RimMT V0.9.3-T16 GenClosest Deep Attribution
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t16-genclosest-deep-attribution ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t16.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply V22 Stable transforms
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+
+      - name: Apply V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
+
+      - name: Apply V24 S4 telemetry and pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
+
+      - name: Apply V26 Consolidated Stable marker
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+
+      - name: Apply T1 Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1TailAttribution.ps1
+
+      - name: Apply T1A no-global-fuse policy
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
+
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+
+      - name: Apply T3 bounded FindPath layer
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T3HeavyWorkGiverEarlyRescue.ps1
+
+      - name: Apply T4 HaulMerge partner index and revert T3 early rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
+
+      - name: Apply T5 measurement-only HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+
+      - name: Apply T8 clean T5 carrier/mech cheap negatives
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T8T5CarrierPruners.ps1
+
+      - name: Apply T13 PawnTick aggregate attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T13PawnTickAggregateAttribution.ps1
+
+      - name: Apply T14 PlayerHuman residual attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T14PlayerHumanResidualAttribution.ps1
+
+      - name: Apply T15 WorkGiver deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T15WorkGiverDeepAttribution.ps1
+
+      - name: Apply T16 GenClosest deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T16GenClosestDeepAttribution.ps1
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify T16 bounded measurement-only policy
+        shell: pwsh
+        run: |
+          $project = Get-Content 'RimMT/Source/RimMT/RimMT.csproj' -Raw
+          foreach ($excluded in @('Diagnostics\JobGiverInfrastructureProfiler.cs','Diagnostics\WorkGiverProfiler.cs','Patches\WorkGiverDetailPatches.cs')) {
+            if ($project -match [regex]::Escape('<Compile Remove="' + $excluded + '" />')) { throw "T16 bounded diagnostic component still excluded: $excluded" }
+          }
+
+          $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($bootstrap -notmatch '0\.9\.3-t16-genclosest-deep-attribution') { throw 'Bootstrap is not V0.9.3-T16.' }
+          if ($bootstrap -notmatch 'WorkGiverDetailPatches\.Initialize\(harmony\)') { throw 'T15/T16 detail manager is not initialized.' }
+          if ($bootstrap -match 'PatherInternalPatches093T9|TryEnterForeignPatches093T10|GenerateNewPathForeignPatches093T11|TryEnterCleanPatches093T12') { throw 'Old heavy diagnostic chain leaked into T16.' }
+
+          $runtime = Get-Content 'RimMT/Source/RimMT/Core/RimMTRuntime.cs' -Raw
+          if ($runtime -notmatch 'WorkGiverDeepAttribution093T15\.OnMainThreadFrame\(\)') { throw 'T15 bounded lifecycle missing from T16.' }
+
+          $detail = Get-Content 'RimMT/Source/RimMT/Patches/WorkGiverDetailPatches.cs' -Raw
+          if ($detail -notmatch 'CaptureJobPackages = 64') { throw 'T16 detail capture is not bounded to 64 packages.' }
+          foreach ($marker in @('InfrastructureStateT16','object[] __args','GenClosestDeepAttribution093T16.Begin','GenClosestDeepAttribution093T16.End','WorkGiverProfiler.EnterCaller','WorkGiverProfiler.ExitCaller')) {
+            if ($detail -notmatch [regex]::Escape($marker)) { throw "T16 detail marker missing: $marker" }
+          }
+
+          $prof = Get-Content 'RimMT/Source/RimMT/Diagnostics/WorkGiverProfiler.cs' -Raw
+          foreach ($marker in @('CurrentCaller','callerStack','GenClosestDeepAttribution093T16.Reset','GenClosestDeepAttribution093T16.BeginPackage','GenClosestDeepAttribution093T16.EndPackage','Threshold20Ticks','slowPackages>=20ms')) {
+            if ($prof -notmatch [regex]::Escape($marker)) { throw "T16 profiler marker missing: $marker" }
+          }
+
+          $deep = Get-Content 'RimMT/Source/RimMT/Diagnostics/GenClosestDeepAttribution093T16.cs' -Raw
+          foreach ($marker in @('ICollection','ThingElementType','dynamic enumerables are never consumed','T16 GenClosest/Region deep attribution','mobileSourceCalls','PKG#')) {
+            if ($deep -notmatch [regex]::Escape($marker)) { throw "T16 deep search marker missing: $marker" }
+          }
+          if ($deep -match 'GetEnumerator\(|MoveNext\(') { throw 'T16 must not enumerate dynamic sources.' }
+          if ($deep -match 'Harmony\.Patch|new Harmony\(') { throw 'T16 deep profiler must reuse temporary T15 hooks rather than install resident patches.' }
+
+          $smf = Get-Content 'RimMT/Source/RimMT/Diagnostics/SMFDispatcherCoexistence093T16.cs' -Raw
+          foreach ($marker in @('TickManagerUpdate','runtime.dispatcher','game-frame-budget','Read-only audit')) {
+            if ($smf -notmatch [regex]::Escape($marker)) { throw "T16 SMF census marker missing: $marker" }
+          }
+          if ($smf -match 'FeatureGate\.(SetEnabled|Suppress)|Harmony\.Patch|Unpatch') { throw 'T16 SMF coexistence census must not mutate gates or Harmony state.' }
+
+          $t14 = Get-Content 'RimMT/Source/RimMT/Diagnostics/PlayerHumanResidualAttribution093T14.cs' -Raw
+          if ($t14 -notmatch 'SampleMask = 255') { throw 'T14 1/256 residual sampling changed.' }
+
+          $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
+          if ($reach -notmatch 'globalFuse=OFF') { throw 'No-global-fuse policy missing.' }
+
+          $diag = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
+          foreach ($marker in @('V0.9.3-T16 GenClosest Deep Attribution','GenClosestDeepAttribution093T16.Summary(24)','SMFDispatcherCoexistence093T16.Summary','dynamic source enumerables are never consumed','SMF dispatcher coexistence is census-only')) {
+            if ($diag -notmatch [regex]::Escape($marker)) { throw "T16 report marker missing: $marker" }
+          }
+
+          $dir = 'RimMT/1.5/Assemblies'
+          $dll = Join-Path $dir 'RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'RimMT/About' $stage -Recurse
+          Copy-Item 'RimMT/Languages' $stage -Recurse
+          Copy-Item 'RimMT/1.5' $stage -Recurse
+          Copy-Item 'RimMT/LoadFolders.xml' $stage
+          if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
+          $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
+          if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T16_GenClosest_Deep_Attribution.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T16-GenClosest-Deep-Attribution
+          path: build/RimMT_V0.9.3_T16_GenClosest_Deep_Attribution.zip
+          if-no-files-found: error
