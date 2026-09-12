@@ -53,6 +53,25 @@ Replace-OrThrow $p @'
                 if (worldScope.Owner != null)
 '@ 'top-level foreign target ownership guard'
 
+# BeginAfter used to replay Camera+ edge markers after any top-level Repaint, even if
+# BeginContext deliberately declined to redirect a foreign target. Restrict replay to
+# a scope that SMF actually redirected so a skipped foreign pass is completely untouched.
+Replace-OrThrow $p @'
+            __state.BeginContext();
+            if (Event.current != null && Event.current.type == EventType.Repaint && __state.ContextDepth <= 1)
+            {
+                __state.ReplayCameraPlusEdges();
+            }
+'@ @'
+            __state.BeginContext();
+            GuiScope activeScope = __state.PeekContext();
+            if (Event.current != null && Event.current.type == EventType.Repaint && __state.ContextDepth <= 1 &&
+                activeScope.Owner != null && activeScope.Redirected)
+            {
+                __state.ReplayCameraPlusEdges();
+            }
+'@ 'Camera+ replay only on SMF-redirected GUI scope'
+
 # Once the BeginContext guard above has admitted a first top-level pass, a non-null
 # target here can only be an internal ordering regression. Keep that invariant fatal,
 # but remove the old message/semantics that treated every foreign target as fatal.
@@ -65,4 +84,4 @@ Replace-OrThrow $p @'
                 throw new InvalidOperationException("Capture start bypassed the top-level render-target ownership guard.");
 '@ 'replace fatal foreign framebuffer assertion with internal guard invariant'
 
-Write-Host 'Applied SMF RW1.5 alpha5 GUI target compatibility: all foreign top-level RenderTextures are left to their owner; leaked SMF targets still fail closed.'
+Write-Host 'Applied SMF RW1.5 alpha5 GUI target compatibility: foreign top-level RenderTextures are left to their owner, Camera+ replay is gated by SMF redirection, and leaked SMF targets still fail closed.'
