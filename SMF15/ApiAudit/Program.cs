@@ -1,9 +1,7 @@
-using System.Reflection;
+using Mono.Cecil;
 
 static class P
 {
-    static readonly BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
-
     static int Main(string[] args)
     {
         if (args.Length != 1 || !Directory.Exists(args[0]))
@@ -20,80 +18,99 @@ static class P
             return 2;
         }
 
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string p in Directory.GetFiles(refDir, "*.dll")) paths.Add(Path.GetFullPath(p));
-        string? tpa = AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string;
-        if (tpa != null)
-            foreach (string p in tpa.Split(Path.PathSeparator)) paths.Add(p);
-
-        using var mlc = new MetadataLoadContext(new PathAssemblyResolver(paths));
-        Assembly asm = mlc.LoadFromAssemblyPath(gameAsmPath);
+        using var asm = AssemblyDefinition.ReadAssembly(gameAsmPath, new ReaderParameters { ReadSymbols = false });
+        ModuleDefinition mod = asm.MainModule;
         int failures = 0;
 
-        Type ReqType(string full)
+        TypeDefinition? FindType(string full)
         {
-            Type? t = asm.GetType(full, false);
+            foreach (TypeDefinition t in mod.Types)
+            {
+                TypeDefinition? hit = FindRecursive(t, full);
+                if (hit != null) return hit;
+            }
+            return null;
+        }
+
+        TypeDefinition? ReqType(string full)
+        {
+            TypeDefinition? t = FindType(full);
             if (t == null)
             {
-                Console.WriteLine("MISSING TYPE  " + full);
+                Console.WriteLine("MISSING TYPE    " + full);
                 failures++;
-                throw new InvalidOperationException("required type missing: " + full);
             }
             return t;
         }
 
         void Method(string type, string name, int? argc = null)
         {
-            Type t;
-            try { t = ReqType(type); } catch { return; }
-            var ms = t.GetMethods(Any).Where(m => m.Name == name && (argc == null || m.GetParameters().Length == argc)).ToArray();
+            TypeDefinition? t = ReqType(type);
+            if (t == null) return;
+            var ms = t.Methods.Where(m => m.Name == name && (argc == null || m.Parameters.Count == argc)).ToArray();
             if (ms.Length == 0)
             {
-                Console.WriteLine($"MISSING METHOD {type}.{name}" + (argc == null ? "" : $" argc={argc}"));
-                Console.WriteLine("  available: " + string.Join(", ", t.GetMethods(Any).Select(m => m.Name).Distinct().OrderBy(x => x)));
+                Console.WriteLine($"MISSING METHOD  {type}.{name}" + (argc == null ? "" : $" argc={argc}"));
+                Console.WriteLine("  available: " + string.Join(", ", t.Methods.Select(m => m.Name).Distinct().OrderBy(x => x)));
                 failures++;
             }
             else
             {
-                Console.WriteLine($"OK METHOD      {type}.{name}: " + string.Join(" | ", ms.Select(Signature)));
+                Console.WriteLine($"OK METHOD       {type}.{name}: " + string.Join(" | ", ms.Select(Signature)));
             }
         }
 
         void Field(string type, string name)
         {
-            Type t;
-            try { t = ReqType(type); } catch { return; }
-            FieldInfo? f = t.GetField(name, Any);
+            TypeDefinition? t = ReqType(type);
+            if (t == null) return;
+            FieldDefinition? f = t.Fields.FirstOrDefault(x => x.Name == name);
             if (f == null)
             {
-                Console.WriteLine($"MISSING FIELD  {type}.{name}");
-                Console.WriteLine("  available: " + string.Join(", ", t.GetFields(Any).Select(x => x.Name).OrderBy(x => x)));
+                Console.WriteLine($"MISSING FIELD   {type}.{name}");
+                Console.WriteLine("  available: " + string.Join(", ", t.Fields.Select(x => x.Name).OrderBy(x => x)));
                 failures++;
             }
-            else Console.WriteLine($"OK FIELD       {type}.{name}: {f.FieldType.FullName}");
+            else Console.WriteLine($"OK FIELD        {type}.{name}: {f.FieldType.FullName}");
         }
 
-        // Core detached-renderer targets installed unconditionally.
+        // Core detached renderer targets installed unconditionally by the backport.
         Method("Verse.Root_Play", "Update", 0);
         Method("Verse.Map", "MapUpdate", 0);
-        Method("Verse.MapComponentUtility", "MapComponentOnDraw", 1);
+        Method("Verse.MapComponentUtility", "MapComponentUpdate", 1);
         Field("Verse.CameraDriver", "lastViewRect");
         Field("Verse.CameraDriver", "lastViewRectGetFrame");
         Method("Verse.MapDrawer", "MapMeshDrawerUpdate_First", 0);
         Method("Verse.FleckManager", "FleckManagerDraw", 0);
 
-        // Selection overlay hooks installed when the Windows native renderer exports the feature.
+        // Selection overlay targets used by the Windows renderer feature.
         Method("RimWorld.Selector", "SelectorOnGUI", 0);
         Method("RimWorld.Selector", "Notify_DialogOpened", 0);
         Method("RimWorld.DragBox", "DragBoxOnGUI", 0);
 
-        // Frame-budget hook used by TPS Boost.
+        // TPS boost target.
         Method("Verse.TickManager", "TickManagerUpdate", 0);
+
+        // Camera-control members relied on by the managed 1.5 shim.
+        Field("Verse.CameraDriver", "lastViewRect");
+        Field("Verse.CameraDriver", "lastViewRectGetFrame");
+        Field("Verse.CameraDriver", "panner");
 
         Console.WriteLine($"AUDIT RESULT failures={failures}");
         return failures == 0 ? 0 : 1;
     }
 
-    static string Signature(MethodInfo m)
-        => $"{m.DeclaringType?.FullName}.{m.Name}({string.Join(",", m.GetParameters().Select(p => p.ParameterType.FullName))})";
+    static TypeDefinition? FindRecursive(TypeDefinition t, string full)
+    {
+        if (t.FullName.Replace('/', '+') == full || t.FullName == full) return t;
+        foreach (TypeDefinition n in t.NestedTypes)
+        {
+            TypeDefinition? hit = FindRecursive(n, full);
+            if (hit != null) return hit;
+        }
+        return null;
+    }
+
+    static string Signature(MethodDefinition m)
+        => $"{m.DeclaringType.FullName}.{m.Name}({string.Join(",", m.Parameters.Select(p => p.ParameterType.FullName))})";
 }
