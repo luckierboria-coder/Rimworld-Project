@@ -44,11 +44,12 @@ jobs:
           Set-Content $p $s -Encoding UTF8
           $about = 'upstream/About/About.xml'
           $a = Get-Content $about -Raw
-          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha4</modVersion>')
+          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha5</modVersion>')
           $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
           Set-Content $about $a -Encoding UTF8
           & 'SMF15/patch.ps1' -Root (Resolve-Path 'upstream')
           & 'SMF15/patch-alpha4.ps1' -Root (Resolve-Path 'upstream')
+          & 'SMF15/patch-alpha5.ps1' -Root (Resolve-Path 'upstream')
 
       - name: Generate Unity 2019.4.30f1 Shader and AssetBundle schemas
         shell: pwsh
@@ -64,16 +65,22 @@ jobs:
           & 'SMF15/patch-shader2019.ps1' -Root (Resolve-Path 'upstream')
           & 'SMF15/patch-shader2019-alpha3.ps1' -Root (Resolve-Path 'upstream')
 
-      - name: Verify alpha4 source profile
+      - name: Verify alpha5 source profile
         shell: pwsh
         run: |
           $shader = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/GuiShaderBundleAssembler.cs' -Raw
-          foreach ($marker in @('2019.4.30f1','SerializedVersion = 21','BundleVersion = 6','ED2A06CE7FB8203F6EFB5AB5E0CE20D5','ResolveRequests','Field(value, "m_ParsedForm/m_Name").AsString')) { if ($shader -notmatch [regex]::Escape($marker)) { throw "Missing alpha4 shader marker: $marker" } }
-          if ($shader -match 'string name = Field\(value, "m_Name"\)\.AsString') { throw 'Alpha2 root m_Name resolver leaked into alpha4.' }
-          if ($shader -match 'Version = 22' -or $shader -match 'bundle.Header.Version == 8') { throw 'Unity 2022 container generation leaked into alpha4.' }
+          foreach ($marker in @('2019.4.30f1','SerializedVersion = 21','BundleVersion = 6','ED2A06CE7FB8203F6EFB5AB5E0CE20D5','ResolveRequests','Field(value, "m_ParsedForm/m_Name").AsString')) { if ($shader -notmatch [regex]::Escape($marker)) { throw "Missing alpha5 shader marker: $marker" } }
+          if ($shader -match 'string name = Field\(value, "m_Name"\)\.AsString') { throw 'Alpha2 root m_Name resolver leaked into alpha5.' }
+          if ($shader -match 'Version = 22' -or $shader -match 'bundle.Header.Version == 8') { throw 'Unity 2022 container generation leaked into alpha5.' }
+
           $coverage = Get-Content 'upstream/src/Smf.Mod/Rendering/MapCoverageCapture.cs' -Raw
-          foreach ($marker in @('MapComponentUpdate','RequireTarget(typeof(Root_Play), "Update")','RequireTarget(typeof(Map), "MapUpdate")','MapMeshDrawerUpdate_First','FleckManagerDraw')) { if ($coverage -notmatch [regex]::Escape($marker)) { throw "Missing alpha4 coverage marker: $marker" } }
-          if ($coverage -match 'MapComponentOnDraw') { throw '1.6 MapComponentOnDraw leaked into alpha4.' }
+          foreach ($marker in @('MapComponentUpdate','RequireTarget(typeof(Root_Play), "Update")','RequireTarget(typeof(Map), "MapUpdate")','MapMeshDrawerUpdate_First','FleckManagerDraw')) { if ($coverage -notmatch [regex]::Escape($marker)) { throw "Missing alpha5 coverage marker: $marker" } }
+          if ($coverage -match 'MapComponentOnDraw') { throw '1.6 MapComponentOnDraw leaked into alpha5.' }
+
+          $gui = Get-Content 'upstream/src/Smf.Mod/Rendering/GuiRasterCapture.cs' -Raw
+          foreach ($marker in @('RenderTexture topLevelTarget = RenderTexture.active','First top-level Repaint entered a leaked SMF capture target.','return false;')) { if ($gui -notmatch [regex]::Escape($marker)) { throw "Missing alpha5 GUI target marker: $marker" } }
+          if ($gui -match [regex]::Escape('First top-level Repaint does not target the original client framebuffer.')) { throw 'Alpha4 fatal foreign-framebuffer assertion leaked into alpha5.' }
+
           $s48 = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/class-48.json' -Raw
           if ($s48 -notmatch '2019\.4\.30f1' -or $s48 -notmatch '"SerializedVersion":21') { throw '2019 Shader schema was not installed.' }
 
@@ -108,23 +115,25 @@ jobs:
         shell: pwsh
         run: python tools/build.py --reference-assemblies --runtime win-x64 --native-directory build --output staging/SimplyMoreFPS
 
-      - name: Re-apply 1.5 alpha4 metadata after staging
+      - name: Re-apply 1.5 alpha5 metadata after staging
         shell: pwsh
         run: |
           $about = 'upstream/staging/SimplyMoreFPS/About/About.xml'
           $a = Get-Content $about -Raw
-          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha4</modVersion>')
+          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha5</modVersion>')
           $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
           Set-Content $about $a -Encoding UTF8
           @'
-          SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha4
+          SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha5
 
-          Alpha4 is gated by exact 1.5.4063 startup-path API and staged-IL audits.
+          Alpha5 is gated by exact 1.5.4063 startup-path API and staged-IL audits.
           - Unity 2019.4.30f1 / SerializedFile v21 / UnityFS v6.
           - Built-in shader identity from m_ParsedForm/m_Name.
           - RimWorld 1.6 MapComponentOnDraw scope mapped to RimWorld 1.5 MapComponentUpdate(Map).
           - Coverage targets are preflighted before patch installation.
           - Camera, GUI capture, selection overlay and TPS Boost dynamic targets are checked against 1.5.4063 reference metadata.
+          - A foreign/custom top-level IMGUI RenderTexture no longer kills the detached renderer; that source frame is skipped and capture retries next frame.
+          - SMF's own leaked HUD/world capture targets still fail closed.
 
           This is an unofficial backport. Upstream SimplyMoreFPS remains targeted at RimWorld 1.6.
           '@ | Set-Content 'upstream/staging/SimplyMoreFPS/BACKPORT-NOTES.txt' -Encoding UTF8
@@ -144,6 +153,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SimplyMoreFPS-0.3.12-rw15-alpha4-win-x64
+          name: SimplyMoreFPS-0.3.12-rw15-alpha5-win-x64
           path: upstream/packages/*.zip
           if-no-files-found: error
