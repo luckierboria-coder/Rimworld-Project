@@ -102,6 +102,31 @@ static class P
                     if (!strings.Contains("MapComponentUpdate")) { Console.WriteLine("STAGED IL MISSING MapComponentUpdate"); failures++; }
                     else Console.WriteLine("OK STAGED IL     MapCoverageCapture.InstallHooks -> MapComponentUpdate");
                     if (strings.Contains("MapComponentOnDraw")) { Console.WriteLine("STAGED IL LEAK   MapComponentOnDraw"); failures++; }
+
+                    TypeDefinition? hybrid = smf.MainModule.Types.FirstOrDefault(t => t.FullName == "SimplyMoreFPS.Rendering.HybridSession");
+                    TypeDefinition? session = hybrid == null ? null : FindRecursive(hybrid, "SimplyMoreFPS.Rendering.HybridSession+Session");
+                    MethodDefinition? begin = session?.Methods.FirstOrDefault(m => m.Name == "BeginCapturedFrame");
+                    if (begin?.Body == null)
+                    {
+                        Console.WriteLine("STAGED IL MISSING HybridSession.Session.BeginCapturedFrame");
+                        failures++;
+                    }
+                    else
+                    {
+                        string[] beginStrings = begin.Body.Instructions.Where(i => i.OpCode == OpCodes.Ldstr).Select(i => (string)i.Operand).ToArray();
+                        const string oldFatal = "First top-level Repaint does not target the original client framebuffer.";
+                        const string leakedOwn = "First top-level Repaint entered a leaked SMF capture target.";
+                        bool readsActive = begin.Body.Instructions.Any(i => i.Operand is MethodReference mr &&
+                            mr.DeclaringType.FullName == "UnityEngine.RenderTexture" && mr.Name == "get_active");
+
+                        if (beginStrings.Contains(oldFatal)) { Console.WriteLine("STAGED IL LEAK   fatal foreign top-level framebuffer assertion"); failures++; }
+                        else Console.WriteLine("OK STAGED IL     foreign top-level RenderTexture is not a fatal renderer assertion");
+                        if (!beginStrings.Contains(leakedOwn)) { Console.WriteLine("STAGED IL MISSING leaked-SMF-target fail-closed guard"); failures++; }
+                        else Console.WriteLine("OK STAGED IL     leaked SMF capture target still fails closed");
+                        if (!readsActive) { Console.WriteLine("STAGED IL MISSING RenderTexture.active guard"); failures++; }
+                        else Console.WriteLine("OK STAGED IL     BeginCapturedFrame reads RenderTexture.active before capture");
+                    }
+
                     TypeDefinition? shader = smf.MainModule.Types.FirstOrDefault(t => t.FullName == "SimplyMoreFPS.Rendering.Shaders.GuiShaderBundleAssembler");
                     FieldDefinition? uv = shader?.Fields.FirstOrDefault(f => f.Name == "UnityVersion");
                     if (uv?.Constant as string != "2019.4.30f1") { Console.WriteLine("STAGED IL WRONG UnityVersion"); failures++; }
