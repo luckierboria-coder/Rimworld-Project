@@ -89,6 +89,11 @@ jobs:
       - name: Verify T15 bounded diagnostic policy
         shell: pwsh
         run: |
+          $project = Get-Content 'RimMT/Source/RimMT/RimMT.csproj' -Raw
+          foreach ($excluded in @('Diagnostics\JobGiverInfrastructureProfiler.cs','Diagnostics\WorkGiverProfiler.cs','Patches\WorkGiverDetailPatches.cs')) {
+            if ($project -match [regex]::Escape('<Compile Remove="' + $excluded + '" />')) { throw "T15 diagnostic component still excluded from compilation: $excluded" }
+          }
+
           $bootstrap = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
           if ($bootstrap -notmatch '0\.9\.3-t15-workgiver-deep-attribution') { throw 'Bootstrap is not V0.9.3-T15.' }
           if ($bootstrap -notmatch 'WorkGiverDetailPatches\.Initialize\(harmony\)') { throw 'T15 detail manager is not initialized.' }
