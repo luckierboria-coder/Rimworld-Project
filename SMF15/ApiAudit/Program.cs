@@ -72,7 +72,7 @@ static class P
             Method("UnityEngine.GUIUtility", "EndGUI", 1);
             Method("UnityEngine.GUIUtility", "EndGUIFromException", 1);
             Property("UnityEngine.GUIUtility", "textFieldInput");
-            Method("RimWorld.ThingOverlays", "ThingOverlaysOnGUI", 0);
+            Method("Verse.ThingOverlays", "ThingOverlaysOnGUI", 0);
             Method("RimWorld.GlobalControlsUtility", "DoDate");
             Property("UnityEngine.Material", "rawRenderQueue");
             foreach (string p in new[] { "blendMaterial", "blitMaterial", "roundedRectMaterial", "roundedRectWithColorPerBorderMaterial" }) Property("UnityEngine.GUI", p);
@@ -96,7 +96,7 @@ static class P
                 else
                 {
                     using var smf = AssemblyDefinition.ReadAssembly(smfPath, new ReaderParameters { ReadSymbols = false });
-                    TypeDefinition? coverage = FindRecursive(smf.MainModule.Types.First(t => t.FullName == "SimplyMoreFPS.Rendering.MapCoverageCapture"), "SimplyMoreFPS.Rendering.MapCoverageCapture");
+                    TypeDefinition? coverage = smf.MainModule.Types.FirstOrDefault(t => t.FullName == "SimplyMoreFPS.Rendering.MapCoverageCapture");
                     MethodDefinition? install = coverage?.Methods.FirstOrDefault(m => m.Name == "InstallHooks");
                     string[] strings = install?.Body?.Instructions.Where(i => i.OpCode == OpCodes.Ldstr).Select(i => (string)i.Operand).ToArray() ?? Array.Empty<string>();
                     if (!strings.Contains("MapComponentUpdate")) { Console.WriteLine("STAGED IL MISSING MapComponentUpdate"); failures++; }
