@@ -105,11 +105,12 @@ static class P
 
                     TypeDefinition? hybrid = smf.MainModule.Types.FirstOrDefault(t => t.FullName == "SimplyMoreFPS.Rendering.HybridSession");
                     TypeDefinition? session = hybrid == null ? null : FindRecursive(hybrid, "SimplyMoreFPS.Rendering.HybridSession+Session");
+                    MethodDefinition? beginAfter = hybrid?.Methods.FirstOrDefault(m => m.Name == "BeginAfter");
                     MethodDefinition? beginContext = session?.Methods.FirstOrDefault(m => m.Name == "BeginContext");
                     MethodDefinition? beginCapture = session?.Methods.FirstOrDefault(m => m.Name == "BeginCapturedFrame");
-                    if (beginContext?.Body == null || beginCapture?.Body == null)
+                    if (beginAfter?.Body == null || beginContext?.Body == null || beginCapture?.Body == null)
                     {
-                        Console.WriteLine("STAGED IL MISSING HybridSession.Session GUI capture methods");
+                        Console.WriteLine("STAGED IL MISSING HybridSession GUI capture methods");
                         failures++;
                     }
                     else
@@ -121,6 +122,9 @@ static class P
                         const string internalGuard = "Capture start bypassed the top-level render-target ownership guard.";
                         bool contextReadsActive = beginContext.Body.Instructions.Any(i => i.Operand is MethodReference mr &&
                             mr.DeclaringType.FullName == "UnityEngine.RenderTexture" && mr.Name == "get_active");
+                        bool replayReadsScope = beginAfter.Body.Instructions.Any(i => i.Operand is MethodReference mr && mr.Name == "PeekContext");
+                        bool replayChecksRedirected = beginAfter.Body.Instructions.Any(i => i.Operand is FieldReference fr &&
+                            fr.Name == "Redirected" && fr.DeclaringType.FullName.Contains("HybridSession/GuiScope"));
 
                         if (captureStrings.Contains(oldFatal)) { Console.WriteLine("STAGED IL LEAK   fatal foreign top-level framebuffer assertion"); failures++; }
                         else Console.WriteLine("OK STAGED IL     foreign top-level RenderTexture is not a fatal renderer assertion");
@@ -130,6 +134,8 @@ static class P
                         else Console.WriteLine("OK STAGED IL     BeginCapturedFrame retains internal ownership invariant");
                         if (!contextReadsActive) { Console.WriteLine("STAGED IL MISSING BeginContext RenderTexture.active guard"); failures++; }
                         else Console.WriteLine("OK STAGED IL     BeginContext guards RenderTexture.active before any top-level redirect");
+                        if (!replayReadsScope || !replayChecksRedirected) { Console.WriteLine("STAGED IL MISSING Camera+ replay redirected-scope gate"); failures++; }
+                        else Console.WriteLine("OK STAGED IL     Camera+ replay requires the active GUI scope to be SMF-redirected");
                     }
 
                     TypeDefinition? shader = smf.MainModule.Types.FirstOrDefault(t => t.FullName == "SimplyMoreFPS.Rendering.Shaders.GuiShaderBundleAssembler");
