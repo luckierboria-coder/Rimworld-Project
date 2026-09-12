@@ -20,6 +20,14 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Patch exact RimWorld 1.5 API types
+        shell: pwsh
+        run: |
+          $p = 'DraftedCommandPriority/Source/DraftedCommandPriority/DraftedCommandPriority.cs'
+          $s = Get-Content $p -Raw
+          $s = $s.Replace('List<Pawn> pawns = pawn.Map.mapPawns.AllPawnsSpawned;', 'IReadOnlyList<Pawn> pawns = pawn.Map.mapPawns.AllPawnsSpawned;')
+          Set-Content $p $s -Encoding UTF8
+
       - name: Restore
         run: dotnet restore DraftedCommandPriority/Source/DraftedCommandPriority/DraftedCommandPriority.csproj
 
@@ -30,7 +38,7 @@ jobs:
         shell: pwsh
         run: |
           $src = Get-Content 'DraftedCommandPriority/Source/DraftedCommandPriority/DraftedCommandPriority.cs' -Raw
-          foreach ($marker in @('TryTakeOrderedJob','CancelBusyStanceHard','InterruptForced','forceCompleteBeforeNextJob','StartJobAuthorityGate','ThinkTreeCommandGate','playerForced','IsHardControlled','!pawn.Spawned','stunner.Stunned')) {
+          foreach ($marker in @('TryTakeOrderedJob','CancelBusyStanceHard','InterruptForced','forceCompleteBeforeNextJob','StartJobAuthorityGate','ThinkTreeCommandGate','playerForced','IsHardControlled','!pawn.Spawned','stunner.Stunned','IReadOnlyList<Pawn>')) {
             if ($src -notmatch [regex]::Escape($marker)) { throw "Missing V0.2 authority marker: $marker" }
           }
           if ($src -match 'InMentalState\)\s*return true;' ) { throw 'Mental state must not be treated as a hard-control exception in V0.2.' }
