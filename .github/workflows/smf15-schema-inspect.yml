@@ -1,0 +1,36 @@
+name: SMF 1.5 Schema Inspect
+on:
+  push:
+    branches: [smf-1.5-backport]
+    paths:
+      - 'SMF15/gen_unity2019_schemas.py'
+      - '.github/workflows/smf15-schema-inspect.yml'
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install MD4 helper
+        run: pip install pycryptodome
+      - name: Fetch Unity 2019.4.30f1 type trees
+        run: curl -L --fail --retry 3 -o /tmp/2019.4.30f1.json https://raw.githubusercontent.com/AssetRipper/TypeTreeDumps/main/InfoJson/2019.4.30f1.json
+      - name: Generate and validate SMF schemas
+        run: |
+          python SMF15/gen_unity2019_schemas.py \
+            --input /tmp/2019.4.30f1.json \
+            --shader-out /tmp/class-48.json \
+            --bundle-out /tmp/class-142.json \
+            --info-out /tmp/schema-info.txt
+          cat /tmp/schema-info.txt
+          wc -c /tmp/class-48.json /tmp/class-142.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smf-unity2019-schemas
+          path: |
+            /tmp/class-48.json
+            /tmp/class-142.json
+            /tmp/schema-info.txt
