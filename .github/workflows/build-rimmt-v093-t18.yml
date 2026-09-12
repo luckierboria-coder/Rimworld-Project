@@ -1,0 +1,166 @@
+name: Build RimMT V0.9.3-T18 Mobile Source Rescue + Storyteller Deep
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t18-mobile-source-rescue-storyteller-deep ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t18.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply V22 Stable transforms
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+
+      - name: Apply V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
+
+      - name: Apply V24 S4 telemetry and pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
+
+      - name: Apply V26 Consolidated Stable marker
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+
+      - name: Apply T1 Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1TailAttribution.ps1
+
+      - name: Apply T1A no-global-fuse policy
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
+
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+
+      - name: Apply T3 bounded FindPath layer
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T3HeavyWorkGiverEarlyRescue.ps1
+
+      - name: Apply T4 HaulMerge partner index and revert T3 early rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
+
+      - name: Apply T5 measurement-only HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+
+      - name: Apply T8 clean T5 carrier/mech cheap negatives
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T8T5CarrierPruners.ps1
+
+      - name: Apply T13 PawnTick aggregate attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T13PawnTickAggregateAttribution.ps1
+
+      - name: Apply T14 PlayerHuman residual attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T14PlayerHumanResidualAttribution.ps1
+
+      - name: Apply T15 WorkGiver deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T15WorkGiverDeepAttribution.ps1
+
+      - name: Apply T16 GenClosest deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T16GenClosestDeepAttribution.ps1
+
+      - name: Apply T17 HaulUrgently dynamic rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T17HaulUrgentlyDynamicRescue.ps1
+
+      - name: Apply T18 mobile-source rescue and Storyteller deep burst
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T18MobileSourceRescueStorytellerDeep.ps1
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify T18 production and diagnostic safety contract
+        shell: pwsh
+        run: |
+          $boot = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($boot -notmatch '0\.9\.3-t18-mobile-source-rescue-storyteller-deep') { throw 'Bootstrap is not T18.' }
+          if ($boot -notmatch 'MobileSourceRescue093T18\.Apply\(harmony\)') { throw 'T18 mobile rescue is not installed.' }
+          if ($boot -notmatch 'StorytellerDeepAttribution093T18\.Initialize\(\)') { throw 'T18 Storyteller coordinator is not initialized.' }
+          if ($boot -match 'HaulUrgentlyDynamicMemo093T17\.Apply\(harmony\)') { throw 'T17 zero-hit memo must be disabled in T18.' }
+
+          $mobile = Get-Content 'RimMT/Source/RimMT/AI/MobileSourceRescue093T18.cs' -Raw
+          foreach ($marker in @('MinSourceCount = 96','MaxSourceCount = 1024','request.IsUndefined','thing is Pawn','RegionType.Set_Passable','map.reachability.CanReach','validator(thing)','SourceIndex','authoritySafe','JobGiverGlobalNearest04181.InJobGiverScope')) {
+            if ($mobile -notmatch [regex]::Escape($marker)) { throw "T18 mobile marker missing: $marker" }
+          }
+          if ($mobile -match 'Task\.|ThreadPool|JobScheduler|Parallel\.') { throw 'T18 mobile rescue must remain synchronous/main-thread only.' }
+          if ($mobile -match 'ReservationManager|JobOnThing\(') { throw 'T18 mobile rescue must not cache/replace reservation or JobOnThing decisions.' }
+
+          $story = Get-Content 'RimMT/Source/RimMT/Diagnostics/StorytellerDeepAttribution093T18.cs' -Raw
+          foreach ($marker in @('CaptureIntervals = 64','IncidentQueueTick','TryFire','MakeIncidentsForInterval','MoveNext','StopAllPatches','HarmonyPatchType.All','DeepHarmonyId','measurement-only')) {
+            if ($story -notmatch [regex]::Escape($marker)) { throw "T18 Storyteller marker missing: $marker" }
+          }
+          if ($story -match 'Task\.|ThreadPool|JobScheduler|Parallel\.') { throw 'T18 Storyteller burst must remain synchronous/main-thread only.' }
+
+          $bridge = Get-Content 'RimMT/Source/RimMT/Diagnostics/StorytellerCatastrophic093T15.cs' -Raw
+          if ($bridge -notmatch 'StorytellerDeepAttribution093T18\.ObserveCatastrophic\(us\)') { throw 'T18 catastrophic bridge missing.' }
+
+          $runtime = Get-Content 'RimMT/Source/RimMT/Core/RimMTRuntime.cs' -Raw
+          if ($runtime -notmatch 'StorytellerDeepAttribution093T18\.OnMainThreadFrame\(\)') { throw 'T18 deferred Storyteller lifecycle missing.' }
+
+          $report = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
+          if ($report -notmatch 'V0\.9\.3-T18 Mobile Source Rescue \+ Storyteller Deep') { throw 'T18 report title missing.' }
+          if ($report -notmatch 'MobileSourceRescue093T18\.Summary\(\)') { throw 'T18 mobile report counter missing.' }
+          if ($report -notmatch 'StorytellerDeepAttribution093T18\.Summary\(\)') { throw 'T18 Storyteller report counter missing.' }
+
+          $detail = Get-Content 'RimMT/Source/RimMT/Patches/WorkGiverDetailPatches.cs' -Raw
+          if ($detail -notmatch 'CaptureJobPackages = 64') { throw 'T16/T15 diagnostic window lost its 64-package bound.' }
+
+          $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
+          if ($reach -notmatch 'globalFuse=OFF') { throw 'No-global-fuse ReachProfile policy missing.' }
+
+          $dir = 'RimMT/1.5/Assemblies'
+          $dll = Join-Path $dir 'RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'RimMT/About' $stage -Recurse
+          Copy-Item 'RimMT/Languages' $stage -Recurse
+          Copy-Item 'RimMT/1.5' $stage -Recurse
+          Copy-Item 'RimMT/LoadFolders.xml' $stage
+          if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
+          $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
+          if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T18_Mobile_Source_Rescue_Storyteller_Deep.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T18-Mobile-Source-Rescue-Storyteller-Deep
+          path: build/RimMT_V0.9.3_T18_Mobile_Source_Rescue_Storyteller_Deep.zip
+          if-no-files-found: error
