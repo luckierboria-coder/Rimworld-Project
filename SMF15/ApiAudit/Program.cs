@@ -105,26 +105,31 @@ static class P
 
                     TypeDefinition? hybrid = smf.MainModule.Types.FirstOrDefault(t => t.FullName == "SimplyMoreFPS.Rendering.HybridSession");
                     TypeDefinition? session = hybrid == null ? null : FindRecursive(hybrid, "SimplyMoreFPS.Rendering.HybridSession+Session");
-                    MethodDefinition? begin = session?.Methods.FirstOrDefault(m => m.Name == "BeginCapturedFrame");
-                    if (begin?.Body == null)
+                    MethodDefinition? beginContext = session?.Methods.FirstOrDefault(m => m.Name == "BeginContext");
+                    MethodDefinition? beginCapture = session?.Methods.FirstOrDefault(m => m.Name == "BeginCapturedFrame");
+                    if (beginContext?.Body == null || beginCapture?.Body == null)
                     {
-                        Console.WriteLine("STAGED IL MISSING HybridSession.Session.BeginCapturedFrame");
+                        Console.WriteLine("STAGED IL MISSING HybridSession.Session GUI capture methods");
                         failures++;
                     }
                     else
                     {
-                        string[] beginStrings = begin.Body.Instructions.Where(i => i.OpCode == OpCodes.Ldstr).Select(i => (string)i.Operand).ToArray();
+                        string[] contextStrings = beginContext.Body.Instructions.Where(i => i.OpCode == OpCodes.Ldstr).Select(i => (string)i.Operand).ToArray();
+                        string[] captureStrings = beginCapture.Body.Instructions.Where(i => i.OpCode == OpCodes.Ldstr).Select(i => (string)i.Operand).ToArray();
                         const string oldFatal = "First top-level Repaint does not target the original client framebuffer.";
-                        const string leakedOwn = "First top-level Repaint entered a leaked SMF capture target.";
-                        bool readsActive = begin.Body.Instructions.Any(i => i.Operand is MethodReference mr &&
+                        const string leakedOwn = "Top-level Repaint entered a leaked SMF capture target.";
+                        const string internalGuard = "Capture start bypassed the top-level render-target ownership guard.";
+                        bool contextReadsActive = beginContext.Body.Instructions.Any(i => i.Operand is MethodReference mr &&
                             mr.DeclaringType.FullName == "UnityEngine.RenderTexture" && mr.Name == "get_active");
 
-                        if (beginStrings.Contains(oldFatal)) { Console.WriteLine("STAGED IL LEAK   fatal foreign top-level framebuffer assertion"); failures++; }
+                        if (captureStrings.Contains(oldFatal)) { Console.WriteLine("STAGED IL LEAK   fatal foreign top-level framebuffer assertion"); failures++; }
                         else Console.WriteLine("OK STAGED IL     foreign top-level RenderTexture is not a fatal renderer assertion");
-                        if (!beginStrings.Contains(leakedOwn)) { Console.WriteLine("STAGED IL MISSING leaked-SMF-target fail-closed guard"); failures++; }
-                        else Console.WriteLine("OK STAGED IL     leaked SMF capture target still fails closed");
-                        if (!readsActive) { Console.WriteLine("STAGED IL MISSING RenderTexture.active guard"); failures++; }
-                        else Console.WriteLine("OK STAGED IL     BeginCapturedFrame reads RenderTexture.active before capture");
+                        if (!contextStrings.Contains(leakedOwn)) { Console.WriteLine("STAGED IL MISSING top-level leaked-SMF-target fail-closed guard"); failures++; }
+                        else Console.WriteLine("OK STAGED IL     top-level leaked SMF capture target still fails closed");
+                        if (!captureStrings.Contains(internalGuard)) { Console.WriteLine("STAGED IL MISSING internal capture-start ownership invariant"); failures++; }
+                        else Console.WriteLine("OK STAGED IL     BeginCapturedFrame retains internal ownership invariant");
+                        if (!contextReadsActive) { Console.WriteLine("STAGED IL MISSING BeginContext RenderTexture.active guard"); failures++; }
+                        else Console.WriteLine("OK STAGED IL     BeginContext guards RenderTexture.active before any top-level redirect");
                     }
 
                     TypeDefinition? shader = smf.MainModule.Types.FirstOrDefault(t => t.FullName == "SimplyMoreFPS.Rendering.Shaders.GuiShaderBundleAssembler");
