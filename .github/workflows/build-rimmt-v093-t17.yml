@@ -1,0 +1,150 @@
+name: Build RimMT V0.9.3-T17 HaulUrgently Dynamic Rescue
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t17-haulurgently-dynamic-rescue ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t17.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply V22 Stable transforms
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+
+      - name: Apply V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
+
+      - name: Apply V24 S4 telemetry and pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
+
+      - name: Apply V26 Consolidated Stable marker
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+
+      - name: Apply T1 Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1TailAttribution.ps1
+
+      - name: Apply T1A no-global-fuse policy
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
+
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+
+      - name: Apply T3 bounded FindPath layer
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T3HeavyWorkGiverEarlyRescue.ps1
+
+      - name: Apply T4 HaulMerge partner index and revert T3 early rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
+
+      - name: Apply T5 measurement-only HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+
+      - name: Apply T8 clean T5 carrier/mech cheap negatives
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T8T5CarrierPruners.ps1
+
+      - name: Apply T13 PawnTick aggregate attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T13PawnTickAggregateAttribution.ps1
+
+      - name: Apply T14 PlayerHuman residual attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T14PlayerHumanResidualAttribution.ps1
+
+      - name: Apply T15 WorkGiver deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T15WorkGiverDeepAttribution.ps1
+
+      - name: Apply T16 GenClosest deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T16GenClosestDeepAttribution.ps1
+
+      - name: Apply T17 HaulUrgently dynamic rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T17HaulUrgentlyDynamicRescue.ps1
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify T17 production safety contract
+        shell: pwsh
+        run: |
+          $boot = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($boot -notmatch '0\.9\.3-t17-haulurgently-dynamic-rescue') { throw 'Bootstrap is not T17.' }
+          if ($boot -notmatch 'HaulUrgentlyDynamicMemo093T17\.Apply\(harmony\)') { throw 'T17 production module is not installed.' }
+
+          $t17 = Get-Content 'RimMT/Source/RimMT/AI/HaulUrgentlyDynamicMemo093T17.cs' -Raw
+          foreach ($marker in @('AllowTool.WorkGiver_HaulUrgently','PotentialWorkThingsGlobal','ShadowSampleMask = 63','RecordingEnumerable','CurrentScopeStartTicks','SameReferenceOrder','runtimeQuarantined','Harmony.GetPatchInfo','Cache lifetime=one synchronous JobGiver_Work package')) {
+            if ($t17 -notmatch [regex]::Escape($marker)) { throw "T17 source marker missing: $marker" }
+          }
+          if ($t17 -match 'Task\.|ThreadPool|JobScheduler|Parallel\.') { throw 'T17 source memo must remain synchronous/main-thread only.' }
+          if ($t17 -match 'CanReach\(' -or $t17 -match 'JobOnThing\(' -or $t17 -match 'validator\(') { throw 'T17 must not cache or replace validator/Reachability/JobOnThing decisions.' }
+
+          $report = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
+          if ($report -notmatch 'V0\.9\.3-T17 HaulUrgently Dynamic Rescue') { throw 'T17 report title missing.' }
+          if ($report -notmatch 'HaulUrgentlyDynamicMemo093T17\.Summary\(\)') { throw 'T17 report counter missing.' }
+
+          $detail = Get-Content 'RimMT/Source/RimMT/Patches/WorkGiverDetailPatches.cs' -Raw
+          if ($detail -notmatch 'CaptureJobPackages = 64') { throw 'T16/T15 diagnostic window lost its 64-package bound.' }
+
+          $t14 = Get-Content 'RimMT/Source/RimMT/Diagnostics/PlayerHumanResidualAttribution093T14.cs' -Raw
+          if ($t14 -notmatch 'SampleMask = 255') { throw 'T14 1/256 residual sampling changed.' }
+
+          $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
+          if ($reach -notmatch 'globalFuse=OFF') { throw 'No-global-fuse ReachProfile policy missing.' }
+
+          $dir = 'RimMT/1.5/Assemblies'
+          $dll = Join-Path $dir 'RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'RimMT/About' $stage -Recurse
+          Copy-Item 'RimMT/Languages' $stage -Recurse
+          Copy-Item 'RimMT/1.5' $stage -Recurse
+          Copy-Item 'RimMT/LoadFolders.xml' $stage
+          if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
+          $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
+          if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T17_HaulUrgently_Dynamic_Rescue.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T17-HaulUrgently-Dynamic-Rescue
+          path: build/RimMT_V0.9.3_T17_HaulUrgently_Dynamic_Rescue.zip
+          if-no-files-found: error
