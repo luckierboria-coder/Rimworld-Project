@@ -45,7 +45,7 @@ jobs:
 
           $about = 'upstream/About/About.xml'
           $a = Get-Content $about -Raw
-          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha2</modVersion>')
+          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha3</modVersion>')
           $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
           Set-Content $about $a -Encoding UTF8
 
@@ -67,15 +67,17 @@ jobs:
         shell: pwsh
         run: |
           & 'SMF15/patch-shader2019.ps1' -Root (Resolve-Path 'upstream')
+          & 'SMF15/patch-shader2019-alpha3.ps1' -Root (Resolve-Path 'upstream')
 
-      - name: Verify alpha2 source profile
+      - name: Verify alpha3 source profile
         shell: pwsh
         run: |
           $p = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/GuiShaderBundleAssembler.cs' -Raw
-          foreach ($marker in @('2019.4.30f1','SerializedVersion = 21','BundleVersion = 6','ED2A06CE7FB8203F6EFB5AB5E0CE20D5','ResolveRequests')) {
-            if ($p -notmatch [regex]::Escape($marker)) { throw "Missing alpha2 shader marker: $marker" }
+          foreach ($marker in @('2019.4.30f1','SerializedVersion = 21','BundleVersion = 6','ED2A06CE7FB8203F6EFB5AB5E0CE20D5','ResolveRequests','Field(value, "m_ParsedForm/m_Name").AsString')) {
+            if ($p -notmatch [regex]::Escape($marker)) { throw "Missing alpha3 shader marker: $marker" }
           }
-          if ($p -match 'Version = 22' -or $p -match 'bundle.Header.Version == 8') { throw 'Unity 2022 container generation leaked into alpha2.' }
+          if ($p -match 'string name = Field\(value, "m_Name"\)\.AsString') { throw 'Alpha2 root m_Name resolver leaked into alpha3.' }
+          if ($p -match 'Version = 22' -or $p -match 'bundle.Header.Version == 8') { throw 'Unity 2022 container generation leaked into alpha3.' }
           $s48 = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/class-48.json' -Raw
           if ($s48 -notmatch '2019\.4\.30f1' -or $s48 -notmatch '"SerializedVersion":21') { throw '2019 Shader schema was not installed.' }
 
@@ -99,22 +101,21 @@ jobs:
         shell: pwsh
         run: python tools/build.py --reference-assemblies --runtime win-x64 --native-directory build --output staging/SimplyMoreFPS
 
-      - name: Re-apply 1.5 alpha2 metadata after staging
+      - name: Re-apply 1.5 alpha3 metadata after staging
         shell: pwsh
         run: |
           $about = 'upstream/staging/SimplyMoreFPS/About/About.xml'
           $a = Get-Content $about -Raw
-          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha2</modVersion>')
+          $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha3</modVersion>')
           $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
           Set-Content $about $a -Encoding UTF8
           @'
-          SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha2
+          SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha3
 
-          Alpha2 fixes the GUI shader initialization failure from alpha1:
-          - Unity profile changed from 2022.3.35f1 / SerializedFile v22 to RimWorld 1.5's Unity 2019.4.30f1 / v21.
-          - Shader (class 48) and AssetBundle (class 142) release type trees are generated from AssetRipper TypeTreeDumps for 2019.4.30f1.
-          - UnityFS output is v6 for the Unity 2019 runtime.
-          - Required built-in GUI shaders are resolved by serialized m_Name rather than Unity 2022 path IDs.
+          Alpha3 retains the alpha2 Unity 2019.4.30f1 / SerializedFile v21 / UnityFS v6 backport and fixes built-in Shader discovery:
+          - Resolve Shader identity from m_ParsedForm/m_Name, the same serialized field upstream uses to validate each target Shader.
+          - Do not use the root m_Name field as the identity key for Unity built-in Shader objects.
+          - Shader and AssetBundle release type trees remain generated from AssetRipper TypeTreeDumps for Unity 2019.4.30f1.
           - Shader object edits remain limited to names and blend-state fields; source bytes are still roundtrip validated before derived bundle creation.
 
           This is an unofficial backport. Upstream SimplyMoreFPS remains targeted at RimWorld 1.6.
@@ -136,6 +137,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SimplyMoreFPS-0.3.12-rw15-alpha2-win-x64
+          name: SimplyMoreFPS-0.3.12-rw15-alpha3-win-x64
           path: upstream/packages/*.zip
           if-no-files-found: error
