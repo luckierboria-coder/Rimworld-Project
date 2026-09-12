@@ -78,7 +78,7 @@ jobs:
           if ($coverage -match 'MapComponentOnDraw') { throw '1.6 MapComponentOnDraw leaked into alpha5.' }
 
           $gui = Get-Content 'upstream/src/Smf.Mod/Rendering/GuiRasterCapture.cs' -Raw
-          foreach ($marker in @('RenderTexture topLevelTarget = RenderTexture.active','First top-level Repaint entered a leaked SMF capture target.','return false;')) { if ($gui -notmatch [regex]::Escape($marker)) { throw "Missing alpha5 GUI target marker: $marker" } }
+          foreach ($marker in @('RenderTexture topLevelTarget = RenderTexture.active','topLevelTarget != Capture.Hud','Top-level Repaint entered a leaked SMF capture target.','Capture start bypassed the top-level render-target ownership guard.')) { if ($gui -notmatch [regex]::Escape($marker)) { throw "Missing alpha5 GUI target marker: $marker" } }
           if ($gui -match [regex]::Escape('First top-level Repaint does not target the original client framebuffer.')) { throw 'Alpha4 fatal foreign-framebuffer assertion leaked into alpha5.' }
 
           $s48 = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/class-48.json' -Raw
@@ -132,7 +132,8 @@ jobs:
           - RimWorld 1.6 MapComponentOnDraw scope mapped to RimWorld 1.5 MapComponentUpdate(Map).
           - Coverage targets are preflighted before patch installation.
           - Camera, GUI capture, selection overlay and TPS Boost dynamic targets are checked against 1.5.4063 reference metadata.
-          - A foreign/custom top-level IMGUI RenderTexture no longer kills the detached renderer; that source frame is skipped and capture retries next frame.
+          - Foreign/custom top-level IMGUI RenderTextures are left to their owner instead of killing or hijacking the detached renderer.
+          - The current source frame is omitted from detached capture and the next frame retries normally.
           - SMF's own leaked HUD/world capture targets still fail closed.
 
           This is an unofficial backport. Upstream SimplyMoreFPS remains targeted at RimWorld 1.6.
