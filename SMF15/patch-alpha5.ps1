@@ -13,34 +13,56 @@ function Replace-OrThrow {
 
 $p = Join-Path $Root 'src/Smf.Mod/Rendering/GuiRasterCapture.cs'
 
-# Upstream 0.3.12 treats any non-null RenderTexture.active at the first top-level
-# Repaint as a fatal renderer invariant violation. That assumption is too strict for
-# RimWorld 1.5 / Unity 2019 and for large mod stacks: another rendering owner may
-# legitimately wrap an isolated top-level IMGUI pass in its own temporary target.
+# Upstream 0.3.12 assumes every top-level IMGUI Repaint participating in a detached
+# frame enters with the ordinary client target. On RimWorld 1.5 / Unity 2019 and in
+# large mod stacks, another rendering owner may wrap an isolated top-level pass in a
+# temporary RenderTexture. The guard must run at the top-level BeginContext boundary,
+# not only at BeginCapturedFrame, because a later top-level Repaint in the same Unity
+# frame can occur while SMF already has TargetHeld=true.
 #
-# Do not capture or redirect that foreign pass. It is safer to expire one detached
-# source frame and retry on the next top-level Repaint than to steal a target whose
-# lifetime/contents belong to Unity or another mod. Keep fail-closed behavior if the
-# unexpected target is one of SMF's own generation textures; that would indicate a
-# genuine leaked capture target rather than a foreign rendering pass.
+# Foreign targets are never stolen or redirected: that top-level pass is left to its
+# owner and SMF simply omits it from detached capture. The next source frame retries.
+# If the unexpected target is one of SMF's own generation textures, keep fail-closed
+# behavior because that indicates a real leaked target/ownership bug.
+Replace-OrThrow $p @'
+                if (!CaptureRouting || Capture == null || !Capture.Context.Equals(Context))
+                    return;
+
+                if (worldScope.Owner != null)
+'@ @'
+                if (!CaptureRouting || Capture == null || !Capture.Context.Equals(Context))
+                    return;
+
+                if (scope.TopLevel)
+                {
+                    RenderTexture topLevelTarget = RenderTexture.active;
+                    if (topLevelTarget != null && (!TargetHeld || topLevelTarget != Capture.Hud))
+                    {
+                        foreach (Generation generation in Generations.Values)
+                        {
+                            if (topLevelTarget == generation.Hud || topLevelTarget == generation.World)
+                                throw new InvalidOperationException("Top-level Repaint entered a leaked SMF capture target.");
+                        }
+
+                        // Foreign/custom full-screen or temporary target. Do not redirect it and
+                        // do not fault the persistent session; the next source frame can capture.
+                        return;
+                    }
+                }
+
+                if (worldScope.Owner != null)
+'@ 'top-level foreign target ownership guard'
+
+# Once the BeginContext guard above has admitted a first top-level pass, a non-null
+# target here can only be an internal ordering regression. Keep that invariant fatal,
+# but remove the old message/semantics that treated every foreign target as fatal.
 Replace-OrThrow $p @'
             // The base copy must happen before any redirection; a custom top-level target is not supported.
             if (RenderTexture.active != null)
                 throw new InvalidOperationException("First top-level Repaint does not target the original client framebuffer.");
 '@ @'
-            // Unity 2019 and modded render chains can legitimately enter an isolated top-level
-            // IMGUI Repaint with a foreign RenderTexture bound. Never steal that target: skip
-            // this detached source frame and retry on the next top-level Repaint.
-            RenderTexture topLevelTarget = RenderTexture.active;
-            if (topLevelTarget != null)
-            {
-                foreach (Generation generation in Generations.Values)
-                {
-                    if (topLevelTarget == generation.Hud || topLevelTarget == generation.World)
-                        throw new InvalidOperationException("First top-level Repaint entered a leaked SMF capture target.");
-                }
-                return false;
-            }
-'@ 'foreign top-level Repaint target becomes per-frame skip'
+            if (RenderTexture.active != null)
+                throw new InvalidOperationException("Capture start bypassed the top-level render-target ownership guard.");
+'@ 'replace fatal foreign framebuffer assertion with internal guard invariant'
 
-Write-Host 'Applied SMF RW1.5 alpha5 GUI target compatibility: foreign top-level RenderTexture skips one detached frame; leaked SMF targets still fail closed.'
+Write-Host 'Applied SMF RW1.5 alpha5 GUI target compatibility: all foreign top-level RenderTextures are left to their owner; leaked SMF targets still fail closed.'
