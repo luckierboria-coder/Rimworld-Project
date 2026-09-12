@@ -113,8 +113,8 @@ def main():
     with open(args.input, 'r', encoding='utf-8-sig') as f:
         data = json.load(f)
 
-    shader_class, shader_root = find_class(data, 48)
-    bundle_class, bundle_root = find_class(data, 142)
+    _, shader_root = find_class(data, 48)
+    _, bundle_root = find_class(data, 142)
     shader, shader_sha, shader_len = write_schema(args.shader_out, 48, shader_root)
     bundle, bundle_sha, bundle_len = write_schema(args.bundle_out, 142, bundle_root)
 
@@ -122,10 +122,16 @@ def main():
     bundle_paths = collect_paths(bundle_root)
     required_shader_suffixes = [
         'Base/m_Name',
+        'Base/m_Dependencies/Array',
+        'Base/m_NonModifiableTextures/Array',
+        'Base/m_ParsedForm/m_Dependencies/Array',
+        'Base/m_ParsedForm/m_FallbackName',
         'Base/m_ParsedForm/m_SubShaders/Array/data/m_Passes/Array/data/m_State/rtBlend0/srcBlend/val',
         'Base/m_ParsedForm/m_SubShaders/Array/data/m_Passes/Array/data/m_State/rtBlend0/destBlend/val',
         'Base/m_ParsedForm/m_SubShaders/Array/data/m_Passes/Array/data/m_State/rtBlend0/srcBlendAlpha/val',
         'Base/m_ParsedForm/m_SubShaders/Array/data/m_Passes/Array/data/m_State/rtBlend0/destBlendAlpha/val',
+        'Base/platforms/Array',
+        'Base/compressedBlob/Array',
     ]
     required_bundle_suffixes = [
         'Base/m_Name', 'Base/m_PreloadTable/Array', 'Base/m_Container/Array', 'Base/m_AssetBundleName'
