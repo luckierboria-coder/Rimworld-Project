@@ -65,7 +65,8 @@ jobs:
 
       - name: Apply Unity 2019 serialized shader backport
         shell: pwsh
-        run: '& ''SMF15/patch-shader2019.ps1'' -Root (Resolve-Path ''upstream'')'
+        run: |
+          & 'SMF15/patch-shader2019.ps1' -Root (Resolve-Path 'upstream')
 
       - name: Verify alpha2 source profile
         shell: pwsh
@@ -107,17 +108,17 @@ jobs:
           $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
           Set-Content $about $a -Encoding UTF8
           @'
-SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha2
+          SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha2
 
-Alpha2 fixes the GUI shader initialization failure from alpha1:
-- Unity profile changed from 2022.3.35f1 / SerializedFile v22 to RimWorld 1.5's Unity 2019.4.30f1 / v21.
-- Shader (class 48) and AssetBundle (class 142) release type trees are generated from AssetRipper TypeTreeDumps for 2019.4.30f1.
-- UnityFS output is v6 for the Unity 2019 runtime.
-- Required built-in GUI shaders are resolved by serialized m_Name rather than Unity 2022 path IDs.
-- Shader object edits remain limited to names and blend-state fields; source bytes are still roundtrip validated before derived bundle creation.
+          Alpha2 fixes the GUI shader initialization failure from alpha1:
+          - Unity profile changed from 2022.3.35f1 / SerializedFile v22 to RimWorld 1.5's Unity 2019.4.30f1 / v21.
+          - Shader (class 48) and AssetBundle (class 142) release type trees are generated from AssetRipper TypeTreeDumps for 2019.4.30f1.
+          - UnityFS output is v6 for the Unity 2019 runtime.
+          - Required built-in GUI shaders are resolved by serialized m_Name rather than Unity 2022 path IDs.
+          - Shader object edits remain limited to names and blend-state fields; source bytes are still roundtrip validated before derived bundle creation.
 
-This is an unofficial backport. Upstream SimplyMoreFPS remains targeted at RimWorld 1.6.
-'@ | Set-Content 'upstream/staging/SimplyMoreFPS/BACKPORT-NOTES.txt' -Encoding UTF8
+          This is an unofficial backport. Upstream SimplyMoreFPS remains targeted at RimWorld 1.6.
+          '@ | Set-Content 'upstream/staging/SimplyMoreFPS/BACKPORT-NOTES.txt' -Encoding UTF8
 
       - name: Verify staged assembly embeds Unity 2019 profile
         shell: pwsh
