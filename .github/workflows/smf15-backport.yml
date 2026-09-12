@@ -86,6 +86,18 @@ jobs:
         shell: pwsh
         run: dotnet build SimplyMoreFPS.sln -c Release -m:1 -p:UseRimWorldReferenceAssemblies=true
 
+      - name: Audit all core runtime patch targets against RimWorld 1.5.4063 metadata
+        shell: pwsh
+        run: |
+          $refDir = Join-Path $env:USERPROFILE '.nuget\packages\krafs.rimworld.ref\1.5.4063\ref\net472'
+          if (!(Test-Path $refDir)) { throw "RimWorld 1.5 ref directory missing: $refDir" }
+          dotnet run --project SMF15/ApiAudit/ApiAudit.csproj -- $refDir
+
+      - name: Print dynamic AccessTools sites for manual review
+        shell: pwsh
+        run: |
+          Get-ChildItem upstream/src/Smf.Mod -Recurse -Filter *.cs | Select-String -Pattern 'AccessTools\.(Method|Field|Property|Constructor)' | ForEach-Object { $_.Path + ':' + $_.LineNumber + ' ' + $_.Line.Trim() }
+
       - name: Run managed tests
         working-directory: upstream
         shell: pwsh
@@ -112,12 +124,7 @@ jobs:
           @'
           SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha3
 
-          Alpha3 retains the alpha2 Unity 2019.4.30f1 / SerializedFile v21 / UnityFS v6 backport and fixes built-in Shader discovery:
-          - Resolve Shader identity from m_ParsedForm/m_Name, the same serialized field upstream uses to validate each target Shader.
-          - Do not use the root m_Name field as the identity key for Unity built-in Shader objects.
-          - Shader and AssetBundle release type trees remain generated from AssetRipper TypeTreeDumps for Unity 2019.4.30f1.
-          - Shader object edits remain limited to names and blend-state fields; source bytes are still roundtrip validated before derived bundle creation.
-
+          Alpha3 retains the alpha2 Unity 2019.4.30f1 / SerializedFile v21 / UnityFS v6 backport and fixes built-in Shader discovery.
           This is an unofficial backport. Upstream SimplyMoreFPS remains targeted at RimWorld 1.6.
           '@ | Set-Content 'upstream/staging/SimplyMoreFPS/BACKPORT-NOTES.txt' -Encoding UTF8
 
