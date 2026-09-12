@@ -42,13 +42,11 @@ jobs:
           $s = $s.Replace('    <DoNotPublicize Include="Assembly-CSharp:RimWorld.Planet.WorldGrid.OnPlanetLayerAdded" />' + [Environment]::NewLine, '')
           $s = $s.Replace('    <DoNotPublicize Include="Assembly-CSharp:RimWorld.Planet.WorldGrid.OnPlanetLayerRemoved" />' + [Environment]::NewLine, '')
           Set-Content $p $s -Encoding UTF8
-
           $about = 'upstream/About/About.xml'
           $a = Get-Content $about -Raw
           $a = $a.Replace('<modVersion>0.3.12</modVersion>', '<modVersion>0.3.12-rw15-alpha4</modVersion>')
           $a = $a.Replace('<li>1.6</li>', '<li>1.5</li>')
           Set-Content $about $a -Encoding UTF8
-
           & 'SMF15/patch.ps1' -Root (Resolve-Path 'upstream')
           & 'SMF15/patch-alpha4.ps1' -Root (Resolve-Path 'upstream')
 
@@ -57,11 +55,7 @@ jobs:
         run: |
           python -m pip install pycryptodome
           Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/AssetRipper/TypeTreeDumps/main/InfoJson/2019.4.30f1.json' -OutFile 'unity2019-info.json'
-          python SMF15/gen_unity2019_schemas.py `
-            --input unity2019-info.json `
-            --shader-out upstream/src/Smf.Mod/Rendering/Shaders/class-48.json `
-            --bundle-out upstream/src/Smf.Mod/Rendering/Shaders/class-142.json `
-            --info-out unity2019-schema-info.txt
+          python SMF15/gen_unity2019_schemas.py --input unity2019-info.json --shader-out upstream/src/Smf.Mod/Rendering/Shaders/class-48.json --bundle-out upstream/src/Smf.Mod/Rendering/Shaders/class-142.json --info-out unity2019-schema-info.txt
           Get-Content unity2019-schema-info.txt
 
       - name: Apply Unity 2019 serialized shader backport
@@ -74,15 +68,11 @@ jobs:
         shell: pwsh
         run: |
           $shader = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/GuiShaderBundleAssembler.cs' -Raw
-          foreach ($marker in @('2019.4.30f1','SerializedVersion = 21','BundleVersion = 6','ED2A06CE7FB8203F6EFB5AB5E0CE20D5','ResolveRequests','Field(value, "m_ParsedForm/m_Name").AsString')) {
-            if ($shader -notmatch [regex]::Escape($marker)) { throw "Missing alpha4 shader marker: $marker" }
-          }
+          foreach ($marker in @('2019.4.30f1','SerializedVersion = 21','BundleVersion = 6','ED2A06CE7FB8203F6EFB5AB5E0CE20D5','ResolveRequests','Field(value, "m_ParsedForm/m_Name").AsString')) { if ($shader -notmatch [regex]::Escape($marker)) { throw "Missing alpha4 shader marker: $marker" } }
           if ($shader -match 'string name = Field\(value, "m_Name"\)\.AsString') { throw 'Alpha2 root m_Name resolver leaked into alpha4.' }
           if ($shader -match 'Version = 22' -or $shader -match 'bundle.Header.Version == 8') { throw 'Unity 2022 container generation leaked into alpha4.' }
           $coverage = Get-Content 'upstream/src/Smf.Mod/Rendering/MapCoverageCapture.cs' -Raw
-          foreach ($marker in @('MapComponentUpdate','RequireTarget(typeof(Root_Play), "Update")','RequireTarget(typeof(Map), "MapUpdate")','MapMeshDrawerUpdate_First','FleckManagerDraw')) {
-            if ($coverage -notmatch [regex]::Escape($marker)) { throw "Missing alpha4 coverage marker: $marker" }
-          }
+          foreach ($marker in @('MapComponentUpdate','RequireTarget(typeof(Root_Play), "Update")','RequireTarget(typeof(Map), "MapUpdate")','MapMeshDrawerUpdate_First','FleckManagerDraw')) { if ($coverage -notmatch [regex]::Escape($marker)) { throw "Missing alpha4 coverage marker: $marker" } }
           if ($coverage -match 'MapComponentOnDraw') { throw '1.6 MapComponentOnDraw leaked into alpha4.' }
           $s48 = Get-Content 'upstream/src/Smf.Mod/Rendering/Shaders/class-48.json' -Raw
           if ($s48 -notmatch '2019\.4\.30f1' -or $s48 -notmatch '"SerializedVersion":21') { throw '2019 Shader schema was not installed.' }
@@ -94,10 +84,9 @@ jobs:
 
       - name: Print dynamic AccessTools sites for review
         shell: pwsh
-        run: |
-          Get-ChildItem upstream/src/Smf.Mod -Recurse -Filter *.cs | Select-String -Pattern 'AccessTools\.(Method|Field|Property|Constructor)' | ForEach-Object { $_.Path + ':' + $_.LineNumber + ' ' + $_.Line.Trim() }
+        run: Get-ChildItem upstream/src/Smf.Mod -Recurse -Filter *.cs | Select-String -Pattern 'AccessTools\.(Method|Field|Property|Constructor)' | ForEach-Object { $_.Path + ':' + $_.LineNumber + ' ' + $_.Line.Trim() }
 
-      - name: Audit core runtime targets against exact RimWorld 1.5.4063 metadata
+      - name: Audit complete startup-path APIs against exact RimWorld 1.5.4063 metadata
         shell: pwsh
         run: |
           $refDir = Join-Path $env:USERPROFILE '.nuget\packages\krafs.rimworld.ref\1.5.4063\ref\net472'
@@ -130,26 +119,23 @@ jobs:
           @'
           SimplyMoreFPS 0.3.12 RimWorld 1.5.4063 backport alpha4
 
-          Alpha4 is the first build gated by an exact 1.5.4063 runtime-target audit.
-          - Keeps Unity 2019.4.30f1 / SerializedFile v21 / UnityFS v6 shader backport.
-          - Keeps m_ParsedForm/m_Name built-in Shader discovery.
-          - Maps RimWorld 1.6 MapComponentOnDraw coverage scope to RimWorld 1.5 MapComponentUpdate(Map).
-          - Preflights coverage Harmony targets before installing any coverage patch.
-          - CI verifies the core renderer, selection-overlay and TPS-boost targets against Krafs.Rimworld.Ref 1.5.4063 metadata.
+          Alpha4 is gated by exact 1.5.4063 startup-path API and staged-IL audits.
+          - Unity 2019.4.30f1 / SerializedFile v21 / UnityFS v6.
+          - Built-in shader identity from m_ParsedForm/m_Name.
+          - RimWorld 1.6 MapComponentOnDraw scope mapped to RimWorld 1.5 MapComponentUpdate(Map).
+          - Coverage targets are preflighted before patch installation.
+          - Camera, GUI capture, selection overlay and TPS Boost dynamic targets are checked against 1.5.4063 reference metadata.
 
           This is an unofficial backport. Upstream SimplyMoreFPS remains targeted at RimWorld 1.6.
           '@ | Set-Content 'upstream/staging/SimplyMoreFPS/BACKPORT-NOTES.txt' -Encoding UTF8
 
-      - name: Verify staged assembly profile
+      - name: Audit staged Smf.Mod IL
         shell: pwsh
         run: |
+          $refDir = Join-Path $env:USERPROFILE '.nuget\packages\krafs.rimworld.ref\1.5.4063\ref\net472'
           $dll = 'upstream/staging/SimplyMoreFPS/Assemblies/Smf.Mod.dll'
           if (!(Test-Path $dll)) { throw 'Smf.Mod.dll missing from stage.' }
-          $bytes = [IO.File]::ReadAllBytes($dll)
-          $ascii = [Text.Encoding]::UTF8.GetString($bytes)
-          foreach ($marker in @('2019.4.30f1','MapComponentUpdate','required coverage target is absent')) {
-            if ($ascii -notmatch [regex]::Escape($marker)) { throw "Staged Smf.Mod.dll missing alpha4 marker: $marker" }
-          }
+          dotnet run --project SMF15/ApiAudit/ApiAudit.csproj -- $refDir $dll
 
       - name: Package Windows ZIP
         working-directory: upstream
