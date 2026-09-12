@@ -1,13 +1,8 @@
-name: Build Drafted Command Priority RimWorld 1.5
+name: Build Drafted Command Priority V0.2 RimWorld 1.5
 
-# Retrigger marker: 2026-08-26
 on:
   push:
-    branches: [ main ]
-    paths:
-      - 'DraftedCommandPriority/**'
-      - '.github/workflows/build-dcp.yml'
-  pull_request:
+    branches: [ dcp-v0.2-absolute-player-authority ]
     paths:
       - 'DraftedCommandPriority/**'
       - '.github/workflows/build-dcp.yml'
@@ -31,9 +26,14 @@ jobs:
       - name: Build Release
         run: dotnet build DraftedCommandPriority/Source/DraftedCommandPriority/DraftedCommandPriority.csproj --configuration Release --no-restore
 
-      - name: Verify assembly
+      - name: Verify absolute-authority contract
         shell: pwsh
         run: |
+          $src = Get-Content 'DraftedCommandPriority/Source/DraftedCommandPriority/DraftedCommandPriority.cs' -Raw
+          foreach ($marker in @('TryTakeOrderedJob','CancelBusyStanceHard','InterruptForced','forceCompleteBeforeNextJob','StartJobAuthorityGate','ThinkTreeCommandGate','playerForced','IsHardControlled','!pawn.Spawned','stunner.Stunned')) {
+            if ($src -notmatch [regex]::Escape($marker)) { throw "Missing V0.2 authority marker: $marker" }
+          }
+          if ($src -match 'InMentalState\)\s*return true;' ) { throw 'Mental state must not be treated as a hard-control exception in V0.2.' }
           $dll = 'DraftedCommandPriority/1.5/Assemblies/DraftedCommandPriority.dll'
           if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
           Get-Item $dll | Format-List FullName,Length,LastWriteTime
@@ -47,11 +47,11 @@ jobs:
           Copy-Item 'DraftedCommandPriority/Languages' $stage -Recurse
           Copy-Item 'DraftedCommandPriority/1.5' $stage -Recurse
           Copy-Item 'DraftedCommandPriority/README.md' $stage
-          Compress-Archive -Path $stage -DestinationPath 'build/DraftedCommandPriority_V0.1_Playtest.zip' -Force
+          Compress-Archive -Path $stage -DestinationPath 'build/DraftedCommandPriority_V0.2_Absolute_Player_Authority.zip' -Force
 
       - name: Upload playtest artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DraftedCommandPriority-V0.1-Playtest
-          path: build/DraftedCommandPriority_V0.1_Playtest.zip
+          name: DraftedCommandPriority-V0.2-Absolute-Player-Authority
+          path: build/DraftedCommandPriority_V0.2_Absolute_Player_Authority.zip
           if-no-files-found: error
