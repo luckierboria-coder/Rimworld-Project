@@ -1,0 +1,64 @@
+name: Build Grenade Stack Counter Fix RimWorld 1.5
+
+on:
+  push:
+    branches: [ grenade-stack-counter-fix-rw15 ]
+    paths:
+      - 'GrenadeStackCounterFix/**'
+      - '.github/workflows/build-grenade-stack-counter-fix.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore GrenadeStackCounterFix/Source/GrenadeStackCounterFix/GrenadeStackCounterFix.csproj
+
+      - name: Build Release
+        run: dotnet build GrenadeStackCounterFix/Source/GrenadeStackCounterFix/GrenadeStackCounterFix.csproj --configuration Release --no-restore
+
+      - name: Verify narrow patch contract
+        shell: pwsh
+        run: |
+          $src = Get-Content 'GrenadeStackCounterFix/Source/GrenadeStackCounterFix/GrenadeStackCounterFix.cs' -Raw
+          $required = @(
+            'RecipeWorkerCounter.CountValidThings',
+            'count += thing.stackCount',
+            'DankPyon_Weapon_PotFire',
+            'DankPyon_Weapon_PotFlash',
+            'DankPyon_Weapon_PotFlashSmoke',
+            'DankPyon_Weapon_AcidFlask'
+          )
+          foreach ($token in $required) {
+            if (-not $src.Contains($token)) { throw "Missing safety token: $token" }
+          }
+          if ($src.Contains('CountProducts_Patch')) { throw 'Unexpected broad CountProducts patch present.' }
+          $dll = 'GrenadeStackCounterFix/1.5/Assemblies/GrenadeStackCounterFix.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/GrenadeStackCounterFix'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'GrenadeStackCounterFix/About' $stage -Recurse
+          Copy-Item 'GrenadeStackCounterFix/1.5' $stage -Recurse
+          Copy-Item 'GrenadeStackCounterFix/README.md' $stage
+          Compress-Archive -Path $stage -DestinationPath 'build/GrenadeStackCounterFix_RW1.5.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrenadeStackCounterFix-RW1.5
+          path: build/GrenadeStackCounterFix_RW1.5.zip
+          if-no-files-found: error
