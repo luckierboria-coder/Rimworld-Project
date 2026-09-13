@@ -8,6 +8,10 @@ on:
       - '.github/workflows/build-grenade-stack-counter-fix.yml'
   workflow_dispatch:
 
+concurrency:
+  group: grenade-stack-counter-fix-rw15
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
