@@ -13,24 +13,19 @@ namespace GrenadeStackCounterFix
         static Bootstrap()
         {
             new Harmony(HarmonyId).PatchAll();
-            Log.Message("[Grenade Stack Counter Fix] Active for 4 medieval grenade defs. Map bill counts now sum stackCount instead of Thing instances.");
+            Log.Message("[Grenade Stack Counter Fix] Active for stackable weapons. Map bill counts now sum stackCount instead of Thing instances when product IsWeapon && stackLimit > 1.");
         }
     }
 
     [HarmonyPatch(typeof(RecipeWorkerCounter), nameof(RecipeWorkerCounter.CountValidThings))]
     internal static class RecipeWorkerCounter_CountValidThings_Patch
     {
-        private static readonly HashSet<string> TargetDefs = new HashSet<string>
-        {
-            "DankPyon_Weapon_PotFire",
-            "DankPyon_Weapon_PotFlash",
-            "DankPyon_Weapon_PotFlashSmoke",
-            "DankPyon_Weapon_AcidFlask"
-        };
-
         public static bool Prefix(RecipeWorkerCounter __instance, List<Thing> things, Bill_Production bill, ThingDef def, ref int __result)
         {
-            if (__instance == null || bill == null || def == null || !TargetDefs.Contains(def.defName))
+            // RimWorld 1.5 assumes non-resource weapons are non-stackable and CountValidThings()
+            // therefore increments once per Thing instance. Mods can legitimately make grenades
+            // and other weapons stackable, so only that semantic mismatch is corrected here.
+            if (__instance == null || bill == null || def == null || !def.IsWeapon || def.stackLimit <= 1)
                 return true;
 
             if (things == null || things.Count == 0)
