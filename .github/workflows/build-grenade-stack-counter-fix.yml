@@ -37,14 +37,13 @@ jobs:
           $required = @(
             'RecipeWorkerCounter.CountValidThings',
             'count += thing.stackCount',
-            'DankPyon_Weapon_PotFire',
-            'DankPyon_Weapon_PotFlash',
-            'DankPyon_Weapon_PotFlashSmoke',
-            'DankPyon_Weapon_AcidFlask'
+            '!def.IsWeapon',
+            'def.stackLimit <= 1'
           )
           foreach ($token in $required) {
             if (-not $src.Contains($token)) { throw "Missing safety token: $token" }
           }
+          if ($src.Contains('TargetDefs')) { throw 'Old fixed DefName whitelist is still present.' }
           if ($src.Contains('CountProducts_Patch')) { throw 'Unexpected broad CountProducts patch present.' }
           $dll = 'GrenadeStackCounterFix/1.5/Assemblies/GrenadeStackCounterFix.dll'
           if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
