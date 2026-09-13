@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Grenade Stack Counter Fix</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.grenadestackcounterfix</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+  </loadAfter>
+  <description>Fixes RimWorld 1.5 bill target-count inventory counting for the stackable medieval grenades DankPyon_Weapon_PotFire, DankPyon_Weapon_PotFlash, DankPyon_Weapon_PotFlashSmoke, and DankPyon_Weapon_AcidFlask. Vanilla counts map Thing instances for non-resource products, which undercounts stackable weapons. This patch sums stackCount only for those four grenade defs.</description>
+</ModMetaData>
