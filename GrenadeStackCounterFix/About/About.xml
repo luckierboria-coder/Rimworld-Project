@@ -16,5 +16,5 @@
   <loadAfter>
     <li>brrainz.harmony</li>
   </loadAfter>
-  <description>Fixes RimWorld 1.5 bill target-count inventory counting for the stackable medieval grenades DankPyon_Weapon_PotFire, DankPyon_Weapon_PotFlash, DankPyon_Weapon_PotFlashSmoke, and DankPyon_Weapon_AcidFlask. Vanilla counts map Thing instances for non-resource products, which undercounts stackable weapons. This patch sums stackCount only for those four grenade defs.</description>
+  <description>Fixes RimWorld 1.5 bill target-count inventory counting for stackable weapons. Vanilla counts map Thing instances for non-resource products, which undercounts grenades and other weapons when a mod gives them stackLimit greater than 1. This patch sums stackCount for weapon products with stackLimit greater than 1 while preserving Vanilla filtering and leaving ordinary items and non-stackable weapons unchanged.</description>
 </ModMetaData>
