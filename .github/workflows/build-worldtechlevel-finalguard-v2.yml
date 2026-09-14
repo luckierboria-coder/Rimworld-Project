@@ -1,0 +1,63 @@
+name: Build World Tech Level Final Guard V2
+
+on:
+  push:
+    branches: [ wtl-finalguard-v2-local-repair ]
+    paths:
+      - 'WorldTechLevel-FinalGuard/**'
+      - '.github/workflows/build-worldtechlevel-finalguard-v2.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: worldtechlevel-finalguard-v2
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore WorldTechLevel-FinalGuard/Source/WorldTechLevelFinalGuard.csproj
+
+      - name: Build Release
+        run: dotnet build WorldTechLevel-FinalGuard/Source/WorldTechLevelFinalGuard.csproj --configuration Release --no-restore
+
+      - name: Verify safety contract
+        shell: pwsh
+        run: |
+          $src = Get-Content 'WorldTechLevel-FinalGuard\Source\FinalGuard.cs' -Raw
+          if ($src -notmatch 'MakeGenericType\(typeof\(TraitDef\)\)') { throw 'TraitDef-only target missing.' }
+          if ($src -notmatch 'ApplyOverrides') { throw 'World Tech Level override preservation missing.' }
+          if ($src -notmatch 'return true;') { throw 'Fail-open path missing.' }
+          if ($src -match 'TechLevelDatabase<ThingDef>') { throw 'Unexpected ThingDef patch scope.' }
+          if ($src -match 'TechLevelDatabase<ResearchProjectDef>') { throw 'Unexpected ResearchProjectDef patch scope.' }
+          $dll = 'WorldTechLevel-FinalGuard\1.5\Assemblies\WorldTechLevelFinalGuard.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Remove-Item 'dist-finalguard' -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist-finalguard\WorldTechLevel-FinalGuard'
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          Copy-Item 'WorldTechLevel-FinalGuard\About\About.xml' "$stage\About\About.xml"
+          Copy-Item 'WorldTechLevel-FinalGuard\README.md' "$stage\README.md"
+          Copy-Item 'WorldTechLevel-FinalGuard\1.5\Assemblies\WorldTechLevelFinalGuard.dll' "$stage\1.5\Assemblies\WorldTechLevelFinalGuard.dll"
+          $files = Get-ChildItem $stage -Recurse -File
+          if ($files.Name -contains '0Harmony.dll') { throw 'Dependency DLL leaked into package.' }
+          if ($files.Name -match '\.pdb$') { throw 'PDB leaked into package.' }
+          Compress-Archive -Path $stage -DestinationPath 'dist-finalguard\WorldTechLevel_FinalGuard_V2_RW1.5.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorldTechLevel-FinalGuard-V2-RW1.5
+          path: dist-finalguard/WorldTechLevel_FinalGuard_V2_RW1.5.zip
+          if-no-files-found: error
