@@ -39,6 +39,7 @@ $core = Replace-OrThrow $core 'ValidatorCallState.Verify(' 'ValidatorCallState.F
 $core = Replace-OrThrow $core 'internal static ValidatorCallState Verify(' 'internal static ValidatorCallState ForVerify(' 'validator verify factory'
 $core = Replace-OrThrow $core 'ReachCallState.Store(' 'ReachCallState.ForStore(' 'reach store callsites'
 $core = Replace-OrThrow $core 'internal static ReachCallState Store(' 'internal static ReachCallState ForStore(' 'reach store factory'
+$core = Replace-OrThrow $core 'no Job/Reservation/priority/cross-tick cache.' 'no Job/JobOnThing/reservation/priority/cross-package result is cached.' 'T20 safety summary marker'
 Set-Content $corePath $core -Encoding UTF8
 
 $reportPath = 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
