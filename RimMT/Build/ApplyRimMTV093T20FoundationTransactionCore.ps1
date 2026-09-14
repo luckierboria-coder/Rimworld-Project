@@ -30,6 +30,17 @@ $boot = Replace-OrThrow $boot @'
 $boot = Replace-OrThrow $boot '[RimMT] V0.9.3-T19 Quest Deep + Mobile Global Rescue initialized. T18 reachable mobile rescue retained; T19 adds measured large mobile ClosestThing_Global rescue plus long-lived low-duty-cycle natural quest CanRun attribution. T18 bounded Storyteller burst retained; SMF dispatcher policy unchanged.' '[RimMT] V0.9.3-T20 Foundation Transaction Core initialized. Generic JobGiver package transaction, validator-negative memo and bounded package-local Reachability memo added below WorkGiver-specific logic. T18/T19 diagnostics retained; SMF dispatcher policy unchanged.' 'T20 bootstrap log'
 Set-Content $bootPath $boot -Encoding UTF8
 
+# Source-level compile fix: avoid factory methods colliding with state field names.
+$corePath = 'RimMT/Source/RimMT/AI/JobSearchTransaction093T20.cs'
+$core = Get-Content $corePath -Raw
+$core = Replace-OrThrow $core 'ValidatorCallState.Store(' 'ValidatorCallState.ForStore(' 'validator store callsites'
+$core = Replace-OrThrow $core 'internal static ValidatorCallState Store(' 'internal static ValidatorCallState ForStore(' 'validator store factory'
+$core = Replace-OrThrow $core 'ValidatorCallState.Verify(' 'ValidatorCallState.ForVerify(' 'validator verify callsites'
+$core = Replace-OrThrow $core 'internal static ValidatorCallState Verify(' 'internal static ValidatorCallState ForVerify(' 'validator verify factory'
+$core = Replace-OrThrow $core 'ReachCallState.Store(' 'ReachCallState.ForStore(' 'reach store callsites'
+$core = Replace-OrThrow $core 'internal static ReachCallState Store(' 'internal static ReachCallState ForStore(' 'reach store factory'
+Set-Content $corePath $core -Encoding UTF8
+
 $reportPath = 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $report = Get-Content $reportPath -Raw
 $report = Replace-OrThrow $report @'
