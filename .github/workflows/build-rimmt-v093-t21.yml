@@ -112,8 +112,7 @@ jobs:
             'reachChainAuthoritativeSafe','reachReplayPrefixPriority','reachBasePostfixPriority',
             'ForeignPrefixOwners','ForeignPostfixOwners','RunOriginalPostfixes','ForeignTranspilers','ForeignFinalizers',
             'prefix: reachPrefix, postfix: reachBase, finalizer: reachFinalizer',
-            'context.ReachMemo.Add','TargetFingerprint.Capture','__result = entry.Result',
-            'no Job/Reservation/priority/cross-tick cache')) {
+            'context.ReachMemo.Add','TargetFingerprint.Capture','__result = entry.Result')) {
             if ($core -notmatch [regex]::Escape($marker)) { throw "T21 foundation marker missing: $marker" }
           }
           if ($core -match 'HasResultMutatingForeignPostfix') { throw 'T21 must not globally disable reach reuse merely because a foreign result postfix exists.' }
@@ -127,6 +126,7 @@ jobs:
           if ($report -notmatch 'JobSearchTransaction093T20\.Summary\(\)') { throw 'T21 transaction summary missing.' }
           if ($report -notmatch 'pre-postfix base result') { throw 'T21 chain-aware production policy missing.' }
           if ($report -notmatch 'all foreign postfixes still execute live') { throw 'T21 live foreign postfix policy missing.' }
+          if ($report -notmatch 'no Job/JobOnThing/reservation/priority/cross-package result is cached') { throw 'T21 no-cross-package safety policy missing.' }
 
           $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
           if ($reach -notmatch 'globalFuse=OFF') { throw 'No-global-fuse ReachProfile policy missing.' }
