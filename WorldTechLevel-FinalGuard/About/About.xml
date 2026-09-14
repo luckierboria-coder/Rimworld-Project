@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>World Tech Level - Final Guard</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>allen.wtl.finalguard</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>m00nl1ght.worldtechlevel</packageId>
+      <displayName>World Tech Level</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>m00nl1ght.worldtechlevel</li>
+  </loadAfter>
+  <description>RimWorld 1.5 compatibility/performance guard for World Tech Level. V2 prevents TraitDef database mutations from triggering a full rebuild of every World Tech Level database. Only the TraitDef tech-level table is repaired locally, with World Tech Level overrides preserved. Fails open to original behavior if the expected World Tech Level internals are unavailable.</description>
+</ModMetaData>
