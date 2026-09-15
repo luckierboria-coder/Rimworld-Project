@@ -122,8 +122,9 @@ jobs:
             'PendingProfileCaptures',
             'ProfileCaptureDrainPostfix',
             'ProfileCaptureSliceBudgetMicroseconds',
-            'maxProfileCaptureSliceUs',
-            'CaptureWatchdogMicroseconds')) {
+            'CaptureWatchdogMicroseconds',
+            'captureWatchdogTrips',
+            'captureBudgetUs')) {
             if ($reach -notmatch [regex]::Escape($marker)) { throw "T23 ReachProfile marker missing: $marker" }
           }
           $scheduleStart = $reach.IndexOf('private static void EnsureProfileScheduled(')
