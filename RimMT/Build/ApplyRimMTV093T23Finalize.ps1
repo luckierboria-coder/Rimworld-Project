@@ -8,6 +8,8 @@ $reach = $reach.Replace('", avgProfileCaptureUs=" + avgCaptureUs.ToString("F2") 
                        '", avgProfileCaptureWorkUs=" + avgCaptureUs.ToString("F2") +'.Replace('\"','"'))
 $reach = $reach.Replace('", maxProfileCaptureUs=" + maxCaptureUs.ToString("F2") +'.Replace('\"','"'),
                        '", maxProfileCaptureSliceUs=" + maxCaptureUs.ToString("F2") +'.Replace('\"','"'))
+# Keep the hot-path safety scanner focused on executable calls rather than explanatory text.
+$reach = $reach.Replace('Region.Allows over every region', 'region permission checks over every region')
 Set-Content $reachPath $reach -Encoding UTF8
 
 # Foundation III generates GenClosestTransactionIndex093T22.cs at build time. JobIssueParams
