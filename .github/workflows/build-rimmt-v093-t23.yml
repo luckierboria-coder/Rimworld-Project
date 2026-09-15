@@ -92,7 +92,7 @@ jobs:
         run: ./RimMT/Build/ApplyRimMTV093T22FoundationGenClosestSMF.ps1
       - name: Apply T23 tail containment + WorldRoot consolidation
         shell: pwsh
-        run: ./RimMT/Build/ApplyRimMTV093T23TailContainment.ps1
+        run: ./RimMT/Build/ApplyRimMTV093T23TailContainmentCompat.ps1
       - name: Finalize T23 metric labels
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV093T23Finalize.ps1
