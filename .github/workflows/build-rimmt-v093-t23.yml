@@ -93,6 +93,9 @@ jobs:
       - name: Apply T23 tail containment + WorldRoot consolidation
         shell: pwsh
         run: ./RimMT/Build/ApplyRimMTV093T23TailContainment.ps1
+      - name: Finalize T23 metric labels
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T23Finalize.ps1
 
       - name: Restore
         run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
