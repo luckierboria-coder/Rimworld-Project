@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using Verse;
@@ -12,7 +13,7 @@ namespace BunkerEndpointLOSFix15
         {
             try
             {
-                Harmony harmony = new Harmony("allen.ra2bunker.walllos.v3");
+                Harmony harmony = new Harmony("allen.ra2bunker.walllos.v4");
 
                 MethodInfo standard = AccessTools.Method(typeof(GenSight), nameof(GenSight.LineOfSight), new Type[]
                 {
@@ -26,25 +27,34 @@ namespace BunkerEndpointLOSFix15
                     typeof(Func<IntVec3, bool>), typeof(bool)
                 });
 
-                if (standard == null || rect == null)
+                MethodInfo cellCanSeeCell = AccessTools.Method(typeof(ShootLeanUtility), nameof(ShootLeanUtility.CellCanSeeCell), new Type[]
                 {
-                    Log.Error("[Ra2Bunker Endpoint LOS Fix V3] GenSight overload lookup failed; no LOS patches were installed.");
+                    typeof(IntVec3), typeof(IntVec3), typeof(Map)
+                });
+
+                if (standard == null || rect == null || cellCanSeeCell == null)
+                {
+                    Log.Error("[Ra2Bunker Endpoint LOS Fix V4] Required RimWorld 1.5 LOS method lookup failed; patches were not installed.");
                     return;
                 }
 
                 harmony.Patch(
                     standard,
-                    postfix: new HarmonyMethod(AccessTools.Method(typeof(GenSight_LineOfSight_Standard_Patch), nameof(GenSight_LineOfSight_Standard_Patch.Postfix))));
+                    prefix: new HarmonyMethod(AccessTools.Method(typeof(GenSight_LineOfSight_Standard_Patch), nameof(GenSight_LineOfSight_Standard_Patch.Prefix))));
 
                 harmony.Patch(
                     rect,
-                    postfix: new HarmonyMethod(AccessTools.Method(typeof(GenSight_LineOfSight_Rect_Patch), nameof(GenSight_LineOfSight_Rect_Patch.Postfix))));
+                    prefix: new HarmonyMethod(AccessTools.Method(typeof(GenSight_LineOfSight_Rect_Patch), nameof(GenSight_LineOfSight_Rect_Patch.Prefix))));
 
-                Log.Message("[Ra2Bunker Endpoint LOS Fix V3] Active. Exact RimWorld 1.5 GenSight overloads patched; bunker endpoints remain exempt while outside-to-outside rays are blocked by Ra2_Bunker cells.");
+                harmony.Patch(
+                    cellCanSeeCell,
+                    prefix: new HarmonyMethod(AccessTools.Method(typeof(ShootLeanUtility_CellCanSeeCell_Patch), nameof(ShootLeanUtility_CellCanSeeCell_Patch.Prefix))));
+
+                Log.Message("[Ra2Bunker Endpoint LOS Fix V4] Active. Ra2_Bunker remains a true full LOS blocker; only rays whose source or destination is that bunker receive a 3x3 endpoint exemption.");
             }
             catch (Exception ex)
             {
-                Log.Error("[Ra2Bunker Endpoint LOS Fix V3] Failed to install LOS patches: " + ex);
+                Log.Error("[Ra2Bunker Endpoint LOS Fix V4] Failed to install LOS patches: " + ex);
             }
         }
     }
@@ -53,23 +63,58 @@ namespace BunkerEndpointLOSFix15
     {
         private const string BunkerDefName = "Ra2_Bunker";
 
-        internal static bool IsBunkerCell(IntVec3 cell, Map map)
+        internal static Building FindBunkerAt(IntVec3 cell, Map map)
         {
             if (map == null || !cell.InBounds(map))
-                return false;
+                return null;
 
             Building edifice = cell.GetEdifice(map);
-            return edifice != null && edifice.def != null && edifice.def.defName == BunkerDefName;
+            if (IsBunker(edifice))
+                return edifice;
+
+            // Defensive fallback. ThingGrid is authoritative for occupied cells even if
+            // another mod changes edifice registration semantics.
+            List<Thing> things = map.thingGrid.ThingsListAtFast(cell);
+            for (int i = 0; i < things.Count; i++)
+            {
+                Building building = things[i] as Building;
+                if (IsBunker(building))
+                    return building;
+            }
+
+            return null;
         }
 
-        internal static bool ShouldBlockStandard(IntVec3 start, IntVec3 end, Map map, int halfXOffset, int halfZOffset)
+        private static bool IsBunker(Building building)
+        {
+            return building != null && building.def != null && building.def.defName == BunkerDefName;
+        }
+
+        private static bool IsEndpointBunkerCell(IntVec3 cell, Map map, Building startBunker, Building endBunker)
+        {
+            Building atCell = FindBunkerAt(cell, map);
+            return atCell != null && (ReferenceEquals(atCell, startBunker) || ReferenceEquals(atCell, endBunker));
+        }
+
+        internal static bool HasBunkerEndpoint(IntVec3 start, IntVec3 end, Map map, out Building startBunker, out Building endBunker)
+        {
+            startBunker = FindBunkerAt(start, map);
+            endBunker = FindBunkerAt(end, map);
+            return startBunker != null || endBunker != null;
+        }
+
+        internal static bool EndpointAwareStandard(
+            IntVec3 start,
+            IntVec3 end,
+            Map map,
+            bool skipFirstCell,
+            Func<IntVec3, bool> validator,
+            int halfXOffset,
+            int halfZOffset,
+            Building startBunker,
+            Building endBunker)
         {
             if (map == null || !start.InBounds(map) || !end.InBounds(map))
-                return false;
-
-            // Endpoint exemption is intentional:
-            // a bunker occupant can fire outward, and outside shooters can target the bunker itself.
-            if (IsBunkerCell(start, map) || IsBunkerCell(end, map))
                 return false;
 
             bool sideOnEqual = start.x != end.x ? start.x < end.x : start.z < end.z;
@@ -87,8 +132,15 @@ namespace BunkerEndpointLOSFix15
             while (n > 1)
             {
                 IntVec3 cell = new IntVec3(x, 0, z);
-                if (cell != start && cell != end && IsBunkerCell(cell, map))
-                    return true;
+                if (!skipFirstCell || cell != start)
+                {
+                    bool endpointBunkerCell = IsEndpointBunkerCell(cell, map, startBunker, endBunker);
+                    if (!endpointBunkerCell && !cell.CanBeSeenOverFast(map))
+                        return false;
+
+                    if (validator != null && !validator(cell))
+                        return false;
+                }
 
                 if (error > 0 || (error == 0 && sideOnEqual))
                 {
@@ -104,15 +156,21 @@ namespace BunkerEndpointLOSFix15
                 n--;
             }
 
-            return false;
+            return true;
         }
 
-        internal static bool ShouldBlockRect(IntVec3 start, IntVec3 end, Map map, CellRect startRect, CellRect endRect)
+        internal static bool EndpointAwareRect(
+            IntVec3 start,
+            IntVec3 end,
+            Map map,
+            CellRect startRect,
+            CellRect endRect,
+            Func<IntVec3, bool> validator,
+            bool forLeaning,
+            Building startBunker,
+            Building endBunker)
         {
             if (map == null || !start.InBounds(map) || !end.InBounds(map))
-                return false;
-
-            if (IsBunkerCell(start, map) || IsBunkerCell(end, map))
                 return false;
 
             bool sideOnEqual = start.x != end.x ? start.x < end.x : start.z < end.z;
@@ -132,10 +190,17 @@ namespace BunkerEndpointLOSFix15
                 IntVec3 cell = new IntVec3(x, 0, z);
 
                 if (endRect.Contains(cell))
-                    return false;
-
-                if (!startRect.Contains(cell) && cell != start && cell != end && IsBunkerCell(cell, map))
                     return true;
+
+                if (!startRect.Contains(cell))
+                {
+                    bool endpointBunkerCell = IsEndpointBunkerCell(cell, map, startBunker, endBunker);
+                    if (!endpointBunkerCell && !cell.CanBeSeenOverFast(map))
+                        return false;
+
+                    if (validator != null && !validator(cell))
+                        return false;
+                }
 
                 if (error > 0 || (error == 0 && sideOnEqual))
                 {
@@ -151,25 +216,72 @@ namespace BunkerEndpointLOSFix15
                 n--;
             }
 
-            return false;
+            return true;
         }
     }
 
     internal static class GenSight_LineOfSight_Standard_Patch
     {
-        public static void Postfix(IntVec3 start, IntVec3 end, Map map, int halfXOffset, int halfZOffset, ref bool __result)
+        public static bool Prefix(
+            IntVec3 start,
+            IntVec3 end,
+            Map map,
+            bool skipFirstCell,
+            Func<IntVec3, bool> validator,
+            int halfXOffset,
+            int halfZOffset,
+            ref bool __result)
         {
-            if (__result && BunkerLosUtility.ShouldBlockStandard(start, end, map, halfXOffset, halfZOffset))
-                __result = false;
+            Building startBunker;
+            Building endBunker;
+            if (!BunkerLosUtility.HasBunkerEndpoint(start, end, map, out startBunker, out endBunker))
+                return true;
+
+            __result = BunkerLosUtility.EndpointAwareStandard(
+                start, end, map, skipFirstCell, validator, halfXOffset, halfZOffset, startBunker, endBunker);
+            return false;
         }
     }
 
     internal static class GenSight_LineOfSight_Rect_Patch
     {
-        public static void Postfix(IntVec3 start, IntVec3 end, Map map, CellRect startRect, CellRect endRect, ref bool __result)
+        public static bool Prefix(
+            IntVec3 start,
+            IntVec3 end,
+            Map map,
+            CellRect startRect,
+            CellRect endRect,
+            Func<IntVec3, bool> validator,
+            bool forLeaning,
+            ref bool __result)
         {
-            if (__result && BunkerLosUtility.ShouldBlockRect(start, end, map, startRect, endRect))
-                __result = false;
+            Building startBunker;
+            Building endBunker;
+            if (!BunkerLosUtility.HasBunkerEndpoint(start, end, map, out startBunker, out endBunker))
+                return true;
+
+            __result = BunkerLosUtility.EndpointAwareRect(
+                start, end, map, startRect, endRect, validator, forLeaning, startBunker, endBunker);
+            return false;
+        }
+    }
+
+    internal static class ShootLeanUtility_CellCanSeeCell_Patch
+    {
+        public static bool Prefix(IntVec3 source, IntVec3 dest, Map map, ref bool __result)
+        {
+            Building sourceBunker;
+            Building destBunker;
+            if (!BunkerLosUtility.HasBunkerEndpoint(source, dest, map, out sourceBunker, out destBunker))
+                return true;
+
+            // Vanilla CellCanSeeCell immediately rejects a full-fill source/destination.
+            // For a bunker endpoint, use a direct endpoint-aware LOS instead. This keeps
+            // the bunker opaque to everyone else and prevents lean logic from peeking
+            // through/around its own 3x3 footprint.
+            __result = BunkerLosUtility.EndpointAwareStandard(
+                source, dest, map, true, null, 0, 0, sourceBunker, destBunker);
+            return false;
         }
     }
 }
