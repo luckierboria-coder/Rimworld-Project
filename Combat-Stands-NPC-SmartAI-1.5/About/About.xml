@@ -10,6 +10,7 @@
     <li>
       <packageId>Seti.Combat.Stands</packageId>
       <displayName>Combat Stands</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/3430526261</steamWorkshopUrl>
     </li>
   </modDependencies>
   <loadAfter>
