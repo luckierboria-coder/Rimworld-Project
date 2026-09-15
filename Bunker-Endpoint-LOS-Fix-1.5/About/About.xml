@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Ra2Bunker Endpoint LOS Fix</name>
-  <author>Allen / ChatGPT</author>
-  <packageId>allen.ra2bunker.endpointlosfix</packageId>
+  <name>Ra2Bunker Endpoint LOS Fix V3</name>
+  <author>Allen</author>
+  <packageId>Allen.Ra2Bunker.WallLOS</packageId>
   <supportedVersions>
     <li>1.5</li>
   </supportedVersions>
@@ -15,11 +15,12 @@
     <li>
       <packageId>AKreedz.Ra2Bunker</packageId>
       <displayName>Ra2Bunker</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/3000514785</steamWorkshopUrl>
     </li>
   </modDependencies>
   <loadAfter>
     <li>brrainz.harmony</li>
     <li>AKreedz.Ra2Bunker</li>
   </loadAfter>
-  <description>RimWorld 1.5 patch for Ra2Bunker LOS. Bunker endpoints remain visible/shootable, while LOS from outside to outside is blocked when it passes through the bunker.</description>
+  <description>Mono-safe RimWorld 1.5.4063 LOS patch for Ra2Bunker. The bunker blocks outside-to-outside sight and fire like a wall, while bunker occupants can still fire outward and outside attackers can target the bunker itself. No Ra2Bunker gameplay classes are replaced.</description>
 </ModMetaData>
