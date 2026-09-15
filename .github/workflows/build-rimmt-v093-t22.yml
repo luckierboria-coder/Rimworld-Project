@@ -1,0 +1,150 @@
+name: Build RimMT V0.9.3-T22 World Root Attribution
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t22-worldtick-root-attribution ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t22.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: rimmt-v093-t22
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply V22 Stable transforms
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+      - name: Apply V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
+      - name: Apply V24 S4 telemetry and pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
+      - name: Apply V26 Consolidated Stable marker
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+      - name: Apply T1 Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1TailAttribution.ps1
+      - name: Apply T1A no-global-fuse policy
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+      - name: Apply T3 bounded FindPath layer
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T3HeavyWorkGiverEarlyRescue.ps1
+      - name: Apply T4 HaulMerge partner index and revert T3 early rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
+      - name: Apply T5 measurement-only HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+      - name: Apply T8 clean T5 carrier/mech cheap negatives
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T8T5CarrierPruners.ps1
+      - name: Apply T13 PawnTick aggregate attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T13PawnTickAggregateAttribution.ps1
+      - name: Apply T14 PlayerHuman residual attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T14PlayerHumanResidualAttribution.ps1
+      - name: Apply T15 WorkGiver deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T15WorkGiverDeepAttribution.ps1
+      - name: Apply T16 GenClosest deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T16GenClosestDeepAttribution.ps1
+      - name: Apply T17 HaulUrgently dynamic rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T17HaulUrgentlyDynamicRescue.ps1
+      - name: Apply T18 mobile-source rescue and Storyteller deep burst
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T18MobileSourceRescueStorytellerDeep.ps1
+      - name: Apply T19 quest deep and mobile-global rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T19QuestDeepMobileGlobalRescue.ps1
+      - name: Apply T20 foundation transaction core
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T20FoundationTransactionCore.ps1
+      - name: Apply T21 chain-aware Reachability foundation
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T21FoundationReachChain.ps1
+      - name: Apply T22 world-root attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T22WorldRootAttribution.ps1
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify T22 safety contract
+        shell: pwsh
+        run: |
+          $boot = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($boot -notmatch '0\.9\.3-t22-worldtick-root-attribution') { throw 'Bootstrap is not T22.' }
+          if ($boot -notmatch 'WorldRootAttribution093T22\.Apply\(harmony\)') { throw 'T22 root attribution is not installed.' }
+          if ($boot -notmatch 'JobSearchTransaction093T20\.Apply\(harmony\)') { throw 'T21/T20 foundation transaction was lost.' }
+
+          $root = Get-Content 'RimMT/Source/RimMT/Diagnostics/WorldRootAttribution093T22.cs' -Raw
+          foreach ($marker in @(
+            'World.WorldTick','WorldComponentTick','PatchWorldComponentOverrides','PatchPawnGenerator','PatchWarningAggregator',
+            'PatchWorldTechLevel','WorldTechLevel.TechLevelDatabase`1','TechLevelDatabase<TraitDef>.Initialize + ApplyOverrides',
+            'wtlNarrowAuthoritySafe','wtlNarrowRebuilds','wtlGlobalInitCalls','WORLDTAIL#',
+            'return true;','return false;')) {
+            if ($root -notmatch [regex]::Escape($marker)) { throw "T22 root marker missing: $marker" }
+          }
+          if ($root -match 'WorkGiver_Haul|WorkGiver_Grower|WorkGiver_TakeToPen|WorkGiver_Rebalance') { throw 'T22 must not add WorkGiver-specific fixes.' }
+          if ($root -match 'Task\.|ThreadPool|Parallel\.') { throw 'T22 root attribution/WTL bridge must stay synchronous.' }
+
+          $report = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
+          if ($report -notmatch 'V0\.9\.3-T22 World Root Attribution') { throw 'T22 report title missing.' }
+          if ($report -notmatch 'WorldRootAttribution093T22\.Summary\(\)') { throw 'T22 summary missing.' }
+          if ($report -notmatch 'JobSearchTransaction093T20\.Summary\(\)') { throw 'T21 transaction summary missing.' }
+
+          $dir = 'RimMT/1.5/Assemblies'
+          $dll = Join-Path $dir 'RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'RimMT/About' $stage -Recurse
+          Copy-Item 'RimMT/Languages' $stage -Recurse
+          Copy-Item 'RimMT/1.5' $stage -Recurse
+          Copy-Item 'RimMT/LoadFolders.xml' $stage
+          if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
+          $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
+          if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T22_World_Root_Attribution.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T22-World-Root-Attribution
+          path: build/RimMT_V0.9.3_T22_World_Root_Attribution.zip
+          if-no-files-found: error
