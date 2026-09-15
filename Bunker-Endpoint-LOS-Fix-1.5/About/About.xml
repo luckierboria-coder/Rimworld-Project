@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Ra2Bunker Endpoint LOS Fix V5</name>
+  <name>Ra2Bunker Endpoint LOS Fix V5.1</name>
   <author>Allen</author>
   <packageId>Allen.Ra2Bunker.WallLOS</packageId>
   <supportedVersions>
@@ -22,5 +22,5 @@
     <li>brrainz.harmony</li>
     <li>AKreedz.Ra2Bunker</li>
   </loadAfter>
-  <description>RimWorld 1.5.4063 LOS fix for Ra2Bunker. The bunker keeps its original partial fill and is treated as opaque by default. During LOS and shooting calculations, only the exact bunker acting as source or target is temporarily exempted across its 3x3 footprint, allowing bunker occupants to fight outside while preventing outside-to-outside sight and fire through the bunker.</description>
+  <description>RimWorld 1.5.4063 LOS fix for Ra2Bunker. V5.1 keeps the original 0.75 fill, makes Ra2_Bunker opaque through the vanilla Building CanBeSeenOver authority, and grants a temporary exception only while the bunker itself is acquiring a target or is the actual caster/target of a combat check. Outside-to-outside sight and fire through the bunker remain blocked.</description>
 </ModMetaData>
