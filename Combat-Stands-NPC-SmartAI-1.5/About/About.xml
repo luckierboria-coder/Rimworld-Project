@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Combat Stands - NPC Smart AI</name>
+  <author>Allen</author>
+  <packageId>Allen.CombatStands.NPCSmartAI</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>Seti.Combat.Stands</packageId>
+      <displayName>Combat Stands</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>Seti.Combat.Stands</li>
+  </loadAfter>
+  <description>Gives non-player humanlike pawns tactical, low-frequency AI for Combat Stands. NPCs choose stances from current melee combat context (health, local pressure, distance, target armor and target health) instead of treating all AI-usable stances as equivalent. Ranged combat is explicitly excluded because Combat Stands stances heavily penalize shooting accuracy. Does not replace ThinkTrees, pathfinding, jobs or vanilla ability authority.</description>
+</ModMetaData>
