@@ -3,7 +3,7 @@
   <Operation Class="PatchOperationReplace">
     <xpath>Defs/ThingDef[defName="Ra2_Bunker"]/fillPercent</xpath>
     <value>
-      <fillPercent>0.75</fillPercent>
+      <fillPercent>1</fillPercent>
     </value>
   </Operation>
 </Patch>
