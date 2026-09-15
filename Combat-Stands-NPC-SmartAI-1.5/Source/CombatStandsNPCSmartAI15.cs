@@ -102,7 +102,7 @@ namespace Allen.CombatStandsNPCSmartAI15
                 return;
             }
 
-            List<Pawn> pawns = map.mapPawns.AllPawnsSpawned;
+            IReadOnlyList<Pawn> pawns = map.mapPawns.AllPawnsSpawned;
             for (int i = 0; i < pawns.Count; i++)
             {
                 Pawn pawn = pawns[i];
@@ -140,7 +140,7 @@ namespace Allen.CombatStandsNPCSmartAI15
             return true;
         }
 
-        private void TryChooseAndCast(Pawn pawn, List<Pawn> mapPawns, int tick)
+        private void TryChooseAndCast(Pawn pawn, IReadOnlyList<Pawn> mapPawns, int tick)
         {
             if (HasActiveStance(pawn))
             {
@@ -320,7 +320,7 @@ namespace Allen.CombatStandsNPCSmartAI15
             return distance <= 2.2f;
         }
 
-        private static void CountLocalBattle(Pawn pawn, List<Pawn> pawns, out int enemies, out int allies)
+        private static void CountLocalBattle(Pawn pawn, IReadOnlyList<Pawn> pawns, out int enemies, out int allies)
         {
             enemies = 0;
             allies = 0;
