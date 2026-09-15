@@ -9,6 +9,11 @@ function Replace-OrThrow {
 # T22 closes the root attribution blind spot around World.WorldTick and adds a guarded
 # WorldTechLevel TraitDef narrow-rebuild bridge. No WorkGiver-specific optimizer is added.
 
+$rootPath = 'RimMT/Source/RimMT/Diagnostics/WorldRootAttribution093T22.cs'
+$root = Get-Content $rootPath -Raw
+$root = Replace-OrThrow $root 'private const double TickToMs = 1000.0 / Stopwatch.Frequency;' 'private static readonly double TickToMs = 1000.0 / Stopwatch.Frequency;' 'Stopwatch frequency is runtime, not const'
+Set-Content $rootPath $root -Encoding UTF8
+
 $bootPath = 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
 $boot = Get-Content $bootPath -Raw
 $boot = Replace-OrThrow $boot 'internal const string Version = "0.9.3-t21-foundation-reach-chain";' 'internal const string Version = "0.9.3-t22-worldtick-root-attribution";' 'T22 bootstrap version'
