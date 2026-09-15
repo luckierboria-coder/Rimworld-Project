@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
 using Verse;
 
@@ -9,7 +10,42 @@ namespace BunkerEndpointLOSFix15
     {
         static Bootstrap()
         {
-            new Harmony("allen.ra2bunker.endpointlosfix.1.5").PatchAll();
+            try
+            {
+                Harmony harmony = new Harmony("allen.ra2bunker.walllos.v3");
+
+                MethodInfo standard = AccessTools.Method(typeof(GenSight), nameof(GenSight.LineOfSight), new Type[]
+                {
+                    typeof(IntVec3), typeof(IntVec3), typeof(Map), typeof(bool),
+                    typeof(Func<IntVec3, bool>), typeof(int), typeof(int)
+                });
+
+                MethodInfo rect = AccessTools.Method(typeof(GenSight), nameof(GenSight.LineOfSight), new Type[]
+                {
+                    typeof(IntVec3), typeof(IntVec3), typeof(Map), typeof(CellRect), typeof(CellRect),
+                    typeof(Func<IntVec3, bool>), typeof(bool)
+                });
+
+                if (standard == null || rect == null)
+                {
+                    Log.Error("[Ra2Bunker Endpoint LOS Fix V3] GenSight overload lookup failed; no LOS patches were installed.");
+                    return;
+                }
+
+                harmony.Patch(
+                    standard,
+                    postfix: new HarmonyMethod(AccessTools.Method(typeof(GenSight_LineOfSight_Standard_Patch), nameof(GenSight_LineOfSight_Standard_Patch.Postfix))));
+
+                harmony.Patch(
+                    rect,
+                    postfix: new HarmonyMethod(AccessTools.Method(typeof(GenSight_LineOfSight_Rect_Patch), nameof(GenSight_LineOfSight_Rect_Patch.Postfix))));
+
+                Log.Message("[Ra2Bunker Endpoint LOS Fix V3] Active. Exact RimWorld 1.5 GenSight overloads patched; bunker endpoints remain exempt while outside-to-outside rays are blocked by Ra2_Bunker cells.");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[Ra2Bunker Endpoint LOS Fix V3] Failed to install LOS patches: " + ex);
+            }
         }
     }
 
@@ -22,7 +58,7 @@ namespace BunkerEndpointLOSFix15
             if (map == null || !cell.InBounds(map))
                 return false;
 
-            var edifice = cell.GetEdifice(map);
+            Building edifice = cell.GetEdifice(map);
             return edifice != null && edifice.def != null && edifice.def.defName == BunkerDefName;
         }
 
@@ -31,8 +67,8 @@ namespace BunkerEndpointLOSFix15
             if (map == null || !start.InBounds(map) || !end.InBounds(map))
                 return false;
 
-            // Any LOS whose endpoint is inside the bunker must remain valid:
-            // bunker -> outside and outside -> bunker are both allowed.
+            // Endpoint exemption is intentional:
+            // a bunker occupant can fire outward, and outside shooters can target the bunker itself.
             if (IsBunkerCell(start, map) || IsBunkerCell(end, map))
                 return false;
 
@@ -44,16 +80,14 @@ namespace BunkerEndpointLOSFix15
             int n = 1 + dx + dz;
             int xInc = end.x > start.x ? 1 : -1;
             int zInc = end.z > start.z ? 1 : -1;
-            int dx4 = dx * 4;
-            int dz4 = dz * 4;
-            int adjustedDx = dx4 + halfXOffset * 2;
-            int adjustedDz = dz4 + halfZOffset * 2;
+            int adjustedDx = dx * 4 + halfXOffset * 2;
+            int adjustedDz = dz * 4 + halfZOffset * 2;
             int error = adjustedDx / 2 - adjustedDz / 2;
 
             while (n > 1)
             {
-                var c = new IntVec3(x, 0, z);
-                if (c != start && c != end && IsBunkerCell(c, map))
+                IntVec3 cell = new IntVec3(x, 0, z);
+                if (cell != start && cell != end && IsBunkerCell(cell, map))
                     return true;
 
                 if (error > 0 || (error == 0 && sideOnEqual))
@@ -95,12 +129,12 @@ namespace BunkerEndpointLOSFix15
 
             while (n > 1)
             {
-                var c = new IntVec3(x, 0, z);
+                IntVec3 cell = new IntVec3(x, 0, z);
 
-                if (endRect.Contains(c))
+                if (endRect.Contains(cell))
                     return false;
 
-                if (!startRect.Contains(c) && c != start && c != end && IsBunkerCell(c, map))
+                if (!startRect.Contains(cell) && cell != start && cell != end && IsBunkerCell(cell, map))
                     return true;
 
                 if (error > 0 || (error == 0 && sideOnEqual))
@@ -121,28 +155,18 @@ namespace BunkerEndpointLOSFix15
         }
     }
 
-    [HarmonyPatch(typeof(GenSight), nameof(GenSight.LineOfSight), new Type[]
-    {
-        typeof(IntVec3), typeof(IntVec3), typeof(Map), typeof(bool),
-        typeof(Func<IntVec3, bool>), typeof(int), typeof(int)
-    })]
     internal static class GenSight_LineOfSight_Standard_Patch
     {
-        private static void Postfix(IntVec3 start, IntVec3 end, Map map, int halfXOffset, int halfZOffset, ref bool __result)
+        public static void Postfix(IntVec3 start, IntVec3 end, Map map, int halfXOffset, int halfZOffset, ref bool __result)
         {
             if (__result && BunkerLosUtility.ShouldBlockStandard(start, end, map, halfXOffset, halfZOffset))
                 __result = false;
         }
     }
 
-    [HarmonyPatch(typeof(GenSight), nameof(GenSight.LineOfSight), new Type[]
-    {
-        typeof(IntVec3), typeof(IntVec3), typeof(Map), typeof(CellRect), typeof(CellRect),
-        typeof(Func<IntVec3, bool>)
-    })]
     internal static class GenSight_LineOfSight_Rect_Patch
     {
-        private static void Postfix(IntVec3 start, IntVec3 end, Map map, CellRect startRect, CellRect endRect, ref bool __result)
+        public static void Postfix(IntVec3 start, IntVec3 end, Map map, CellRect startRect, CellRect endRect, ref bool __result)
         {
             if (__result && BunkerLosUtility.ShouldBlockRect(start, end, map, startRect, endRect))
                 __result = false;
