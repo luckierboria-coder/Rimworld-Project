@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Ra2Bunker Endpoint LOS Fix V3</name>
+  <name>Ra2Bunker Endpoint LOS Fix V4</name>
   <author>Allen</author>
   <packageId>Allen.Ra2Bunker.WallLOS</packageId>
   <supportedVersions>
@@ -22,5 +22,5 @@
     <li>brrainz.harmony</li>
     <li>AKreedz.Ra2Bunker</li>
   </loadAfter>
-  <description>Mono-safe RimWorld 1.5.4063 LOS patch for Ra2Bunker. The bunker blocks outside-to-outside sight and fire like a wall, while bunker occupants can still fire outward and outside attackers can target the bunker itself. No Ra2Bunker gameplay classes are replaced.</description>
+  <description>RimWorld 1.5.4063 LOS patch for Ra2Bunker. V4 keeps the bunker as a real full LOS blocker so outside pawns cannot see or fire through it. Only LOS calls whose source or destination is the bunker receive an exemption across that bunker's own 3x3 footprint, allowing bunker occupants to fire outward and the bunker itself to be targeted without restoring透视 through the structure.</description>
 </ModMetaData>
