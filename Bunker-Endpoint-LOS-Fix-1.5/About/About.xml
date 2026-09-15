@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Ra2Bunker Endpoint LOS Fix V4</name>
+  <name>Ra2Bunker Endpoint LOS Fix V5</name>
   <author>Allen</author>
   <packageId>Allen.Ra2Bunker.WallLOS</packageId>
   <supportedVersions>
@@ -22,5 +22,5 @@
     <li>brrainz.harmony</li>
     <li>AKreedz.Ra2Bunker</li>
   </loadAfter>
-  <description>RimWorld 1.5.4063 LOS patch for Ra2Bunker. V4 keeps the bunker as a real full LOS blocker so outside pawns cannot see or fire through it. Only LOS calls whose source or destination is the bunker receive an exemption across that bunker's own 3x3 footprint, allowing bunker occupants to fire outward and the bunker itself to be targeted without restoring透视 through the structure.</description>
+  <description>RimWorld 1.5.4063 LOS fix for Ra2Bunker. The bunker keeps its original partial fill and is treated as opaque by default. During LOS and shooting calculations, only the exact bunker acting as source or target is temporarily exempted across its 3x3 footprint, allowing bunker occupants to fight outside while preventing outside-to-outside sight and fire through the bunker.</description>
 </ModMetaData>
