@@ -1,0 +1,36 @@
+name: Build RimMT V0.9.3-T27.3 Wait Stall Trace
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t27.3-wait-stall-trace ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t27-3.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: rimmt-v093-t27-3-wait-stall-trace
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build and verify T27.3
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTT27_3.ps1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T27.3-Wait-Stall-Trace
+          path: build/RimMT_V0.9.3_T27.3_Wait_Stall_Trace.zip
+          if-no-files-found: error
