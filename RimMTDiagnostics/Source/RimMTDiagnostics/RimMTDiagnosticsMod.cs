@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using RimWorld;
 using UnityEngine;
 using Verse;
 
@@ -85,7 +86,6 @@ namespace RimMT.Diagnostics
             list.Label("Search timing adds Harmony dispatch to hot GenClosest/Reachability methods. Keep it OFF unless diagnosing search tails.");
             list.End();
             Widgets.EndScrollView();
-            WriteSettings();
         }
     }
 }
