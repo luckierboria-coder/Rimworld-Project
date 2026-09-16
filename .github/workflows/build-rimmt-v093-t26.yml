@@ -132,22 +132,23 @@ jobs:
           if ($apply -match 'PatchTraitDefDatabaseSignals\(harmony\)') { throw 'Closed-generic DefDatabase patch returned.' }
 
           $epoch = Get-Content 'RimMT/Source/RimMT/Scheduling/SimulationEpochCoordinator093T26.cs' -Raw
-          foreach ($marker in @('DoSingleTick','scheduler.ParallelFor','MainThreadBudgetMs = 0.40','private unpublished array','timeout never blocks')) {
-            if ($epoch -notmatch [regex]::Escape($marker)) { throw "T26 epoch marker missing: $marker" }
+          foreach ($marker in @('DoSingleTick','scheduler.ParallelFor','MainThreadBudgetMs = 0.40','int[] workerKeys = new int[count]','Interlocked.Increment(ref kernelTimedOut)','return false;')) {
+            if ($epoch -notmatch [regex]::Escape($marker)) { throw "T26 epoch behavior marker missing: $marker" }
           }
           $kernelStart = $epoch.IndexOf('internal static bool TryComputeRingKeys')
           $kernelEnd = $epoch.IndexOf('internal static string Summary()', $kernelStart)
           if ($kernelStart -lt 0 -or $kernelEnd -lt 0) { throw 'Cannot isolate T26 primitive worker kernel.' }
           $kernel = $epoch.Substring($kernelStart, $kernelEnd - $kernelStart)
-          foreach ($forbidden in @('.Position','.Map','CanReach','JobOnThing','Reserve(','done.Wait','Thing ','Pawn ')) {
+          foreach ($forbidden in @('.Position','.Map','CanReach','JobOnThing','Reserve(','done.Wait','Thing ','Pawn ','ManualResetEvent')) {
             if ($kernel -match [regex]::Escape($forbidden)) { throw "Unsafe worker-kernel token: $forbidden" }
           }
+          if ($kernel -match '\.Wait\(') { throw 'T26 regression: primitive kernel contains a blocking Wait().' }
 
           $part = Get-Content 'RimMT/Source/RimMT/AI/SingleCallCandidatePartition.cs' -Raw
           foreach ($marker in @('FeatureId = "parallel.engineStage"','MinCandidateCount = 256','WorkerAssistMinCount = 256','TailAdmissionTicks','SimulationEpochCoordinator093T26.TryComputeRingKeys')) {
             if ($part -notmatch [regex]::Escape($marker)) { throw "T26 partition marker missing: $marker" }
           }
-          if ($part -match 'done\.Wait\(') { throw 'T26 regression: candidate partition can still wait indefinitely.' }
+          if ($part -match 'done\.Wait\(' -or $part -match 'ManualResetEvent') { throw 'T26 regression: candidate partition can still block on a worker.' }
 
           $proj = Get-Content 'RimMT/Source/RimMT/RimMT.csproj' -Raw
           if ($proj -match '<Compile Remove="AI\\SingleCallCandidatePartition\.cs"') { throw 'T26 partition is still excluded from compilation.' }
