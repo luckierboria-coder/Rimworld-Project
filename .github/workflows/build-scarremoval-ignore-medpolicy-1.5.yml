@@ -1,0 +1,35 @@
+name: Build ScarRemoval Ignore MedPolicy 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ScarRemoval-Ignore-MedPolicy-1.5/**'
+      - '.github/workflows/build-scarremoval-ignore-medpolicy-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore ScarRemoval-Ignore-MedPolicy-1.5/Source/ScarRemovalIgnoreMedPolicy15.csproj
+      - name: Build Release
+        run: dotnet build ScarRemoval-Ignore-MedPolicy-1.5/Source/ScarRemovalIgnoreMedPolicy15.csproj --configuration Release --no-restore
+      - name: Verify DLL
+        shell: pwsh
+        run: |
+          $dll = 'ScarRemoval-Ignore-MedPolicy-1.5\1.5\Assemblies\ScarRemovalIgnoreMedPolicy15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+          $bytes = [System.IO.File]::ReadAllBytes($dll)
+          if ($bytes.Length -lt 2048) { throw 'Compiled DLL unexpectedly small.' }
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScarRemovalIgnoreMedPolicy15
+          path: ScarRemoval-Ignore-MedPolicy-1.5/1.5/Assemblies/ScarRemovalIgnoreMedPolicy15.dll
+          if-no-files-found: error
