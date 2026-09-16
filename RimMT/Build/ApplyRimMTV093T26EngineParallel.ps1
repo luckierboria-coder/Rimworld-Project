@@ -22,7 +22,6 @@ function Replace-Between-OrThrow {
 # strict budget: worker timeout immediately falls back to the existing serial computation while late
 # workers finish only into a private unpublished array.
 
-# Compile the deliberately reactivated T26 consumer.
 $projPath = 'RimMT/Source/RimMT/RimMT.csproj'
 $proj = Get-Content $projPath -Raw
 $proj = Replace-OrThrow $proj `
@@ -31,7 +30,6 @@ $proj = Replace-OrThrow $proj `
     'reactivate SingleCallCandidatePartition'
 Set-Content $projPath $proj -Encoding UTF8
 
-# Harden old V0.4.10 candidate partition into a T26 engine-stage consumer.
 $partPath = 'RimMT/Source/RimMT/AI/SingleCallCandidatePartition.cs'
 $part = Get-Content $partPath -Raw
 $part = Replace-OrThrow $part 'private const string FeatureId = "parallel.jobPartition";' 'private const string FeatureId = "parallel.engineStage";' 'isolate T26 feature gate'
@@ -88,24 +86,28 @@ $part = $part.Replace('parallel.jobPartition V0.4.10', 'T26 parallel.engineStage
 $part = $part.Replace('workerWaits=', 'workerFallbacks=')
 Set-Content $partPath $part -Encoding UTF8
 
-# Feature registration/settings + compatibility readiness.
 $runtimePath = 'RimMT/Source/RimMT/Core/RimMTRuntime.cs'
 $runtime = Get-Content $runtimePath -Raw
-$runtime = Replace-OrThrow $runtime `
-    '            FeatureGate.Register("parallel.jobPartition", true, "Persistent-map search fabric / candidate partition production path");' `
-    '            FeatureGate.Register("parallel.jobPartition", true, "Persistent-map search fabric / candidate partition production path");`r`n            FeatureGate.Register(SimulationEpochCoordinator093T26.FeatureId, true, "T26 DoSingleTick epoch + primitive-only bounded parallel simulation stage");' `
-    'register T26 engine stage'
-$runtime = Replace-OrThrow $runtime `
-    '            FeatureGate.SetEnabled("parallel.jobPartition", work);' `
-    '            FeatureGate.SetEnabled("parallel.jobPartition", work);`r`n            FeatureGate.SetEnabled(SimulationEpochCoordinator093T26.FeatureId, work);' `
-    'settings gate T26 engine stage'
-$runtime = Replace-OrThrow $runtime `
-    '                AdaptiveGenClosestAssist.MarkCompatibilityReady();' `
-    '                AdaptiveGenClosestAssist.MarkCompatibilityReady();`r`n                SingleCallCandidatePartition.MarkCompatibilityReady();' `
-    'T26 partition compatibility ready'
+$runtime = Replace-OrThrow $runtime @'
+            FeatureGate.Register("parallel.jobPartition", true, "Persistent-map search fabric / candidate partition production path");
+'@ @'
+            FeatureGate.Register("parallel.jobPartition", true, "Persistent-map search fabric / candidate partition production path");
+            FeatureGate.Register(SimulationEpochCoordinator093T26.FeatureId, true, "T26 DoSingleTick epoch + primitive-only bounded parallel simulation stage");
+'@ 'register T26 engine stage'
+$runtime = Replace-OrThrow $runtime @'
+            FeatureGate.SetEnabled("parallel.jobPartition", work);
+'@ @'
+            FeatureGate.SetEnabled("parallel.jobPartition", work);
+            FeatureGate.SetEnabled(SimulationEpochCoordinator093T26.FeatureId, work);
+'@ 'settings gate T26 engine stage'
+$runtime = Replace-OrThrow $runtime @'
+                AdaptiveGenClosestAssist.MarkCompatibilityReady();
+'@ @'
+                AdaptiveGenClosestAssist.MarkCompatibilityReady();
+                SingleCallCandidatePartition.MarkCompatibilityReady();
+'@ 'T26 partition compatibility ready'
 Set-Content $runtimePath $runtime -Encoding UTF8
 
-# Install on top of T24.1. T25 is not in this build chain.
 $bootPath = 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
 $boot = Get-Content $bootPath -Raw
 $boot = Replace-OrThrow $boot `
@@ -125,7 +127,6 @@ $boot = $boot.Replace('[RimMT] V0.9.3-T24.1 Generic Def Safety initialized.',
     '[RimMT] V0.9.3-T26 Engine Parallel initialized. T24.1 safety retained; DoSingleTick epoch + primitive-only bounded parallel stage active; T25 next-call async cache absent.')
 Set-Content $bootPath $boot -Encoding UTF8
 
-# Runtime report.
 $reportPath = 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $report = Get-Content $reportPath -Raw
 $report = $report.Replace('V0.9.3-T24.1 Generic Def Safety', 'V0.9.3-T26 Engine Parallel')
