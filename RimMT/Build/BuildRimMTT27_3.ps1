@@ -29,12 +29,17 @@ if($boot -match 'MobileSourceRescue093T18\.Apply\(harmony\)'){ throw 'T18/T19 mo
 if($boot -match 'ParallelWorkKernel093T27\.Apply\(harmony\)'){ throw 'T27/T27.1 speculative work kernel returned' }
 if($boot -notmatch 'JobSearchTransaction093T20\.Apply\(harmony\)'){ throw 'T20/T21 foundation unexpectedly removed in T27.3 A/B' }
 if($boot -notmatch 'WorkGiverParallelSafety093T27_2\.Initialize\(\)'){ throw 'T27.2 safety registry missing' }
+if($boot -notmatch 'WaitStallPatches093T27_3\.Apply\(harmony\)'){ throw 'T27.3 wait-stall patch is not installed' }
 if($boot -match 'SingleCallCandidatePartition\.Apply'){ throw 'T26 low-ROI same-call partition returned' }
 if($boot -match 'AsyncJobCandidatePlan04182\.Apply' -or $boot -match 'JobDecisionRootAttribution093T25\.Apply'){ throw 'T25 experiment leaked into T27.3' }
 
-$patch=Get-Content (Join-Path $root 'RimMT/Source/RimMT/Patches/TailPawnPatches093T2.cs') -Raw
-if($patch -notmatch 'DeterminePostfix\(Pawn_JobTracker __instance, ThinkResult __result, long __state\)'){ throw 'Wait tracer is not wired into existing T2 Determine postfix' }
-if($patch -notmatch 'WaitStallTrace093T27_3\.Observe\(__instance, __result\)'){ throw 'Wait tracer observe call missing' }
+$tracePatch=Get-Content (Join-Path $root 'RimMT/Source/RimMT/Patches/WaitStallPatches093T27_3.cs') -Raw
+foreach($required in @('AccessTools.Method(typeof(Pawn_JobTracker), "DetermineNextJob")','postfix: new HarmonyMethod','WaitStallTrace093T27_3.Observe(__instance, __result)','Measurement-only final ThinkResult postfix')){
+  if(-not $tracePatch.Contains($required)){ throw "Wait tracer patch marker missing: $required" }
+}
+foreach($forbidden in @('prefix:','transpiler:','finalizer:','TryIssueJobPackage(','StartJob(','EndCurrentJob(','scheduler.TryEnqueue','Task.Run(','ThreadPool.QueueUserWorkItem','SpinWait','Thread.Sleep')){
+  if($tracePatch -match [regex]::Escape($forbidden)){ throw "Wait tracer patch unexpectedly executes/mutates gameplay: $forbidden" }
+}
 
 $trace=Get-Content (Join-Path $root 'RimMT/Source/RimMT/Diagnostics/WaitStallTrace093T27_3.cs') -Raw
 foreach($required in @('T27.3 Wait-stall trace','TopWaitSources','ActiveLongest','result[idle/nonIdle/noJob]','SourceNode')){
@@ -46,6 +51,7 @@ foreach($forbidden in @('harmony.Patch(','TryIssueJobPackage(','StartJob(','EndC
 
 $report=Get-Content (Join-Path $root 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs') -Raw
 if($report -notmatch 'V0\.9\.3-T27\.3 Wait Stall Trace'){ throw 'T27.3 report version missing' }
+if($report -notmatch 'WaitStallPatches093T27_3\.Summary'){ throw 'T27.3 wait patch summary missing from report' }
 if($report -notmatch 'WaitStallTrace093T27_3\.Summary'){ throw 'T27.3 wait trace summary missing from report' }
 if($report -notmatch 'speculative work-plan kernel: RETIRED/OFF'){ throw 'T27 work-kernel retirement status missing' }
 
