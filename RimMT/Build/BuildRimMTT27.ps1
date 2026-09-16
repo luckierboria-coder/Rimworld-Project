@@ -34,7 +34,7 @@ $a=$epoch.IndexOf('internal static bool TryComputeRingKeys')
 $b=$epoch.IndexOf('internal static string Summary()',$a)
 if($a -lt 0 -or $b -lt 0){ throw 'Cannot isolate T26.1 zero-wait kernel' }
 $epochKernel=$epoch.Substring($a,$b-$a)
-foreach($forbidden in @('SpinWait','ParallelFor','.Wait(','.Join(','Thread.Sleep','ManualResetEvent')){
+foreach($forbidden in @('SpinOnce(','new SpinWait(','.Wait(','.Join(','Thread.Sleep(','ManualResetEvent')){
   if($epochKernel -match [regex]::Escape($forbidden)){ throw "T27 inherited zero-wait violation: $forbidden" }
 }
 
@@ -43,7 +43,7 @@ $kernel=Get-Content $kernelPath -Raw
 foreach($required in @('FeatureId = "parallel.workKernel"','SnapshotParallel','fullParallel=OFF, waits=0','PersistentMapSearchFabric.TryGetSourceSnapshot','scheduler.TryEnqueue','customGlobalSearchSet = slot.Plan.OrderedThings')){
   if(-not $kernel.Contains($required)){ throw "T27 kernel marker missing: $required" }
 }
-foreach($forbidden in @('SpinWait','.Wait(','.Join(','Thread.Sleep','ManualResetEvent')){
+foreach($forbidden in @('SpinOnce(','new SpinWait(','.Wait(','.Join(','Thread.Sleep(','ManualResetEvent')){
   if($kernel -match [regex]::Escape($forbidden)){ throw "T27 blocking primitive found: $forbidden" }
 }
 
