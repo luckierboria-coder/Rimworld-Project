@@ -1,0 +1,183 @@
+name: Build RimMT V0.9.3-T24 Stutter First
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t24-stutter-first ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t24.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: rimmt-v093-t24-stutter-first
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply V22 Stable transforms
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+      - name: Apply V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
+      - name: Apply V24 S4 telemetry and pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
+      - name: Apply V26 Consolidated Stable marker
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+      - name: Apply T1 Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1TailAttribution.ps1
+      - name: Apply T1A no-global-fuse policy
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+      - name: Apply T3 bounded FindPath layer
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T3HeavyWorkGiverEarlyRescue.ps1
+      - name: Apply T4 HaulMerge partner index and revert generic early rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
+      - name: Apply T5 measurement-only HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+      - name: Apply T8 clean T5 carrier/mech cheap negatives
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T8T5CarrierPruners.ps1
+      - name: Apply T13 PawnTick aggregate attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T13PawnTickAggregateAttribution.ps1
+      - name: Apply T14 PlayerHuman residual attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T14PlayerHumanResidualAttribution.ps1
+      - name: Apply T15 WorkGiver deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T15WorkGiverDeepAttribution.ps1
+      - name: Apply T16 GenClosest deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T16GenClosestDeepAttribution.ps1
+      - name: Apply T17 HaulUrgently dynamic rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T17HaulUrgentlyDynamicRescue.ps1
+      - name: Apply T18 mobile-source rescue and Storyteller deep burst
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T18MobileSourceRescueStorytellerDeep.ps1
+      - name: Apply T19 quest deep and mobile-global rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T19QuestDeepMobileGlobalRescue.ps1
+      - name: Apply T20 foundation transaction core
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T20FoundationTransactionCore.ps1
+      - name: Apply T21 chain-aware Reachability foundation
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T21FoundationReachChain.ps1
+      - name: Apply T22 Foundation III GenClosest + SMF bridge
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T22FoundationGenClosestSMF.ps1
+      - name: Apply T23 tail containment + WorldRoot consolidation
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T23TailContainmentCompat.ps1
+      - name: Finalize T23 generated sources
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T23Finalize.ps1
+      - name: Apply T24 Stutter First production changes
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T24StutterFirst.ps1
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify T24 stutter-first contract
+        shell: pwsh
+        run: |
+          $boot = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($boot -notmatch '0\.9\.3-t24-stutter-first') { throw 'Bootstrap is not T24.' }
+          foreach ($marker in @(
+            'JobSearchTransaction093T20.Apply(harmony)',
+            'GenClosestTransactionIndex093T22.Apply(harmony)',
+            'WorldRootAttribution093T22.Apply(harmony)',
+            'RootPlayUpdatePostfix')) {
+            if ($boot -notmatch [regex]::Escape($marker)) { throw "T24 retained marker missing: $marker" }
+          }
+
+          $core = Get-Content 'RimMT/Source/RimMT/AI/JobSearchTransaction093T20.cs' -Raw
+          foreach ($marker in @('ReachQuarantined','reachLocalQuarantines','reachLocalQuarantineBypass')) {
+            if ($core -notmatch [regex]::Escape($marker)) { throw "T24 Reach local-quarantine marker missing: $marker" }
+          }
+          if ($core -match 'reachRuntimeQuarantined\s*=\s*true') { throw 'T24 regression: a Reach parity mismatch can still globally quarantine the runtime.' }
+          if ($core -match 'depth <= 0 \|\| reachRuntimeQuarantined') { throw 'T24 regression: global Reach fuse remains in hot-path admission.' }
+
+          $t15 = Get-Content 'RimMT/Source/RimMT/Diagnostics/WorkGiverDeepAttribution093T15.cs' -Raw
+          if ($t15 -notmatch 'autoCapture=OFF') { throw 'T24 T15 auto-capture marker missing.' }
+          $observeStart = $t15.IndexOf('internal static void ObserveDetermine')
+          $observeEnd = $t15.IndexOf('internal static void OnMainThreadFrame', $observeStart)
+          if ($observeStart -lt 0 -or $observeEnd -lt 0) { throw 'Cannot isolate T15 ObserveDetermine.' }
+          $observe = $t15.Substring($observeStart, $observeEnd - $observeStart)
+          if ($observe -match 'Exchange\(ref requested,\s*1\)') { throw 'T24 regression: T15 still auto-requests the 438-method detail burst.' }
+
+          $t18 = Get-Content 'RimMT/Source/RimMT/Diagnostics/StorytellerDeepAttribution093T18.cs' -Raw
+          $initStart = $t18.IndexOf('internal static void Initialize()')
+          $initEnd = $t18.IndexOf('internal static void ObserveCatastrophic', $initStart)
+          if ($initStart -lt 0 -or $initEnd -lt 0) { throw 'Cannot isolate T18 Initialize.' }
+          $init = $t18.Substring($initStart, $initEnd - $initStart)
+          if ($init -match 'Exchange\(ref requested,\s*1\)') { throw 'T24 regression: T18 Storyteller deep burst still auto-starts.' }
+
+          $s4 = Get-Content 'RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs' -Raw
+          foreach ($marker in @('TailRescueThresholdMs = 32','TargetedEarlyThresholdMs = 8','CanUseTargetedEarly','IsTargetedPrefilterAuthoritySafe','targetedEarly=')) {
+            if ($s4 -notmatch [regex]::Escape($marker)) { throw "T24 targeted-early S4 marker missing: $marker" }
+          }
+
+          $reach = Get-Content 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs' -Raw
+          foreach ($marker in @('PendingProfileCaptures','ProfileCaptureDrainPostfix','ProfileCaptureSliceBudgetMicroseconds')) {
+            if ($reach -notmatch [regex]::Escape($marker)) { throw "T23 ReachProfile containment was lost: $marker" }
+          }
+
+          $report = Get-Content 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs' -Raw
+          if ($report -notmatch 'V0\.9\.3-T24 Stutter First') { throw 'T24 report title missing.' }
+
+          $dir = 'RimMT/1.5/Assemblies'
+          $dll = Join-Path $dir 'RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'RimMT/About' $stage -Recurse
+          Copy-Item 'RimMT/Languages' $stage -Recurse
+          Copy-Item 'RimMT/1.5' $stage -Recurse
+          Copy-Item 'RimMT/LoadFolders.xml' $stage
+          if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
+          $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
+          if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T24_Stutter_First.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T24-Stutter-First
+          path: build/RimMT_V0.9.3_T24_Stutter_First.zip
+          if-no-files-found: error
