@@ -12,13 +12,12 @@
   </PropertyGroup>
 
   <!--
-    V0.9.3-T15 keeps superseded experiments and resident deep profilers out of the assembly.
-    The three WorkGiver diagnostic components are intentionally compiled for T15 because they
-    remain inert at startup and are installed only for one bounded 64-package on-demand burst,
-    after which their temporary Harmony detours are removed.
+    V0.9.3-T25 retains the production exclusion list but re-enables AsyncJobCandidatePlan04182.
+    That path captures Thing references + primitive positions on the main thread, performs only
+    range/distance ordering on workers, never waits, and revalidates exact membership/positions
+    on the main thread before a published plan can affect candidate order.
   -->
   <ItemGroup>
-    <Compile Remove="AI\AsyncJobCandidatePlan04182.cs" />
     <Compile Remove="AI\JobPackageLocalSearch0419.cs" />
     <Compile Remove="AI\ParallelRegionConnectivity.cs" />
     <Compile Remove="AI\ParallelWorkPrefilter.cs" />
