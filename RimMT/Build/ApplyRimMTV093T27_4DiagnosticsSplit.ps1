@@ -41,7 +41,8 @@ Set-Content $patchPath $patch -Encoding UTF8
 $reportPath='RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $report=Get-Content $reportPath -Raw
 $report=$report.Replace('V0.9.3-T27.3 Wait Stall Trace','V0.9.3-T27.4 Diagnostics Split')
-$report=$report.Replace('            sb.AppendLine(WaitStallTrace093T27_3.Summary());' + [Environment]::NewLine,'')
+$report=$report.Replace('            sb.AppendLine(WaitStallTrace093T27_3.Summary());' + "`r`n",'')
+$report=$report.Replace('            sb.AppendLine(WaitStallTrace093T27_3.Summary());' + "`n",'')
 $report=$report.Replace(
     'T27.3 retains the T27.2 retirement and additionally retires T18/T19 mobile custom-source rescue after source review found non-Vanilla validator/reach visitation order. Wait-stall telemetry reuses the existing T2 DetermineNextJob postfix and records only final ThinkResult/source for player humanlikes; no think tree is rerun and no gameplay state is mutated. The WorkGiver safety registry remains audit-only; FullParallel stays hard-OFF;',
     'T27.4 retains the T27.2/T27.3 behavior resets, but removes the T27.3 Wait tracer from RimMT.dll. New profiling belongs to optional allen.rimmt.diagnostics; legacy observability remains only where older production paths still consume it. The WorkGiver safety registry remains audit-only; FullParallel stays hard-OFF;')
@@ -50,7 +51,9 @@ Set-Content $reportPath $report -Encoding UTF8
 $projPath='RimMT/Source/RimMT/RimMT.csproj'
 $proj=Get-Content $projPath -Raw
 if(-not $proj.Contains('<Compile Remove="Diagnostics\WaitStallTrace093T27_3.cs" />')){
-    $proj=Replace-OrThrow $proj '    <Compile Remove="Diagnostics\ReachabilityPatchCensus.cs" />' '    <Compile Remove="Diagnostics\ReachabilityPatchCensus.cs" />' + [Environment]::NewLine + '    <Compile Remove="Diagnostics\WaitStallTrace093T27_3.cs" />' 'exclude standalone Wait tracer from RimMT.dll'
+    $old='    <Compile Remove="Diagnostics\ReachabilityPatchCensus.cs" />'
+    $new=$old + [Environment]::NewLine + '    <Compile Remove="Diagnostics\WaitStallTrace093T27_3.cs" />'
+    $proj=Replace-OrThrow $proj $old $new 'exclude standalone Wait tracer from RimMT.dll'
 }
 Set-Content $projPath $proj -Encoding UTF8
 
