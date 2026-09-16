@@ -1,0 +1,174 @@
+name: Build RimMT V0.9.3-T24.1 Generic Def Safety
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t24-stutter-first ]
+    paths:
+      - 'RimMT/**'
+      - '.github/workflows/build-rimmt-v093-t24-1.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: rimmt-v093-t24-1-generic-def-safety
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply V22 Stable transforms
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanTransforms.ps1
+      - name: Apply V23 S4 pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV23S4Pruners.ps1
+      - name: Apply V24 S4 telemetry and pruners
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV24S4TelemetryAndPruners.ps1
+      - name: Apply V26 Consolidated Stable marker
+        shell: pwsh
+        run: ./RimMT/Build/ApplyUnifiedLeanV26Consolidated.ps1
+      - name: Apply T0 Tail Observatory
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T0TailObservatory.ps1
+      - name: Apply T1 Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1TailAttribution.ps1
+      - name: Apply T1A no-global-fuse policy
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T1ANoGlobalFuse.ps1
+      - name: Apply T2 Pawn Tail Attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T2PawnTailAttribution.ps1
+      - name: Apply T3 bounded FindPath layer
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T3HeavyWorkGiverEarlyRescue.ps1
+      - name: Apply T4 HaulMerge partner index and revert generic early rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T4HaulMergePartnerIndex.ps1
+      - name: Apply T5 measurement-only HaulMerge Harmony census
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T5HaulMergePatchCensus.ps1
+      - name: Apply T8 clean T5 carrier/mech cheap negatives
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T8T5CarrierPruners.ps1
+      - name: Apply T13 PawnTick aggregate attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T13PawnTickAggregateAttribution.ps1
+      - name: Apply T14 PlayerHuman residual attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T14PlayerHumanResidualAttribution.ps1
+      - name: Apply T15 WorkGiver deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T15WorkGiverDeepAttribution.ps1
+      - name: Apply T16 GenClosest deep attribution
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T16GenClosestDeepAttribution.ps1
+      - name: Apply T17 HaulUrgently dynamic rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T17HaulUrgentlyDynamicRescue.ps1
+      - name: Apply T18 mobile-source rescue and Storyteller deep burst
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T18MobileSourceRescueStorytellerDeep.ps1
+      - name: Apply T19 quest deep and mobile-global rescue
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T19QuestDeepMobileGlobalRescue.ps1
+      - name: Apply T20 foundation transaction core
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T20FoundationTransactionCore.ps1
+      - name: Apply T21 chain-aware Reachability foundation
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T21FoundationReachChain.ps1
+      - name: Apply T22 Foundation III GenClosest + SMF bridge
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T22FoundationGenClosestSMF.ps1
+      - name: Apply T23 tail containment + WorldRoot consolidation
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T23TailContainmentCompat.ps1
+      - name: Finalize T23 generated sources
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T23Finalize.ps1
+      - name: Apply T24 Stutter First production changes
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T24StutterFirst.ps1
+      - name: Apply T24.1 generic Def safety hotfix
+        shell: pwsh
+        run: ./RimMT/Build/ApplyRimMTV093T24_1GenericDefSafety.ps1
+
+      - name: Restore
+        run: dotnet restore RimMT/Source/RimMT/RimMT.csproj
+
+      - name: Build Release
+        run: dotnet build RimMT/Source/RimMT/RimMT.csproj --configuration Release --no-restore
+
+      - name: Verify T24.1 generic Def safety contract
+        shell: pwsh
+        run: |
+          $boot = Get-Content 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs' -Raw
+          if ($boot -notmatch '0\.9\.3-t24\.1-generic-def-safety') { throw 'Bootstrap is not T24.1.' }
+
+          $root = Get-Content 'RimMT/Source/RimMT/Diagnostics/WorldRootAttribution093T22.cs' -Raw
+          if ($root -notmatch 'genericHarmony=OFF') { throw 'T24.1 generic Harmony OFF marker missing.' }
+
+          $applyStart = $root.IndexOf('internal static void Apply(Harmony harmony)')
+          $applyEnd = $root.IndexOf('private static void PatchWorldComponentOverrides', $applyStart)
+          if ($applyStart -lt 0 -or $applyEnd -lt 0) { throw 'Cannot isolate WorldRoot Apply().' }
+          $apply = $root.Substring($applyStart, $applyEnd - $applyStart)
+          if ($apply -match 'PatchTraitDefDatabaseSignals\(harmony\)') { throw 'T24.1 regression: closed-generic DefDatabase<TraitDef> patch is still installed.' }
+
+          $wtlStart = $root.IndexOf('private static void PatchWorldTechLevel(Harmony harmony)')
+          $wtlEnd = $root.IndexOf('private static bool IsAuthoritySafeForNarrowWtl', $wtlStart)
+          if ($wtlStart -lt 0 -or $wtlEnd -lt 0) { throw 'Cannot isolate WorldRoot WTL patch method.' }
+          $wtl = $root.Substring($wtlStart, $wtlEnd - $wtlStart)
+          if ($wtl -match 'MakeGenericType' -or $wtl -match 'harmony\.Patch\(ensure') { throw 'T24.1 regression: closed-generic WTL Harmony patch remains active.' }
+          if ($wtl -notmatch 'DefTechLevels') { throw 'T24.1 non-generic WTL global timing target missing.' }
+
+          $core = Get-Content 'RimMT/Source/RimMT/AI/JobSearchTransaction093T20.cs' -Raw
+          foreach ($marker in @('ReachQuarantined','reachLocalQuarantines','reachLocalQuarantineBypass')) {
+            if ($core -notmatch [regex]::Escape($marker)) { throw "T24 Reach local-quarantine marker missing: $marker" }
+          }
+          if ($core -match 'reachRuntimeQuarantined\s*=\s*true') { throw 'T24.1 regression: Reach can globally quarantine runtime.' }
+
+          $t15 = Get-Content 'RimMT/Source/RimMT/Diagnostics/WorkGiverDeepAttribution093T15.cs' -Raw
+          if ($t15 -notmatch 'autoCapture=OFF') { throw 'T24 T15 auto-capture OFF marker missing.' }
+
+          $s4 = Get-Content 'RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs' -Raw
+          foreach ($marker in @('TailRescueThresholdMs = 32','TargetedEarlyThresholdMs = 8','CanUseTargetedEarly','targetedEarly=')) {
+            if ($s4 -notmatch [regex]::Escape($marker)) { throw "T24 S4 marker missing: $marker" }
+          }
+
+          $dir = 'RimMT/1.5/Assemblies'
+          $dll = Join-Path $dir 'RimMT.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled assembly: $dll" }
+          $all = @(Get-ChildItem $dir -Filter '*.dll' -File)
+          if ($all.Count -ne 1) { throw "Production build must contain exactly one DLL; found $($all.Count): $($all.Name -join ', ')" }
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = 'build/RimMT'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item 'RimMT/About' $stage -Recurse
+          Copy-Item 'RimMT/Languages' $stage -Recurse
+          Copy-Item 'RimMT/1.5' $stage -Recurse
+          Copy-Item 'RimMT/LoadFolders.xml' $stage
+          if (Test-Path 'RimMT/README.md') { Copy-Item 'RimMT/README.md' $stage }
+          $packDlls = @(Get-ChildItem $stage -Filter '*.dll' -File -Recurse)
+          if ($packDlls.Count -ne 1 -or $packDlls[0].Name -ne 'RimMT.dll') { throw "Unexpected DLL set: $($packDlls.Name -join ', ')" }
+          Compress-Archive -Path $stage -DestinationPath 'build/RimMT_V0.9.3_T24.1_Generic_Def_Safety.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-V0.9.3-T24.1-Generic-Def-Safety
+          path: build/RimMT_V0.9.3_T24.1_Generic_Def_Safety.zip
+          if-no-files-found: error
