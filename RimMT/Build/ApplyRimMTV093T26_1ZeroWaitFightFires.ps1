@@ -6,17 +6,14 @@ function Replace-OrThrow {
     return $Text.Replace($Old,$New)
 }
 
-# T26.1: keep the DoSingleTick epoch, retire the low-ROI same-call partition,
-# enforce literal zero-wait, and compact exact-Vanilla FightFires negatives inside S4.
-
 $projPath='RimMT/Source/RimMT/RimMT.csproj'
 $proj=Get-Content $projPath -Raw
-$proj=Replace-OrThrow $proj '    <!-- T26: SingleCallCandidatePartition reactivated behind parallel.engineStage and >=8ms package-tail admission. -->' '    <Compile Remove="AI\SingleCallCandidatePartition.cs" />' 're-exclude candidate partition'
+$proj=Replace-OrThrow $proj '    <!-- T26: SingleCallCandidatePartition reactivated behind parallel.engineStage and >=8ms package-tail admission. -->' '    <Compile Remove="AI\SingleCallCandidatePartition.cs" />'.Replace('\"','"') 're-exclude candidate partition'
 Set-Content $projPath $proj -Encoding UTF8
 
 $bootPath='RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
 $boot=Get-Content $bootPath -Raw
-$boot=Replace-OrThrow $boot 'internal const string Version = "0.9.3-t26-engine-parallel";' 'internal const string Version = "0.9.3-t26.1-zero-wait-fightfires";' 'version'
+$boot=Replace-OrThrow $boot 'internal const string Version = "0.9.3-t26-engine-parallel";'.Replace('\"','"') 'internal const string Version = "0.9.3-t26.1-zero-wait-fightfires";'.Replace('\"','"') 'version'
 $boot=Replace-OrThrow $boot @'
                 GenClosestTransactionIndex093T22.Apply(harmony);
                 SimulationEpochCoordinator093T26.Apply(harmony);
@@ -35,7 +32,6 @@ $runtime=Get-Content $runtimePath -Raw
 $runtime=[regex]::Replace($runtime,'(?m)^\s*SingleCallCandidatePartition\.MarkCompatibilityReady\(\);\r?\n','',1)
 Set-Content $runtimePath $runtime -Encoding UTF8
 
-# Literal zero-wait guard: no SpinWait/Wait/Join/ParallelFor in the same-call kernel.
 $epochPath='RimMT/Source/RimMT/Scheduling/SimulationEpochCoordinator093T26.cs'
 $epoch=Get-Content $epochPath -Raw
 $a=$epoch.IndexOf('        internal static bool TryComputeRingKeys(',[System.StringComparison]::Ordinal)
@@ -44,8 +40,7 @@ if($a -lt 0 -or $b -lt 0){ throw 'T26.1 cannot isolate TryComputeRingKeys' }
 $newKernel=@'
         internal static bool TryComputeRingKeys(int rootX, int rootZ, int ringSize, int[] xs, int[] zs, int[] ringKeys)
         {
-            // T26.1 hard zero-wait guard. The measured same-call partition had 4 useful calls
-            // after thousands of admissions/materializations, so it is retired from production.
+            // T26.1 hard zero-wait guard. Same-call worker consumption is retired.
             Interlocked.Increment(ref kernelAttempts);
             Interlocked.Increment(ref kernelRejected);
             return false;
@@ -57,7 +52,6 @@ $epoch=$epoch.Replace('T26 engine parallel simulation:','T26.1 engine epoch / ze
 $epoch=$epoch.Replace('. DoSingleTick remains on the Unity main thread; workers receive primitive arrays only; timeout never blocks the simulation thread.','. DoSingleTick remains on the Unity main thread; active same-call worker consumer=OFF; production simulation never waits/spins/joins workers.')
 Set-Content $epochPath $epoch -Encoding UTF8
 
-# FightFires is internal to Assembly-CSharp. Existing S4 authority-safety reflection remains the gate.
 $s4Path='RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs'
 $s4=Get-Content $s4Path -Raw
 $s4=Replace-OrThrow $s4 @'
@@ -123,7 +117,6 @@ $s4=Replace-OrThrow $s4 @'
                     Fire fire = thing as Fire;
                     if (fire == null || worker == null || worker.Map == null) return false;
                     if (!fire.Spawned || fire.Map != worker.Map || !fire.Position.IsValid) return false;
-
                     Pawn burningPawn = fire.parent as Pawn;
                     if (burningPawn != null)
                     {
@@ -136,7 +129,6 @@ $s4=Replace-OrThrow $s4 @'
                         if (!related && parentHost != null)
                             related = parentHost == workerFaction || parentHost == workerHost;
                         if (!related) return false;
-
                         if (!worker.Map.areaManager.Home[fire.Position])
                         {
                             IntVec3 a = worker.Position;
@@ -146,7 +138,6 @@ $s4=Replace-OrThrow $s4 @'
                         }
                         return true;
                     }
-
                     if (worker.WorkTagIsDisabled(WorkTags.Firefighting)) return false;
                     if (!worker.Map.areaManager.Home[fire.Position]) return false;
                     return true;
@@ -192,4 +183,4 @@ if(Test-Path $aboutPath){
   Set-Content $aboutPath $about -Encoding UTF8
 }
 
-Write-Host 'Applied RimMT V0.9.3-T26.1: T26 epoch retained; candidate partition retired; same-call worker wait removed; FightFires authority-safe negative compaction enabled.'
+Write-Host 'Applied RimMT V0.9.3-T26.1 Zero-Wait + FightFires.'
