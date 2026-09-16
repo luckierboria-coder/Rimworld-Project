@@ -51,7 +51,7 @@ foreach($required in @(
   'ScanDirectDependencies')){
   if(-not $safety.Contains($required)){ throw "T27.2 safety marker missing: $required" }
 }
-foreach($forbidden in @('harmony.Patch(','Task.Run(','ThreadPool.QueueUserWorkItem','scheduler.TryEnqueue','Parallel.For','SpinWait','Thread.Sleep','.Wait(','.Join(')){
+foreach($forbidden in @('harmony.Patch(','Task.Run(','ThreadPool.QueueUserWorkItem','scheduler.TryEnqueue','Parallel.For','SpinWait','Thread.Sleep','.Wait(','new Thread(','Thread.Join(')){
   if($safety -match [regex]::Escape($forbidden)){ throw "T27.2 safety registry unexpectedly executes/patches behavior: $forbidden" }
 }
 
