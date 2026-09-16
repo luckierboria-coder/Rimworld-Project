@@ -1,0 +1,37 @@
+name: Build RimMT V0.9.3-T27.4 Diagnostics Split
+
+on:
+  push:
+    branches: [ rimmt-v0.9.3-t27.4-diagnostics-split ]
+    paths:
+      - 'RimMT/**'
+      - 'RimMTDiagnostics/**'
+      - '.github/workflows/build-rimmt-v093-t27-4.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: rimmt-v093-t27-4-diagnostics-split
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build production and diagnostics
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTT27_4.ps1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-T27.4-Diagnostics-Split
+          path: |
+            build/RimMT_V0.9.3_T27.4_Production.zip
+            build/RimMT_Diagnostics_v0.1.zip
+            build/RimMT_T27.4_With_Diagnostics_Bundle.zip
+          if-no-files-found: error
