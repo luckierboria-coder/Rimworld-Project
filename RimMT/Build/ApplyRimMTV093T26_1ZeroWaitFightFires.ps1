@@ -8,12 +8,12 @@ function Replace-OrThrow {
 
 $projPath='RimMT/Source/RimMT/RimMT.csproj'
 $proj=Get-Content $projPath -Raw
-$proj=Replace-OrThrow $proj '    <!-- T26: SingleCallCandidatePartition reactivated behind parallel.engineStage and >=8ms package-tail admission. -->' '    <Compile Remove="AI\SingleCallCandidatePartition.cs" />'.Replace('\"','"') 're-exclude candidate partition'
+$proj=Replace-OrThrow $proj '    <!-- T26: SingleCallCandidatePartition reactivated behind parallel.engineStage and >=8ms package-tail admission. -->' '    <Compile Remove="AI\SingleCallCandidatePartition.cs" />' 're-exclude candidate partition'
 Set-Content $projPath $proj -Encoding UTF8
 
 $bootPath='RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
 $boot=Get-Content $bootPath -Raw
-$boot=Replace-OrThrow $boot 'internal const string Version = "0.9.3-t26-engine-parallel";'.Replace('\"','"') 'internal const string Version = "0.9.3-t26.1-zero-wait-fightfires";'.Replace('\"','"') 'version'
+$boot=Replace-OrThrow $boot 'internal const string Version = "0.9.3-t26-engine-parallel";' 'internal const string Version = "0.9.3-t26.1-zero-wait-fightfires";' 'version'
 $boot=Replace-OrThrow $boot @'
                 GenClosestTransactionIndex093T22.Apply(harmony);
                 SimulationEpochCoordinator093T26.Apply(harmony);
