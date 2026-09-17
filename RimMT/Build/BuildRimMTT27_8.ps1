@@ -1,8 +1,10 @@
 $ErrorActionPreference='Stop'
 
-# Rebuild verified T27.7, then apply the bottom-layer T27.8 delta.
-& (Join-Path $PSScriptRoot 'BuildRimMTT27_7.ps1')
-if(-not $?){ throw 'T27.7 prerequisite build failed' }
+# Rebuild the verified T27.6 FINAL baseline, then apply T27.7 and the bottom-layer T27.8 delta.
+& (Join-Path $PSScriptRoot 'BuildRimMTT27_6_Final.ps1')
+if(-not $?){ throw 'T27.6 final prerequisite build failed' }
+& (Join-Path $PSScriptRoot 'ApplyRimMTV093T27_7DeadPathRetirement.ps1')
+if(-not $?){ throw 'T27.7 transform failed' }
 & (Join-Path $PSScriptRoot 'ApplyRimMTV093T27_8JobSearchFoundation.ps1')
 if(-not $?){ throw 'T27.8 transform failed' }
 
