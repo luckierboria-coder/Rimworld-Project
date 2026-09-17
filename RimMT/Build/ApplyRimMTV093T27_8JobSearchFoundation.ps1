@@ -104,14 +104,18 @@ $helper=@'
 '@
 $bill=Replace-OrThrow $bill '        private static bool HasUnsafeForeignPatch(MethodBase target)' ($helper + '        private static bool HasUnsafeForeignPatch(MethodBase target)') 'insert readiness helper'
 
-$bill=Replace-OrThrow $bill '", shouldSkipContinue=" + shouldSkipContinue + ".";' @'
-", shouldSkipContinue=" + shouldSkipContinue +
+$summaryOld=@'
+                ", shouldSkipContinue=" + shouldSkipContinue + ".";
+'@
+$summaryNew=@'
+                ", shouldSkipContinue=" + shouldSkipContinue +
                 ", readinessActualChecks=" + readinessActualChecks +
                 ", readinessFalseMemoHits=" + readinessFalseMemoHits +
                 ", readinessFalseMemoStores=" + readinessFalseMemoStores +
                 ", readinessAvoidRate=" + ((readinessActualChecks + readinessFalseMemoHits) <= 0 ? "0.00" : (readinessFalseMemoHits * 100.0 / (readinessActualChecks + readinessFalseMemoHits)).ToString("F2")) + "%" +
                 ". Scope=one synchronous JobGiver_Work package; only false AnyShouldDoNow is memoized; true remains live.";
-'@ 'readiness memo summary'
+'@
+$bill=Replace-OrThrow $bill $summaryOld $summaryNew 'readiness memo summary'
 Set-Content $billPath $bill -Encoding UTF8
 
 $diagPatchPath='RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticsPatches.cs'
