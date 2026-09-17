@@ -13,7 +13,7 @@ namespace RimMT.Diagnostics
     internal static class DiagnosticsBootstrap
     {
         internal const string HarmonyId = "allen.rimmt.diagnostics";
-        internal const string Version = "0.1.0";
+        internal const string Version = "0.2.0";
         private static int patched;
         private static int missing;
 
@@ -75,8 +75,17 @@ namespace RimMT.Diagnostics
 
     internal static class DiagnosticsPatches
     {
-        public static void TickPrefix() { DiagnosticsHub.BeginTick(); }
-        public static void TickPostfix() { DiagnosticsHub.EndTick(); }
+        public static void TickPrefix()
+        {
+            DiagnosticsV02.OnTickBegin();
+            DiagnosticsHub.BeginTick();
+        }
+
+        public static void TickPostfix()
+        {
+            DiagnosticsHub.EndTick();
+            DiagnosticsV02.OnTickEnd();
+        }
 
         public static void PawnPrefix(ref long __state) { __state = DiagnosticsHub.BeginPhase(); }
         public static void PawnPostfix(Pawn __instance, long __state) { DiagnosticsHub.EndPawn(__state, __instance); }
@@ -84,11 +93,17 @@ namespace RimMT.Diagnostics
         public static void JobTrackerPrefix(ref long __state) { __state = DiagnosticsHub.BeginPhase(); }
         public static void JobTrackerPostfix(long __state) { DiagnosticsHub.EndPhase(__state, DiagPhase.JobTracker); }
 
-        public static void DeterminePrefix(ref long __state) { __state = DiagnosticsHub.BeginPhase(); }
+        public static void DeterminePrefix(ref long __state)
+        {
+            DiagnosticsV02.DetermineBegin();
+            __state = DiagnosticsHub.BeginPhase();
+        }
+
         public static void DeterminePostfix(Pawn_JobTracker __instance, ThinkResult __result, long __state)
         {
             DiagnosticsHub.EndPhase(__state, DiagPhase.DetermineNextJob);
             DiagnosticsHub.ObserveDetermine(__instance, __result);
+            DiagnosticsV02.DetermineEnd();
         }
 
         public static void PatherPrefix(ref long __state) { __state = DiagnosticsHub.BeginPhase(); }
