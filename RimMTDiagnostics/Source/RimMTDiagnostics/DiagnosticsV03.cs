@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using HarmonyLib;
+using RimWorld;
 using Verse;
 using Verse.AI;
 
@@ -23,7 +25,7 @@ namespace RimMT.Diagnostics
         private const int MaxMethodsPerDetermine = 96;
         private const int TopMethodsPerBurst = 12;
 
-        private static readonly FieldInfo JobTrackerPawnField = AccessToolsCompat.Field(typeof(Pawn_JobTracker), "pawn");
+        private static readonly FieldInfo JobTrackerPawnField = AccessTools.Field(typeof(Pawn_JobTracker), "pawn");
         private static readonly SlowDetermineRecord[] Recent = new SlowDetermineRecord[RecentCapacity];
 
         [ThreadStatic] private static DetermineContext current;
@@ -33,10 +35,63 @@ namespace RimMT.Diagnostics
         private static long slowDetermines;
         private static long workGiverCallsInsideDetermine;
         private static long workGiverUsInsideDetermine;
+        private static long workGiverPatched;
+        private static long patchFailures;
         private static long contextReentry;
         private static long failures;
 
         internal static bool InDetermine { get { return current != null; } }
+
+        internal static void Apply(Harmony harmony)
+        {
+            if (harmony == null) return;
+            try
+            {
+                Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                HashSet<MethodBase> patched = new HashSet<MethodBase>();
+                for (int ai = 0; ai < assemblies.Length; ai++)
+                {
+                    Type[] types;
+                    try { types = assemblies[ai].GetTypes(); }
+                    catch (ReflectionTypeLoadException ex) { types = ex.Types; }
+                    catch { continue; }
+                    if (types == null) continue;
+                    for (int ti = 0; ti < types.Length; ti++)
+                    {
+                        Type t = types[ti];
+                        if (t == null || t.IsAbstract || !typeof(WorkGiver_Scanner).IsAssignableFrom(t)) continue;
+                        MethodInfo[] methods;
+                        try { methods = t.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly); }
+                        catch { continue; }
+                        for (int mi = 0; mi < methods.Length; mi++)
+                        {
+                            MethodInfo m = methods[mi];
+                            if (m == null || (m.Name != "HasJobOnThing" && m.Name != "JobOnThing" && m.Name != "NonScanJob" && m.Name != "ShouldSkip")) continue;
+                            if (!patched.Add(m)) continue;
+                            try
+                            {
+                                harmony.Patch(m,
+                                    prefix: new HarmonyMethod(typeof(DiagnosticsV03), nameof(WorkGiverPrefix)) { priority = Priority.First + 20 },
+                                    postfix: new HarmonyMethod(typeof(DiagnosticsV03), nameof(WorkGiverPostfix)) { priority = Priority.Last - 20 });
+                                workGiverPatched++;
+                            }
+                            catch { patchFailures++; }
+                        }
+                    }
+                }
+            }
+            catch { patchFailures++; }
+        }
+
+        public static void WorkGiverPrefix(ref long __state)
+        {
+            __state = current == null ? 0L : Stopwatch.GetTimestamp();
+        }
+
+        public static void WorkGiverPostfix(object __instance, MethodBase __originalMethod, long __state)
+        {
+            RecordWorkGiver(__instance, __originalMethod, __state);
+        }
 
         internal static void BeginDetermine(Pawn_JobTracker tracker)
         {
@@ -127,6 +182,8 @@ namespace RimMT.Diagnostics
             StringBuilder sb = new StringBuilder(16384);
             sb.Append("SlowDNJCorrelation: determines=").Append(determines)
               .Append(", slow>=20ms=").Append(slowDetermines)
+              .Append(", workGiverPatched=").Append(workGiverPatched)
+              .Append(", patchFailures=").Append(patchFailures)
               .Append(", workGiverCalls=").Append(workGiverCallsInsideDetermine)
               .Append(", workGiverTimeMs=").Append((workGiverUsInsideDetermine / 1000.0).ToString("F1"))
               .Append(", contextReentry=").Append(contextReentry)
