@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimMT Diagnostics v0.1</name>
+  <name>RimMT Diagnostics v0.2</name>
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt.diagnostics</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -9,5 +9,5 @@
     <li><packageId>allen.rimmt</packageId><displayName>RimMT</displayName></li>
   </modDependencies>
   <loadAfter><li>brrainz.harmony</li><li>allen.rimmt</li></loadAfter>
-  <description>Optional diagnostics companion for RimMT. Contains measurement-only tail, Pawn/Job/Wait, GenClosest/Reachability, Map/World/Storyteller timing, Harmony patch census and reflective RimMT status reporting. Disable this mod for normal gameplay when diagnostics are not needed.</description>
+  <description>Optional diagnostics companion for RimMT. v0.2 adds current-job idle duration census, bounded WorkGiver burst attribution, Pawn_PathFollower internal-stage timing, ReachProfile capture/Region.Allows timing, pause/resume gap labeling and catastrophic VFE Empire timing. Measurement-only; disable this mod for normal gameplay when diagnostics are not needed.</description>
 </ModMetaData>
