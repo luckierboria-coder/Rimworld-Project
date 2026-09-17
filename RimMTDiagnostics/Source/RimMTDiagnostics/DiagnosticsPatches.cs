@@ -13,7 +13,7 @@ namespace RimMT.Diagnostics
     internal static class DiagnosticsBootstrap
     {
         internal const string HarmonyId = "allen.rimmt.diagnostics";
-        internal const string Version = "0.1.0";
+        internal const string Version = "0.2.0";
         private static int patched;
         private static int missing;
 
@@ -35,6 +35,7 @@ namespace RimMT.Diagnostics
                 PatchNamedMethods(harmony, typeof(GenClosest), "ClosestThing_Global", nameof(DiagnosticsPatches.GenClosestPrefix), nameof(DiagnosticsPatches.GenClosestPostfix));
                 PatchNamedMethods(harmony, typeof(Reachability), "CanReach", nameof(DiagnosticsPatches.ReachPrefix), nameof(DiagnosticsPatches.ReachPostfix));
 
+                DiagnosticsV02.Apply(harmony);
                 Log.Message("[RimMT Diagnostics] v" + Version + " initialized: patched=" + patched + ", missing=" + missing + ". Optional diagnostics only; disable this mod for normal gameplay.");
             }
             catch (Exception ex)
@@ -75,8 +76,16 @@ namespace RimMT.Diagnostics
 
     internal static class DiagnosticsPatches
     {
-        public static void TickPrefix() { DiagnosticsHub.BeginTick(); }
-        public static void TickPostfix() { DiagnosticsHub.EndTick(); }
+        public static void TickPrefix()
+        {
+            DiagnosticsV02.OnTickBegin();
+            DiagnosticsHub.BeginTick();
+        }
+        public static void TickPostfix()
+        {
+            DiagnosticsHub.EndTick();
+            DiagnosticsV02.OnTickEnd();
+        }
 
         public static void PawnPrefix(ref long __state) { __state = DiagnosticsHub.BeginPhase(); }
         public static void PawnPostfix(Pawn __instance, long __state) { DiagnosticsHub.EndPawn(__state, __instance); }
