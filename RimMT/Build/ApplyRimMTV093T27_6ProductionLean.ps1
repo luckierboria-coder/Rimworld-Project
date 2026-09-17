@@ -88,8 +88,9 @@ $reach=$reach.Replace('TailObservatory093T0.NoteReachQueryTicks(RecordElapsed(re
 $reach=[regex]::Replace($reach,'(?m)^\s*TailObservatory093T0\.NoteReachCaptureTicks\(elapsed\);\s*\r?\n','')
 $reach=[regex]::Replace($reach,'(?m)^\s*TailObservatory093T0\.NoteTopologySliceTicks\(elapsed\);\s*\r?\n','')
 
-# Production-only admission reason counters: the T27.5 report had observed~2M, eligible=0 with every
-# later counter also zero. Split the precondition gate so the next report identifies the dead gate.
+# T1A removed the global fuse gate long before T27.6, so only the four still-live prefix
+# preconditions are split here. This is observability through production counters only: no
+# Stopwatch/Harmony probe is added and Reachability behavior is unchanged.
 $reach=Replace-OrThrow $reach @'
         private static long profileCapturePairTicksMax;
 '@ @'
@@ -98,22 +99,12 @@ $reach=Replace-OrThrow $reach @'
         private static long admissionFeatureGateBypass;
         private static long admissionThreadBypass;
         private static long admissionProgramStateBypass;
-        private static long admissionCooldownFuseBypass;
-        private static long admissionHardFuseBypass;
 '@ 'Reach admission counters'
 $reach=Replace-OrThrow $reach @'
             if (!compatibilityReady || !FeatureGate.IsEnabled(FeatureId) ||
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return true;
 
-            UpdateRollingFuseMode();
-            if (reachFuseMode == ReachFuseMode.Cooldown)
-            {
-                cooldownLiveBypass++;
-                return true;
-            }
-            if (reachFuseMode == ReachFuseMode.HardFused)
-                return true;
 '@ @'
             if (!compatibilityReady)
             {
@@ -136,20 +127,8 @@ $reach=Replace-OrThrow $reach @'
                 return true;
             }
 
-            UpdateRollingFuseMode();
-            if (reachFuseMode == ReachFuseMode.Cooldown)
-            {
-                cooldownLiveBypass++;
-                Interlocked.Increment(ref admissionCooldownFuseBypass);
-                return true;
-            }
-            if (reachFuseMode == ReachFuseMode.HardFused)
-            {
-                Interlocked.Increment(ref admissionHardFuseBypass);
-                return true;
-            }
 '@ 'Reach admission split'
-$reach=$reach.Replace('", eligible=" + Interlocked.Read(ref eligible) +', '", admissionBypass[compat/gate/thread/state/cooldown/hard]=" + Interlocked.Read(ref admissionCompatibilityBypass) + "/" + Interlocked.Read(ref admissionFeatureGateBypass) + "/" + Interlocked.Read(ref admissionThreadBypass) + "/" + Interlocked.Read(ref admissionProgramStateBypass) + "/" + Interlocked.Read(ref admissionCooldownFuseBypass) + "/" + Interlocked.Read(ref admissionHardFuseBypass) +`n                ", eligible=" + Interlocked.Read(ref eligible) +')
+$reach=$reach.Replace('", eligible=" + Interlocked.Read(ref eligible) +', '", admissionBypass[compat/gate/thread/state]=" + Interlocked.Read(ref admissionCompatibilityBypass) + "/" + Interlocked.Read(ref admissionFeatureGateBypass) + "/" + Interlocked.Read(ref admissionThreadBypass) + "/" + Interlocked.Read(ref admissionProgramStateBypass) +`n                ", eligible=" + Interlocked.Read(ref eligible) +')
 Set-Content $reachPath $reach -Encoding UTF8
 
 $s4Path='RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs'
