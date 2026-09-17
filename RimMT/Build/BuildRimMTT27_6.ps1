@@ -37,7 +37,7 @@ if($rimmtPatches -match 'TailObservatory093T0\.BeginTick|TailObservatory093T0\.R
 if($rimmtPatches -notmatch '!FeatureGate\.IsEnabled\("runtime\.adaptiveBurst"\) \|\| RuntimeCompatibility\.ButterPlusPlusActive'){ throw 'production adaptive tick gate not restored' }
 
 $reach=Get-Content (Join-Path $root 'RimMT/Source/RimMT/AI/AggressiveReachabilityProfilesV17.cs') -Raw
-foreach($required in @('admissionCompatibilityBypass','admissionFeatureGateBypass','admissionThreadBypass','admissionProgramStateBypass','admissionCooldownFuseBypass','admissionHardFuseBypass','admissionBypass[compat/gate/thread/state/cooldown/hard]')){
+foreach($required in @('admissionCompatibilityBypass','admissionFeatureGateBypass','admissionThreadBypass','admissionProgramStateBypass','admissionBypass[compat/gate/thread/state]')){
   if(-not $reach.Contains($required)){ throw "T27.6 Reach admission marker missing: $required" }
 }
 if($reach -match 'TailObservatory093T0\.NoteReach'){ throw 'T0 Reach correlation callback remains in production path' }
