@@ -17,7 +17,6 @@ $boot=Replace-OrThrow $boot 'internal const string Version = "0.9.3-t27.7-dead-p
 $boot=$boot.Replace('[RimMT] V0.9.3-T27.7 Dead Path Retirement initialized.','[RimMT] V0.9.3-T27.8 Job Search Foundation initialized.')
 Set-Content $bootPath $boot -Encoding UTF8
 
-# Diagnostics must never suppress production features merely by being present.
 $compatPath='RimMT/Source/RimMT/Compatibility/CompatibilityGuard.cs'
 $compat=Get-Content $compatPath -Raw
 $compat=Replace-OrThrow $compat @'
@@ -29,9 +28,8 @@ $compat=Replace-OrThrow $compat @'
                 if (string.IsNullOrEmpty(owner) || owner == RimMTBootstrap.HarmonyId)
                     continue;
 
-                // allen.rimmt.diagnostics is an observation-only companion owned by this project.
-                // Prefix/postfix probes may time a call but must never affect production admission.
-                // We intentionally do NOT whitelist a diagnostics transpiler/finalizer here.
+                // Observation-only companion owned by this project. Prefix/postfix timing probes
+                // must never suppress production feature admission. Transpilers/finalizers remain blocking.
                 if (string.Equals(owner, "allen.rimmt.diagnostics", StringComparison.Ordinal) &&
                     (string.Equals(kind, "prefix", StringComparison.Ordinal) || string.Equals(kind, "postfix", StringComparison.Ordinal)))
                 {
@@ -45,13 +43,9 @@ $compat=Replace-OrThrow $compat @'
 '@ 'diagnostics coexistence'
 Set-Content $compatPath $compat -Encoding UTF8
 
-# Package-local false-only BillStack readiness memo. The map can mutate only on the main thread;
-# the memo lifetime is one synchronous JobGiver_Work package and true results are never cached.
 $billPath='RimMT/Source/RimMT/AI/PersistentDoBillIndex092.cs'
 $bill=Get-Content $billPath -Raw
-$bill=Replace-OrThrow $bill @'
-        private static long shouldSkipContinue;
-'@ @'
+$bill=Replace-OrThrow $bill '        private static long shouldSkipContinue;' @'
         private static long shouldSkipContinue;
         [ThreadStatic] private static long readinessScopeStamp;
         [ThreadStatic] private static HashSet<BillStack> inactiveStacksInPackage;
@@ -60,28 +54,16 @@ $bill=Replace-OrThrow $bill @'
         private static long readinessFalseMemoStores;
 '@ 'readiness memo fields'
 
-$bill=Replace-OrThrow $bill @'
-                    BillStack stack = billGiver == null ? null : billGiver.BillStack;
+if(-not $bill.Contains('bool keep = stack == null || stack.AnyShouldDoNow;')){ throw 'T27.8 anchor missing: source readiness statement' }
+$bill=$bill.Replace('bool keep = stack == null || stack.AnyShouldDoNow;','bool keep = stack == null || PackageReadinessShouldDoNow(stack);')
 
-                    bool keep = stack == null || stack.AnyShouldDoNow;
-'@ @'
-                    BillStack stack = billGiver == null ? null : billGiver.BillStack;
-
-                    bool keep = stack == null || PackageReadinessShouldDoNow(stack);
-'@ 'source readiness call'
-
-$bill=Replace-OrThrow $bill @'
-                    if (billGiver.BillStack.AnyShouldDoNow)
-'@ @'
-                    if (PackageReadinessShouldDoNow(billGiver.BillStack))
-'@ 'ShouldSkip readiness call'
+if(-not $bill.Contains('if (billGiver.BillStack.AnyShouldDoNow)')){ throw 'T27.8 anchor missing: ShouldSkip readiness statement' }
+$bill=$bill.Replace('if (billGiver.BillStack.AnyShouldDoNow)','if (PackageReadinessShouldDoNow(billGiver.BillStack))')
 
 $helper=@'
         private static bool PackageReadinessShouldDoNow(BillStack stack)
         {
             if (stack == null) return true;
-
-            // Outside a synchronous JobGiver_Work package, never memoize gameplay state.
             if (!JobGiverGlobalNearest04181.InJobGiverScope)
             {
                 readinessActualChecks++;
@@ -120,14 +102,10 @@ $helper=@'
         }
 
 '@
-$bill=Replace-OrThrow $bill @'
-        private static bool HasUnsafeForeignPatch(MethodBase target)
-'@ ($helper + '        private static bool HasUnsafeForeignPatch(MethodBase target)' + "`r`n") 'insert readiness helper'
+$bill=Replace-OrThrow $bill '        private static bool HasUnsafeForeignPatch(MethodBase target)' ($helper + '        private static bool HasUnsafeForeignPatch(MethodBase target)') 'insert readiness helper'
 
-$bill=Replace-OrThrow $bill @'
-                ", shouldSkipContinue=" + shouldSkipContinue + ".";
-'@ @'
-                ", shouldSkipContinue=" + shouldSkipContinue +
+$bill=Replace-OrThrow $bill '", shouldSkipContinue=" + shouldSkipContinue + ".";' @'
+", shouldSkipContinue=" + shouldSkipContinue +
                 ", readinessActualChecks=" + readinessActualChecks +
                 ", readinessFalseMemoHits=" + readinessFalseMemoHits +
                 ", readinessFalseMemoStores=" + readinessFalseMemoStores +
@@ -136,7 +114,6 @@ $bill=Replace-OrThrow $bill @'
 '@ 'readiness memo summary'
 Set-Content $billPath $bill -Encoding UTF8
 
-# Diagnostics v0.5: no search hooks are installed when the setting is OFF at startup.
 $diagPatchPath='RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticsPatches.cs'
 $diag=Get-Content $diagPatchPath -Raw
 $diag=Replace-OrThrow $diag 'internal const string Version = "0.4.0";' 'internal const string Version = "0.5.0";' 'diagnostics version'
@@ -155,17 +132,8 @@ $diag=Replace-OrThrow $diag @'
 Set-Content $diagPatchPath $diag -Encoding UTF8
 
 $diagAbout='RimMTDiagnostics/About/About.xml'
-if(Test-Path $diagAbout){
-  $a=Get-Content $diagAbout -Raw
-  $a=$a.Replace('RimMT Diagnostics v0.4','RimMT Diagnostics v0.5')
-  Set-Content $diagAbout $a -Encoding UTF8
-}
-
+if(Test-Path $diagAbout){ $a=Get-Content $diagAbout -Raw; $a=$a.Replace('RimMT Diagnostics v0.4','RimMT Diagnostics v0.5'); Set-Content $diagAbout $a -Encoding UTF8 }
 $about='RimMT/About/About.xml'
-if(Test-Path $about){
-  $a=Get-Content $about -Raw
-  $a=$a.Replace('V0.9.3-T27.7 Dead Path Retirement','V0.9.3-T27.8 Job Search Foundation')
-  Set-Content $about $a -Encoding UTF8
-}
+if(Test-Path $about){ $a=Get-Content $about -Raw; $a=$a.Replace('V0.9.3-T27.7 Dead Path Retirement','V0.9.3-T27.8 Job Search Foundation'); Set-Content $about $a -Encoding UTF8 }
 
 Write-Host 'Applied RimMT V0.9.3-T27.8 Job Search Foundation + Diagnostics v0.5 neutrality.'
