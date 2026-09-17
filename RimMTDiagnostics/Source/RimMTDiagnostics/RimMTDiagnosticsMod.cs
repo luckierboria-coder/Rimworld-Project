@@ -40,12 +40,12 @@ namespace RimMT.Diagnostics
 
         public override void DoSettingsWindowContents(Rect inRect)
         {
-            Rect view = new Rect(0f, 0f, inRect.width - 20f, 680f);
+            Rect view = new Rect(0f, 0f, inRect.width - 20f, 720f);
             Widgets.BeginScrollView(inRect, ref scroll, view);
             Listing_Standard list = new Listing_Standard();
             list.Begin(view);
-            list.Label("Standalone diagnostics companion v0.2. Disable the entire mod for normal gameplay when profiling is not needed.");
-            list.Label("v0.2 adds live current-Wait census, sampled WorkGiver/Pather attribution, ReachProfile Region.Allows capture timing, and pause/resume markers.");
+            list.Label("Standalone diagnostics companion v0.3. Disable the entire mod for normal gameplay when profiling is not needed.");
+            list.Label("v0.3 adds per-DetermineNextJob WorkGiver correlation for >=20 ms calls and detailed HaulMerge/Pather Harmony authority audit.");
             list.GapLine();
             list.CheckboxLabeled("Track Wait/idle outcomes and live current-Wait census", ref RimMTDiagnosticsSettings.EnableWaitTrace);
             list.CheckboxLabeled("Time GenClosest and Reachability during deep sample windows", ref RimMTDiagnosticsSettings.EnableSearchTiming);
@@ -82,11 +82,12 @@ namespace RimMT.Diagnostics
             {
                 DiagnosticsHub.Reset();
                 DiagnosticsV02.Reset();
+                DiagnosticsV03.Reset();
                 Messages.Message("RimMT Diagnostics counters reset.", MessageTypeDefOf.NeutralEvent, false);
             }
             list.GapLine();
             list.Label("Search timing adds Harmony dispatch to hot GenClosest/Reachability methods. Keep it OFF unless diagnosing search tails.");
-            list.Label("WorkGiver/Pather v0.2 timers only take Stopwatch samples during configured deep windows; gameplay results are never modified.");
+            list.Label("v0.3 slow-DNJ correlation timestamps WorkGiver methods only while DetermineNextJob is active; this is diagnostics-only overhead.");
             list.End();
             Widgets.EndScrollView();
         }
