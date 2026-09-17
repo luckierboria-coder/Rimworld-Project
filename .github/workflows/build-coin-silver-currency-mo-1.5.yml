@@ -1,0 +1,43 @@
+name: Build Coin Silver Currency MO 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Coin-Silver-Currency-MO-1.5/**'
+      - '.github/workflows/build-coin-silver-currency-mo-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore Coin-Silver-Currency-MO-1.5/Source/CoinSilverCurrency15.csproj
+      - name: Build Release
+        run: dotnet build Coin-Silver-Currency-MO-1.5/Source/CoinSilverCurrency15.csproj --configuration Release --no-restore
+      - name: Verify and package
+        shell: pwsh
+        run: |
+          $dll = 'Coin-Silver-Currency-MO-1.5\1.5\Assemblies\CoinSilverCurrency15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+          Remove-Item 'dist-coin-silver' -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist-coin-silver\Coin-Silver-Currency-MO-1.5'
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Defs" | Out-Null
+          Copy-Item 'Coin-Silver-Currency-MO-1.5\About\About.xml' "$stage\About\About.xml"
+          Copy-Item 'Coin-Silver-Currency-MO-1.5\LoadFolders.xml' "$stage\LoadFolders.xml"
+          Copy-Item $dll "$stage\1.5\Assemblies\CoinSilverCurrency15.dll"
+          Copy-Item 'Coin-Silver-Currency-MO-1.5\1.5\Defs\CoinSilverCurrency.xml' "$stage\1.5\Defs\CoinSilverCurrency.xml"
+          Compress-Archive -Path $stage -DestinationPath 'dist-coin-silver\Coin-Silver-Currency-MO-1.5.zip' -Force
+      - name: Upload patch zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Coin-Silver-Currency-MO-1.5
+          path: dist-coin-silver/Coin-Silver-Currency-MO-1.5.zip
+          if-no-files-found: error

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+  <SpecialThingFilterDef>
+    <defName>Allen_PureMetalCoin</defName>
+    <label>pure metal coins</label>
+    <description>Coinage coins made directly from a metallic stuff.</description>
+    <workerClass>Allen.CoinSilverCurrency15.SpecialThingFilterWorker_PureMetalCoin</workerClass>
+  </SpecialThingFilterDef>
+  <RecipeDef ParentName="DankPyon_SmelterBase">
+    <defName>Allen_SmeltPureMetalCoin</defName>
+    <label>smelt pure metal coins back into metal</label>
+    <description>Remelt ten pure metal coins into one unit of the metal they were minted from.</description>
+    <jobString>Smelting pure metal coins back into metal.</jobString>
+    <workAmount>600</workAmount>
+    <targetCountAdjustment>1</targetCountAdjustment>
+    <ingredients><li><filter><specialFilters><li>Allen_PureMetalCoin</li></specialFilters></filter><count>10</count></li></ingredients>
+    <fixedIngredientFilter><specialFilters><li>Allen_PureMetalCoin</li></specialFilters></fixedIngredientFilter>
+    <products><Silver>1</Silver></products>
+    <recipeUsers Inherit="False"><li>DankPyon_Furnace</li></recipeUsers>
+  </RecipeDef>
+</Defs>
