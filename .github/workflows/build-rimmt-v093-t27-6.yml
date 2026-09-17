@@ -1,0 +1,33 @@
+name: Build RimMT V0.9.3-T27.6 Production Lean
+
+on:
+  push:
+    branches:
+      - rimmt-v0.9.3-t27.6-production-lean
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build production and diagnostics
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTT27_6.ps1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-T27.6-Production-Lean
+          path: |
+            build/RimMT_V0.9.3_T27.6_Production.zip
+            build/RimMT_Diagnostics_v0.3.zip
+            build/RimMT_T27.6_With_Diagnostics_Bundle.zip
+          if-no-files-found: error
