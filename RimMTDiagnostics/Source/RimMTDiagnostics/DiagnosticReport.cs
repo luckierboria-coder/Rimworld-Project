@@ -15,7 +15,7 @@ namespace RimMT.Diagnostics
     {
         internal static string Build()
         {
-            StringBuilder sb = new StringBuilder(32768);
+            StringBuilder sb = new StringBuilder(49152);
             sb.AppendLine("============================================================");
             sb.AppendLine("RimMT Diagnostics v" + DiagnosticsBootstrap.Version + " report");
             sb.AppendLine("ProgramState=" + Current.ProgramState + ", RimWorld=" + VersionControl.CurrentVersionStringWithRev);
@@ -30,6 +30,7 @@ namespace RimMT.Diagnostics
                 ", searchTiming=" + RimMTDiagnosticsSettings.EnableSearchTiming);
             sb.AppendLine("------------------------------------------------------------");
             sb.Append(DiagnosticsHub.BuildSummary());
+            sb.Append(DiagnosticsV02.BuildSummary());
             sb.AppendLine("------------------------------------------------------------");
             sb.AppendLine("[RimMT production summaries via reflection]");
             sb.Append(RimMTBridge.BuildSummary());
@@ -51,12 +52,14 @@ namespace RimMT.Diagnostics
             "RimMT.SimulationEpochCoordinator093T26",
             "RimMT.WorkGiverParallelSafety093T27_2",
             "RimMT.JobGiverSlowSearch0419S",
-            "RimMT.DoBillTailFabric092"
+            "RimMT.DoBillTailFabric092",
+            "RimMT.PersistentDoBillIndex092",
+            "RimMT.WorkGiverMergePartnerIndex093T4"
         };
 
         internal static string BuildSummary()
         {
-            StringBuilder sb = new StringBuilder(8192);
+            StringBuilder sb = new StringBuilder(12288);
             Assembly rimmt = null;
             try
             {
