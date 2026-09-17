@@ -36,6 +36,7 @@ namespace RimMT.Diagnostics
                 PatchNamedMethods(harmony, typeof(Reachability), "CanReach", nameof(DiagnosticsPatches.ReachPrefix), nameof(DiagnosticsPatches.ReachPostfix));
 
                 DiagnosticsV02.Apply(harmony);
+                DiagnosticsV03.Apply(harmony);
                 Log.Message("[RimMT Diagnostics] v" + Version + " initialized: patched=" + patched + ", missing=" + missing + ". Optional diagnostics only; disable this mod for normal gameplay.");
             }
             catch (Exception ex)
