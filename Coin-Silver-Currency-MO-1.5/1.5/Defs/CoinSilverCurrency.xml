@@ -13,8 +13,21 @@
     <jobString>Smelting pure metal coins back into metal.</jobString>
     <workAmount>600</workAmount>
     <targetCountAdjustment>1</targetCountAdjustment>
-    <ingredients><li><filter><specialFilters><li>Allen_PureMetalCoin</li></specialFilters></filter><count>10</count></li></ingredients>
-    <fixedIngredientFilter><specialFilters><li>Allen_PureMetalCoin</li></specialFilters></fixedIngredientFilter>
+    <ingredients>
+      <li>
+        <filter>
+          <specialFiltersToAllow>
+            <li>Allen_PureMetalCoin</li>
+          </specialFiltersToAllow>
+        </filter>
+        <count>10</count>
+      </li>
+    </ingredients>
+    <fixedIngredientFilter>
+      <specialFiltersToAllow>
+        <li>Allen_PureMetalCoin</li>
+      </specialFiltersToAllow>
+    </fixedIngredientFilter>
     <products><Silver>1</Silver></products>
     <recipeUsers Inherit="False"><li>DankPyon_Furnace</li></recipeUsers>
   </RecipeDef>
