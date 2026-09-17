@@ -34,7 +34,11 @@ jobs:
           Copy-Item 'Coin-Silver-Currency-MO-1.5\LoadFolders.xml' "$stage\LoadFolders.xml"
           Copy-Item $dll "$stage\1.5\Assemblies\CoinSilverCurrency15.dll"
           Copy-Item 'Coin-Silver-Currency-MO-1.5\1.5\Defs\CoinSilverCurrency.xml' "$stage\1.5\Defs\CoinSilverCurrency.xml"
-          Compress-Archive -Path $stage -DestinationPath 'dist-coin-silver\Coin-Silver-Currency-MO-1.5.zip' -Force
+          $zip = 'dist-coin-silver\Coin-Silver-Currency-MO-1.5.zip'
+          Compress-Archive -Path $stage -DestinationPath $zip -Force
+          Write-Host '===COIN_PATCH_BASE64_BEGIN==='
+          Write-Host ([Convert]::ToBase64String([IO.File]::ReadAllBytes($zip)))
+          Write-Host '===COIN_PATCH_BASE64_END==='
       - name: Upload patch zip
         uses: actions/upload-artifact@v4
         with:
