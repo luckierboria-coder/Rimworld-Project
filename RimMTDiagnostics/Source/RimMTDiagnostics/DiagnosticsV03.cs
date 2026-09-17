@@ -13,9 +13,9 @@ namespace RimMT.Diagnostics
 {
     /// <summary>
     /// v0.3 diagnostics-only slow DetermineNextJob correlation.
-    /// Every DetermineNextJob gets one timestamp pair while the diagnostics mod is enabled.
-    /// WorkGiver method timings are accumulated only while a DetermineNextJob call is active.
-    /// Calls >=20ms are copied into a bounded ring with top contributing WorkGiver methods.
+    /// DetermineNextJob itself is timed on every call (one timestamp pair). WorkGiver method
+    /// Stopwatches are active only in periodic deep windows or a bounded burst after a slow DNJ,
+    /// so the diagnostics companion does not turn every scanner call into a permanent profiler.
     /// No gameplay result/state is changed.
     /// </summary>
     internal static class DiagnosticsV03
@@ -24,15 +24,20 @@ namespace RimMT.Diagnostics
         private const int RecentCapacity = 32;
         private const int MaxMethodsPerDetermine = 96;
         private const int TopMethodsPerBurst = 12;
+        private const int PostSlowDetailPackages = 24;
 
         private static readonly FieldInfo JobTrackerPawnField = AccessTools.Field(typeof(Pawn_JobTracker), "pawn");
         private static readonly SlowDetermineRecord[] Recent = new SlowDetermineRecord[RecentCapacity];
 
         [ThreadStatic] private static DetermineContext current;
+        [ThreadStatic] private static int detailPackagesRemaining;
         private static int recentPos;
         private static int recentCount;
         private static long determines;
         private static long slowDetermines;
+        private static long detailedDetermines;
+        private static long slowDetailed;
+        private static long slowUndetailed;
         private static long workGiverCallsInsideDetermine;
         private static long workGiverUsInsideDetermine;
         private static long workGiverPatched;
@@ -85,7 +90,8 @@ namespace RimMT.Diagnostics
 
         public static void WorkGiverPrefix(ref long __state)
         {
-            __state = current == null ? 0L : Stopwatch.GetTimestamp();
+            DetermineContext ctx = current;
+            __state = ctx == null || !ctx.CaptureDetails ? 0L : Stopwatch.GetTimestamp();
         }
 
         public static void WorkGiverPostfix(object __instance, MethodBase __originalMethod, long __state)
@@ -109,10 +115,19 @@ namespace RimMT.Diagnostics
             }
             catch { failures++; }
 
+            bool burst = detailPackagesRemaining > 0;
+            if (burst) detailPackagesRemaining--;
+            bool capture = DiagnosticsHub.DeepActive || burst;
+
             DetermineContext ctx = new DetermineContext();
             ctx.Started = Stopwatch.GetTimestamp();
             ctx.Pawn = pawn;
-            ctx.Methods = new Dictionary<string, MethodAccum>(StringComparer.Ordinal);
+            ctx.CaptureDetails = capture;
+            if (capture)
+            {
+                ctx.Methods = new Dictionary<string, MethodAccum>(StringComparer.Ordinal);
+                detailedDetermines++;
+            }
             current = ctx;
             determines++;
         }
@@ -120,7 +135,7 @@ namespace RimMT.Diagnostics
         internal static void RecordWorkGiver(object instance, MethodBase method, long started)
         {
             DetermineContext ctx = current;
-            if (ctx == null || started == 0L) return;
+            if (ctx == null || !ctx.CaptureDetails || ctx.Methods == null || started == 0L) return;
             long elapsed = Stopwatch.GetTimestamp() - started;
             if (elapsed <= 0L) return;
             long us = elapsed * 1000000L / Stopwatch.Frequency;
@@ -155,6 +170,14 @@ namespace RimMT.Diagnostics
             if (totalUs < SlowDetermineUs) return;
             slowDetermines++;
 
+            if (ctx.CaptureDetails) slowDetailed++;
+            else
+            {
+                slowUndetailed++;
+                if (detailPackagesRemaining < PostSlowDetailPackages)
+                    detailPackagesRemaining = PostSlowDetailPackages;
+            }
+
             int tick = -1;
             try { tick = Find.TickManager == null ? -1 : Find.TickManager.TicksGame; } catch { }
             string pawn = PawnText(ctx.Pawn);
@@ -167,11 +190,15 @@ namespace RimMT.Diagnostics
             }
             catch { failures++; }
 
-            string top = string.Join(" | ", ctx.Methods
-                .OrderByDescending(kv => kv.Value.TotalUs)
-                .Take(TopMethodsPerBurst)
-                .Select(kv => kv.Key + "[calls=" + kv.Value.Calls + ",totalMs=" + (kv.Value.TotalUs / 1000.0).ToString("F2") + ",maxMs=" + (kv.Value.MaxUs / 1000.0).ToString("F2") + "]")
-                .ToArray());
+            string top = "detail-not-armed";
+            if (ctx.Methods != null && ctx.Methods.Count != 0)
+            {
+                top = string.Join(" | ", ctx.Methods
+                    .OrderByDescending(kv => kv.Value.TotalUs)
+                    .Take(TopMethodsPerBurst)
+                    .Select(kv => kv.Key + "[calls=" + kv.Value.Calls + ",totalMs=" + (kv.Value.TotalUs / 1000.0).ToString("F2") + ",maxMs=" + (kv.Value.MaxUs / 1000.0).ToString("F2") + "]")
+                    .ToArray());
+            }
             Recent[recentPos] = new SlowDetermineRecord(tick, pawn, totalUs, resultJob, source, top);
             recentPos = (recentPos + 1) % RecentCapacity;
             if (recentCount < RecentCapacity) recentCount++;
@@ -182,6 +209,9 @@ namespace RimMT.Diagnostics
             StringBuilder sb = new StringBuilder(16384);
             sb.Append("SlowDNJCorrelation: determines=").Append(determines)
               .Append(", slow>=20ms=").Append(slowDetermines)
+              .Append(", detailedDetermines=").Append(detailedDetermines)
+              .Append(", slowDetailed/undetailed=").Append(slowDetailed).Append('/').Append(slowUndetailed)
+              .Append(", detailBurstRemaining=").Append(detailPackagesRemaining)
               .Append(", workGiverPatched=").Append(workGiverPatched)
               .Append(", patchFailures=").Append(patchFailures)
               .Append(", workGiverCalls=").Append(workGiverCallsInsideDetermine)
@@ -214,7 +244,9 @@ namespace RimMT.Diagnostics
         {
             Array.Clear(Recent, 0, Recent.Length);
             recentPos = recentCount = 0;
-            determines = slowDetermines = workGiverCallsInsideDetermine = workGiverUsInsideDetermine = contextReentry = failures = 0L;
+            determines = slowDetermines = detailedDetermines = slowDetailed = slowUndetailed = 0L;
+            workGiverCallsInsideDetermine = workGiverUsInsideDetermine = contextReentry = failures = 0L;
+            detailPackagesRemaining = 0;
             current = null;
         }
 
@@ -231,6 +263,7 @@ namespace RimMT.Diagnostics
         {
             internal long Started;
             internal Pawn Pawn;
+            internal bool CaptureDetails;
             internal Dictionary<string, MethodAccum> Methods;
         }
 
