@@ -1,0 +1,33 @@
+name: Build RimMT V0.9.3-T27.5 Stutter Foundation
+
+on:
+  push:
+    branches:
+      - rimmt-v0.9.3-t27.5-stutter-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build production and diagnostics
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTT27_5.ps1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-T27.5-Stutter-Foundation
+          path: |
+            build/RimMT_V0.9.3_T27.5_Production.zip
+            build/RimMT_Diagnostics_v0.2.zip
+            build/RimMT_T27.5_With_Diagnostics_Bundle.zip
+          if-no-files-found: error
