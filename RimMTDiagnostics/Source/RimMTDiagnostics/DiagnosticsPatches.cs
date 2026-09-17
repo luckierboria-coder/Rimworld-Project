@@ -13,7 +13,7 @@ namespace RimMT.Diagnostics
     internal static class DiagnosticsBootstrap
     {
         internal const string HarmonyId = "allen.rimmt.diagnostics";
-        internal const string Version = "0.2.0";
+        internal const string Version = "0.3.0";
         private static int patched;
         private static int missing;
 
@@ -93,11 +93,16 @@ namespace RimMT.Diagnostics
         public static void JobTrackerPrefix(ref long __state) { __state = DiagnosticsHub.BeginPhase(); }
         public static void JobTrackerPostfix(long __state) { DiagnosticsHub.EndPhase(__state, DiagPhase.JobTracker); }
 
-        public static void DeterminePrefix(ref long __state) { __state = DiagnosticsHub.BeginPhase(); }
+        public static void DeterminePrefix(Pawn_JobTracker __instance, ref long __state)
+        {
+            DiagnosticsV03.BeginDetermine(__instance);
+            __state = DiagnosticsHub.BeginPhase();
+        }
         public static void DeterminePostfix(Pawn_JobTracker __instance, ThinkResult __result, long __state)
         {
             DiagnosticsHub.EndPhase(__state, DiagPhase.DetermineNextJob);
             DiagnosticsHub.ObserveDetermine(__instance, __result);
+            DiagnosticsV03.EndDetermine(__instance, __result);
         }
 
         public static void PatherPrefix(ref long __state) { __state = DiagnosticsHub.BeginPhase(); }
