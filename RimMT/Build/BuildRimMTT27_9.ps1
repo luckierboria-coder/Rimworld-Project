@@ -61,7 +61,7 @@ $epoch=Get-Content (Join-Path $root 'RimMT/Source/RimMT/Scheduling/SimulationEpo
 $a=$epoch.IndexOf('internal static bool TryComputeRingKeys'); $b=$epoch.IndexOf('internal static string Summary()',$a)
 if($a -lt 0 -or $b -lt 0){ throw 'Cannot isolate zero-wait kernel' }
 $kernel=$epoch.Substring($a,$b-$a)
-foreach($x in @('SpinOnce(','new SpinWait(','.Wait(','.Join(','Thread.Sleep(','ManualResetEvent'))){ if($kernel -match [regex]::Escape($x)){ throw "T27.9 zero-wait violation: $x" } }
+foreach($x in @('SpinOnce(','new SpinWait(','.Wait(','.Join(','Thread.Sleep(','ManualResetEvent')){ if($kernel -match [regex]::Escape($x)){ throw "T27.9 zero-wait violation: $x" } }
 
 $allMain=(Get-ChildItem (Join-Path $root 'RimMT/Source/RimMT') -Filter '*.cs' -File -Recurse | ForEach-Object { Get-Content $_.FullName -Raw }) -join "`n"
 if($allMain -match 'DefDatabase<TraitDef>.*Harmony' -or $allMain -match 'TechLevelDatabase<TraitDef>.*harmony\.Patch'){ throw 'closed generic Def Harmony safety regression' }
