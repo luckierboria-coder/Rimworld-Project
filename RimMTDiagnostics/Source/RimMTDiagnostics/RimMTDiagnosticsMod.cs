@@ -40,13 +40,14 @@ namespace RimMT.Diagnostics
 
         public override void DoSettingsWindowContents(Rect inRect)
         {
-            Rect view = new Rect(0f, 0f, inRect.width - 20f, 620f);
+            Rect view = new Rect(0f, 0f, inRect.width - 20f, 680f);
             Widgets.BeginScrollView(inRect, ref scroll, view);
             Listing_Standard list = new Listing_Standard();
             list.Begin(view);
-            list.Label("Standalone diagnostics companion. Disable the entire mod for normal gameplay when profiling is not needed.");
+            list.Label("Standalone diagnostics companion v0.2. Disable the entire mod for normal gameplay when profiling is not needed.");
+            list.Label("v0.2 adds live current-Wait census, sampled WorkGiver/Pather attribution, ReachProfile Region.Allows capture timing, and pause/resume markers.");
             list.GapLine();
-            list.CheckboxLabeled("Track Wait/idle outcomes on every DetermineNextJob", ref RimMTDiagnosticsSettings.EnableWaitTrace);
+            list.CheckboxLabeled("Track Wait/idle outcomes and live current-Wait census", ref RimMTDiagnosticsSettings.EnableWaitTrace);
             list.CheckboxLabeled("Time GenClosest and Reachability during deep sample windows", ref RimMTDiagnosticsSettings.EnableSearchTiming);
             list.Label("Deep sample cadence: every " + RimMTDiagnosticsSettings.SampleEveryTicks + " game ticks");
             RimMTDiagnosticsSettings.SampleEveryTicks = (int)list.Slider(RimMTDiagnosticsSettings.SampleEveryTicks, 1f, 256f);
@@ -80,10 +81,12 @@ namespace RimMT.Diagnostics
             if (list.ButtonText("Reset diagnostic counters"))
             {
                 DiagnosticsHub.Reset();
+                DiagnosticsV02.Reset();
                 Messages.Message("RimMT Diagnostics counters reset.", MessageTypeDefOf.NeutralEvent, false);
             }
             list.GapLine();
             list.Label("Search timing adds Harmony dispatch to hot GenClosest/Reachability methods. Keep it OFF unless diagnosing search tails.");
+            list.Label("WorkGiver/Pather v0.2 timers only take Stopwatch samples during configured deep windows; gameplay results are never modified.");
             list.End();
             Widgets.EndScrollView();
         }
