@@ -15,7 +15,7 @@ namespace RimMT.Diagnostics
     {
         internal static string Build()
         {
-            StringBuilder sb = new StringBuilder(49152);
+            StringBuilder sb = new StringBuilder(65536);
             sb.AppendLine("============================================================");
             sb.AppendLine("RimMT Diagnostics v" + DiagnosticsBootstrap.Version + " report");
             sb.AppendLine("ProgramState=" + Current.ProgramState + ", RimWorld=" + VersionControl.CurrentVersionStringWithRev);
@@ -31,6 +31,7 @@ namespace RimMT.Diagnostics
             sb.AppendLine("------------------------------------------------------------");
             sb.Append(DiagnosticsHub.BuildSummary());
             sb.Append(DiagnosticsV02.BuildSummary());
+            sb.Append(DiagnosticsV03.BuildSummary());
             sb.AppendLine("------------------------------------------------------------");
             sb.AppendLine("[RimMT production summaries via reflection]");
             sb.Append(RimMTBridge.BuildSummary());
@@ -111,19 +112,25 @@ namespace RimMT.Diagnostics
     {
         internal static string BuildSummary()
         {
-            StringBuilder sb = new StringBuilder(12288);
+            StringBuilder sb = new StringBuilder(16384);
             AuditOne(sb, AccessTools.Method(typeof(TickManager), "DoSingleTick"), "TickManager.DoSingleTick");
             AuditOne(sb, AccessTools.Method(typeof(Pawn), "Tick"), "Pawn.Tick");
             AuditOne(sb, AccessTools.Method(typeof(Pawn_JobTracker), "JobTrackerTick"), "Pawn_JobTracker.JobTrackerTick");
             AuditOne(sb, AccessTools.Method(typeof(Pawn_JobTracker), "DetermineNextJob"), "Pawn_JobTracker.DetermineNextJob");
             AuditOne(sb, AccessTools.Method(typeof(Pawn_PathFollower), "PatherTick"), "Pawn_PathFollower.PatherTick");
+            AuditOne(sb, AccessTools.Method(typeof(Pawn_PathFollower), "TryEnterNextPathCell"), "Pawn_PathFollower.TryEnterNextPathCell");
             AuditOne(sb, AccessTools.Method(typeof(Map), "MapPostTick"), "Map.MapPostTick");
             AuditOne(sb, AccessTools.Method(typeof(World), "WorldTick"), "World.WorldTick");
             AuditOne(sb, AccessTools.Method(typeof(Storyteller), "StorytellerTick"), "Storyteller.StorytellerTick");
             AuditNamed(sb, typeof(Reachability), "CanReach", "Reachability.CanReach");
             AuditNamed(sb, typeof(GenClosest), "ClosestThingReachable", "GenClosest.ClosestThingReachable");
             AuditNamed(sb, typeof(GenClosest), "ClosestThing_Global", "GenClosest.ClosestThing_Global");
-            AuditOne(sb, AccessTools.Method(typeof(Thing), "CanStackWith"), "Thing.CanStackWith");
+
+            sb.AppendLine("-- HaulMerge authority chain --");
+            AuditOne(sb, AccessTools.Method(typeof(WorkGiver_Merge), "JobOnThing", new Type[] { typeof(Pawn), typeof(Thing), typeof(bool) }), "WorkGiver_Merge.JobOnThing");
+            AuditOne(sb, AccessTools.Method(typeof(Thing), "CanStackWith", new Type[] { typeof(Thing) }), "Thing.CanStackWith");
+            AuditOne(sb, AccessTools.Method(typeof(ThingWithComps), "CanStackWith", new Type[] { typeof(Thing) }), "ThingWithComps.CanStackWith");
+            AuditOne(sb, AccessTools.Method(typeof(MinifiedThing), "CanStackWith", new Type[] { typeof(Thing) }), "MinifiedThing.CanStackWith");
             return sb.ToString();
         }
 
