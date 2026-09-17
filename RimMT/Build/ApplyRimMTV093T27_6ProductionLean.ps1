@@ -211,6 +211,9 @@ Set-Content $billPath $bill -Encoding UTF8
 # HaulMerge: expose each authority component. Do not silently whitelist an unknown target patch.
 $mergePath='RimMT/Source/RimMT/AI/WorkGiverMergePartnerIndex093T4.cs'
 $merge=Get-Content $mergePath -Raw
+if($merge -notmatch 'using System\.Threading;'){
+  $merge=Replace-OrThrow $merge "using System.Reflection;`r`n" "using System.Reflection;`r`nusing System.Threading;`r`n" 'HaulMerge System.Threading import'
+}
 $merge=Replace-OrThrow $merge @'
         private static long commonSenseIngestibleBypass;
         private static long forcedBypass;
