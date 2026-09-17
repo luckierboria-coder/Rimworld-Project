@@ -8,6 +8,9 @@ on:
       - '.github/workflows/build-coin-silver-currency-mo-1.5.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -36,12 +39,22 @@ jobs:
           Copy-Item 'Coin-Silver-Currency-MO-1.5\1.5\Defs\CoinSilverCurrency.xml' "$stage\1.5\Defs\CoinSilverCurrency.xml"
           $zip = 'dist-coin-silver\Coin-Silver-Currency-MO-1.5.zip'
           Compress-Archive -Path $stage -DestinationPath $zip -Force
-          Write-Host '===COIN_PATCH_BASE64_BEGIN==='
-          Write-Host ([Convert]::ToBase64String([IO.File]::ReadAllBytes($zip)))
-          Write-Host '===COIN_PATCH_BASE64_END==='
       - name: Upload patch zip
         uses: actions/upload-artifact@v4
         with:
           name: Coin-Silver-Currency-MO-1.5
           path: dist-coin-silver/Coin-Silver-Currency-MO-1.5.zip
           if-no-files-found: error
+      - name: Publish build file
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path BuildArtifacts | Out-Null
+          Copy-Item 'dist-coin-silver\Coin-Silver-Currency-MO-1.5.zip' 'BuildArtifacts\Coin-Silver-Currency-MO-1.5.zip' -Force
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add BuildArtifacts/Coin-Silver-Currency-MO-1.5.zip
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m 'Publish Coin Silver Currency MO build [skip ci]'
+            git push origin HEAD:main
+          }
