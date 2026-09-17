@@ -15,7 +15,7 @@ namespace RimMT.Diagnostics
     {
         internal static string Build()
         {
-            StringBuilder sb = new StringBuilder(32768);
+            StringBuilder sb = new StringBuilder(49152);
             sb.AppendLine("============================================================");
             sb.AppendLine("RimMT Diagnostics v" + DiagnosticsBootstrap.Version + " report");
             sb.AppendLine("ProgramState=" + Current.ProgramState + ", RimWorld=" + VersionControl.CurrentVersionStringWithRev);
@@ -30,6 +30,7 @@ namespace RimMT.Diagnostics
                 ", searchTiming=" + RimMTDiagnosticsSettings.EnableSearchTiming);
             sb.AppendLine("------------------------------------------------------------");
             sb.Append(DiagnosticsHub.BuildSummary());
+            sb.Append(DiagnosticsV02.BuildSummary());
             sb.AppendLine("------------------------------------------------------------");
             sb.AppendLine("[RimMT production summaries via reflection]");
             sb.Append(RimMTBridge.BuildSummary());
@@ -121,6 +122,8 @@ namespace RimMT.Diagnostics
             AuditNamed(sb, typeof(GenClosest), "ClosestThingReachable", "GenClosest.ClosestThingReachable");
             AuditNamed(sb, typeof(GenClosest), "ClosestThing_Global", "GenClosest.ClosestThing_Global");
             AuditOne(sb, AccessTools.Method(typeof(Thing), "CanStackWith"), "Thing.CanStackWith");
+            Type hierarchy = AccessTools.TypeByName("VFEEmpire.WorldComponent_Hierarchy");
+            if (hierarchy != null) AuditOne(sb, AccessTools.Method(hierarchy, "WorldComponentTick"), "VFEEmpire.WorldComponent_Hierarchy.WorldComponentTick");
             return sb.ToString();
         }
 
