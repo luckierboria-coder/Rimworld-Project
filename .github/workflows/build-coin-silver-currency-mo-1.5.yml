@@ -49,10 +49,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path BuildArtifacts | Out-Null
-          Copy-Item 'dist-coin-silver\Coin-Silver-Currency-MO-1.5.zip' 'BuildArtifacts\Coin-Silver-Currency-MO-1.5.zip' -Force
+          $zip = 'dist-coin-silver\Coin-Silver-Currency-MO-1.5.zip'
+          Copy-Item $zip 'BuildArtifacts\Coin-Silver-Currency-MO-1.5.zip' -Force
+          [IO.File]::WriteAllText('BuildArtifacts\Coin-Silver-Currency-MO-1.5.zip.b64', [Convert]::ToBase64String([IO.File]::ReadAllBytes($zip)))
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add BuildArtifacts/Coin-Silver-Currency-MO-1.5.zip
+          git add BuildArtifacts/Coin-Silver-Currency-MO-1.5.zip BuildArtifacts/Coin-Silver-Currency-MO-1.5.zip.b64
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m 'Publish Coin Silver Currency MO build [skip ci]'
