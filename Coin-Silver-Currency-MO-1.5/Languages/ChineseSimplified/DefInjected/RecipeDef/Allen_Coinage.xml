@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <Allen_SmeltPureMetalCoin10.label>熔炼10枚纯金属硬币</Allen_SmeltPureMetalCoin10.label>
+  <Allen_SmeltPureMetalCoin10.description>将10枚纯金属硬币熔回1单位铸币原金属。</Allen_SmeltPureMetalCoin10.description>
+  <Allen_SmeltPureMetalCoin100.label>熔炼100枚纯金属硬币</Allen_SmeltPureMetalCoin100.label>
+  <Allen_SmeltPureMetalCoin100.description>将100枚纯金属硬币熔回10单位铸币原金属。</Allen_SmeltPureMetalCoin100.description>
+  <Allen_SmeltPureMetalCoin1000.label>熔炼1000枚纯金属硬币</Allen_SmeltPureMetalCoin1000.label>
+  <Allen_SmeltPureMetalCoin1000.description>将1000枚纯金属硬币熔回100单位铸币原金属。</Allen_SmeltPureMetalCoin1000.description>
+  <Allen_SmeltPureMetalCoin2000.label>熔炼2000枚纯金属硬币</Allen_SmeltPureMetalCoin2000.label>
+  <Allen_SmeltPureMetalCoin2000.description>将2000枚纯金属硬币熔回200单位铸币原金属。</Allen_SmeltPureMetalCoin2000.description>
+</LanguageData>
