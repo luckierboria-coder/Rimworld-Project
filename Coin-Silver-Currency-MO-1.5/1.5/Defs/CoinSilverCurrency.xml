@@ -3,32 +3,19 @@
   <SpecialThingFilterDef>
     <defName>Allen_PureMetalCoin</defName>
     <label>pure metal coins</label>
-    <description>Coinage coins made directly from a metallic stuff.</description>
+    <description>Runtime-generated Coinage coins whose source stuff is Metallic.</description>
     <workerClass>Allen.CoinSilverCurrency15.SpecialThingFilterWorker_PureMetalCoin</workerClass>
   </SpecialThingFilterDef>
-  <RecipeDef ParentName="DankPyon_SmelterBase">
-    <defName>Allen_SmeltPureMetalCoin</defName>
-    <label>smelt pure metal coins back into metal</label>
-    <description>Remelt ten pure metal coins into one unit of the metal they were minted from.</description>
+  <RecipeDef Name="Allen_SmeltPureMetalCoinBase" Abstract="True" ParentName="DankPyon_SmelterBase">
+    <description>Remelt pure metal Coinage coins back into the metal they were minted from.</description>
     <jobString>Smelting pure metal coins back into metal.</jobString>
-    <workAmount>600</workAmount>
     <targetCountAdjustment>1</targetCountAdjustment>
-    <ingredients>
-      <li>
-        <filter>
-          <specialFiltersToAllow>
-            <li>Allen_PureMetalCoin</li>
-          </specialFiltersToAllow>
-        </filter>
-        <count>10</count>
-      </li>
-    </ingredients>
-    <fixedIngredientFilter>
-      <specialFiltersToAllow>
-        <li>Allen_PureMetalCoin</li>
-      </specialFiltersToAllow>
-    </fixedIngredientFilter>
+    <fixedIngredientFilter><specialFiltersToAllow><li>Allen_PureMetalCoin</li></specialFiltersToAllow></fixedIngredientFilter>
     <products><Silver>1</Silver></products>
     <recipeUsers Inherit="False"><li>DankPyon_Furnace</li></recipeUsers>
   </RecipeDef>
+  <RecipeDef ParentName="Allen_SmeltPureMetalCoinBase"><defName>Allen_SmeltPureMetalCoin10</defName><label>Smelt 10 pure metal coins</label><workAmount>600</workAmount><ingredients><li><filter><specialFiltersToAllow><li>Allen_PureMetalCoin</li></specialFiltersToAllow></filter><count>10</count></li></ingredients></RecipeDef>
+  <RecipeDef ParentName="Allen_SmeltPureMetalCoinBase"><defName>Allen_SmeltPureMetalCoin100</defName><label>Smelt 100 pure metal coins</label><workAmount>6000</workAmount><ingredients><li><filter><specialFiltersToAllow><li>Allen_PureMetalCoin</li></specialFiltersToAllow></filter><count>100</count></li></ingredients></RecipeDef>
+  <RecipeDef ParentName="Allen_SmeltPureMetalCoinBase"><defName>Allen_SmeltPureMetalCoin1000</defName><label>Smelt 1000 pure metal coins</label><workAmount>60000</workAmount><ingredients><li><filter><specialFiltersToAllow><li>Allen_PureMetalCoin</li></specialFiltersToAllow></filter><count>1000</count></li></ingredients></RecipeDef>
+  <RecipeDef ParentName="Allen_SmeltPureMetalCoinBase"><defName>Allen_SmeltPureMetalCoin2000</defName><label>Smelt 2000 pure metal coins</label><workAmount>120000</workAmount><ingredients><li><filter><specialFiltersToAllow><li>Allen_PureMetalCoin</li></specialFiltersToAllow></filter><count>2000</count></li></ingredients></RecipeDef>
 </Defs>
