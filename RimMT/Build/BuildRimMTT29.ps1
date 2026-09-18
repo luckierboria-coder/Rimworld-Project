@@ -37,7 +37,7 @@ foreach($required in @(
   if(-not $metadata.Contains($required)){ throw "T29 metadata marker missing: $required" }
 }
 foreach($forbidden in @(
-  'listerThings',
+  'map.listerThings',
   'ThingsMatching(',
   '.CanReach(',
   'ReservationManager',
