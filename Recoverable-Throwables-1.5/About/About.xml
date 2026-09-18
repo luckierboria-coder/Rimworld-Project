@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Recoverable Throwables 1.5</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>allen.recoverablethrowables</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <description>Physical thrown weapons such as javelins, throwing axes and throwing knives become finite, recoverable equipment. One real weapon is removed from the equipped stack after every successful throw and is dropped back onto the map where its projectile ends. Explosive grenade-style throwables are excluded. Weapons still configured to use LTS Ammunition are excluded for safety.</description>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>allen.grenade.oneuse</li>
+    <li>LimeTreeSnake.Ammunition</li>
+    <li>allen.ltsammo.inventoryfallback</li>
+  </loadAfter>
+</ModMetaData>
