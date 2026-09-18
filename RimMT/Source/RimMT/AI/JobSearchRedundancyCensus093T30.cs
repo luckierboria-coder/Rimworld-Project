@@ -220,6 +220,7 @@ namespace RimMT
                     }
                     stats = new ValidatorThingStats(key.Scanner);
                     ValidatorThings.Add(key.Thing, stats);
+                    return;
                 }
                 stats.Record(key.Scanner);
             }
@@ -248,6 +249,7 @@ namespace RimMT
                     }
                     stats = new ReachTargetStats(key);
                     ReachTargets.Add(target, stats);
+                    return;
                 }
                 stats.Record(key);
             }
