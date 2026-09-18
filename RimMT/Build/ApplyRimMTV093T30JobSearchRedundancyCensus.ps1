@@ -60,15 +60,18 @@ $t20=Replace-OrThrow $t20 @'
                 JobSearchRedundancyCensus093T30.RecordValidator(key);
             ValidatorNegativeEntry entry;
 '@ 'T30 validator census hook'
-$t20=Replace-OrThrow $t20 @'
-            ReachKey key = new ReachKey(__instance, start, dest, peMode, traverseParams);
-            ReachEntry entry;
-'@ @'
-            ReachKey key = new ReachKey(__instance, start, dest, peMode, traverseParams);
-            if (JobSearchRedundancyCensus093T30.Sampling)
-                JobSearchRedundancyCensus093T30.RecordReach(key);
-            ReachEntry entry;
-'@ 'T30 reach census hook'
+$reachKeyPattern='(?m)^(\s*ReachKey key = new ReachKey\([^\r\n]+\);\r?\n)'
+if(-not [regex]::IsMatch($t20,$reachKeyPattern)){ throw 'T30 anchor missing: generated ReachKey construction' }
+$t20=[regex]::Replace(
+    $t20,
+    $reachKeyPattern,
+    [System.Text.RegularExpressions.MatchEvaluator]{
+      param($m)
+      $m.Groups[1].Value +
+      '            if (JobSearchRedundancyCensus093T30.Sampling)' + [Environment]::NewLine +
+      '                JobSearchRedundancyCensus093T30.RecordReach(key);' + [Environment]::NewLine
+    },
+    1)
 Set-Content $t20Path $t20 -Encoding UTF8
 
 # T22 observes repeated IList Global_NewTemp sources. Record identity/center before its own size gate.
