@@ -1,4 +1,4 @@
-Recoverable Throwables 1.5 v1.2
+Recoverable Throwables 1.5 v1.4
 RimWorld 1.5.4063
 
 用途
@@ -7,37 +7,29 @@ RimWorld 1.5.4063
 - Projectile 命中/落地/被拦截并销毁时，把同一件真实武器放回实际终点附近。
 - 手雷、燃烧瓶、EMP、烟雾/毒气等爆炸/范围投掷物不由本 Patch 处理。
 
-V1.2 关键变化
-1. 不再依赖 Verb_LaunchProjectile.TryCastShot 的 Postfix 作为主逻辑。
-2. 直接以 Projectile.Launch 为权威事件，因此 Verb_Shoot 和大多数自定义发射路径也能进入处理。
-3. 不再只认 Combat_RangedFire_Thrown。
-4. 支持“武器/投射物名称明确表示实体投掷 + 非爆炸 Projectile”的投掷武器。
-5. 已覆盖 VFE Medieval 2 的 VFEM2_ThrowingAxe：
-   - 它使用 Verb_Shoot
-   - defaultProjectile = VFEM2V_ThrowingAxe_Thrown
-   - 本身没有 Combat_RangedFire_Thrown
-6. 最后一件投出时使用 Pawn_EquipmentTracker.Remove，保证装备/Verb 通知一致。
-7. 飞行中的真实武器存放在 GameComponent 的 ThingOwner 中，保存/读档可追踪。
-8. Projectile 飞出地图则视为该武器丢失。
+V1.4 修复
+- V1.2/V1.3 的核心故障不是“识别不到武器”，而是 Harmony 启动阶段找不到写死的 Projectile.Launch 重载：
+  Undefined target method for patch method Patch_Projectile_Launch_Recoverable::Postfix
+- V1.4 删除对 Projectile.Launch 参数表的硬编码。
+- 启动时从游戏实际加载的 Verse.Projectile 类型中枚举所有 Launch 方法。
+- 选择参数最完整的真实 Launch 重载，再由 Harmony 直接 Patch 该 MethodBase。
+- Postfix 使用 __originalMethod + __args 读取 launcher / equipment，不依赖编译期参数签名。
+
+启动成功时应看到：
+[Recoverable Throwables 1.5 v1.4] resolved Projectile.Launch(...)
+[Recoverable Throwables 1.5 v1.4] ACTIVE bootstrap=...
+[Recoverable Throwables 1.5 v1.4] eligible defs=...
+
+投掷成功：
+[Recoverable Throwables 1.5 v1.4] THROW ...
+
+落地回收：
+[Recoverable Throwables 1.5 v1.4] RECOVER ...
 
 LTS Ammunition
-- 按当前设计，请把这些实体投掷武器在 LTS 中设置成“不需要弹药”。
-- 本 Patch 不再猜测 LTS 当前设置；实体投掷武器本身就是数量/弹药。
+- 请继续把实体投掷武器设置为“不需要弹药”。
 
-与 Grenade One-Use
-- 必须配合新版 Grenade One-Use v1.1。
-- 新版 Grenade One-Use 只消耗爆炸/范围型手雷，不再吞掉实体标枪/飞斧/飞刀。
-- Recoverable Throwables 仍保留兼容保护，防止旧 Grenade One-Use 对已识别实体投掷武器二次扣除。
-
-诊断日志
-启动：
-[Recoverable Throwables 1.5 v1.2] ACTIVE
-[Recoverable Throwables 1.5 v1.2] eligible defs=...
-
-每次投掷：
-[Recoverable Throwables 1.5 v1.2] THROW ...
-
-成功回收：
-[Recoverable Throwables 1.5 v1.2] RECOVER ...
-
-当前 v1.2 测试版故意使用 Warning 级别打印 THROW/RECOVER，方便确认实际生命周期。
+Grenade One-Use
+- 继续使用 v1.1。
+- 爆炸类手雷由 Grenade One-Use 管。
+- 实体投掷武器由本 Patch 管。
