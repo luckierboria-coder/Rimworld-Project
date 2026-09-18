@@ -6,6 +6,8 @@ using HarmonyLib;
 using RimWorld;
 using UnityEngine;
 using Verse;
+using Verse.AI;
+using Verse.Sound;
 
 namespace Allen.RecoverableThrowables15
 {
@@ -278,6 +280,11 @@ namespace Allen.RecoverableThrowables15
             if (!RecoverableClassifier.DefLooksRecoverable(primary.def))
                 return;
 
+            // Safety: generation may occur before the deferred global def pass in unusual
+            // startup flows. Ensure this specific throwable is stackable before sizing it.
+            if (primary.def.stackLimit < StackLimit)
+                primary.def.stackLimit = StackLimit;
+
             // Only expand the freshly generated singleton. Do not refill or multiply an
             // already-established stack if another generator/compatibility mod set one.
             if (primary.stackCount != 1)
@@ -322,6 +329,60 @@ namespace Allen.RecoverableThrowables15
             {
                 Log.Error("[Recoverable Throwables 1.5 v2.0] generated throwable loadout failed: " + e);
             }
+        }
+    }
+
+    [HarmonyPatch(typeof(JobDriver_Equip), "MakeNewToils")]
+    internal static class Patch_JobDriverEquip_EquipThrowableStack
+    {
+        private static bool Prefix(JobDriver_Equip __instance, ref IEnumerable<Toil> __result)
+        {
+            try
+            {
+                ThingWithComps target = __instance?.job?.targetA.Thing as ThingWithComps;
+                if (target == null || target.Destroyed || target.stackCount <= 1)
+                    return true;
+                if (!RecoverableClassifier.DefLooksRecoverable(target.def))
+                    return true;
+
+                __result = MakeThrowableStackEquipToils(__instance);
+                return false;
+            }
+            catch (Exception e)
+            {
+                Log.Error("[Recoverable Throwables 1.5 v2.0] equip-stack dispatch failed; falling back to vanilla: " + e);
+                return true;
+            }
+        }
+
+        private static IEnumerable<Toil> MakeThrowableStackEquipToils(JobDriver_Equip driver)
+        {
+            driver.FailOnDestroyedOrNull(TargetIndex.A);
+            driver.FailOnBurningImmobile(TargetIndex.A);
+
+            yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.ClosestTouch)
+                .FailOnDespawnedNullOrForbidden(TargetIndex.A);
+
+            Toil equip = new Toil();
+            equip.initAction = delegate
+            {
+                ThingWithComps target = driver.job.targetA.Thing as ThingWithComps;
+                if (target == null || target.Destroyed)
+                    return;
+
+                // Unlike vanilla JobDriver_Equip, do not SplitOff(1). For recoverable
+                // throwables the equipped stack is the pawn's finite ammunition supply.
+                if (target.Spawned)
+                    target.DeSpawn(DestroyMode.Vanish);
+
+                driver.pawn.equipment.MakeRoomFor(target);
+                driver.pawn.equipment.AddEquipment(target);
+
+                if (target.def.soundInteract != null)
+                    target.def.soundInteract.PlayOneShot(new TargetInfo(driver.pawn.Position, driver.pawn.Map, false));
+            };
+            equip.defaultCompleteMode = ToilCompleteMode.Instant;
+            yield return equip;
         }
     }
 
