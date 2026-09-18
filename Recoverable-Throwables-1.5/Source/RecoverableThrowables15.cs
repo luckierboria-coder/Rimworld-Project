@@ -11,7 +11,7 @@ namespace Allen.RecoverableThrowables15
 {
     internal static class Bootstrap
     {
-        private const string HarmonyId = "allen.recoverablethrowables.1.5.v13";
+        private const string HarmonyId = "allen.recoverablethrowables.1.5.v14";
         private static bool initialized;
 
         internal static void EnsureInitialized(string source)
@@ -28,13 +28,13 @@ namespace Allen.RecoverableThrowables15
                 GrenadeOneUseCompat.TryPatch(harmony);
 
                 LongEventHandler.ExecuteWhenFinished(LogEligibleDefs);
-                Log.Warning("[Recoverable Throwables 1.5 v1.3] ACTIVE bootstrap=" + source +
+                Log.Warning("[Recoverable Throwables 1.5 v1.4] ACTIVE bootstrap=" + source +
                     ". Projectile.Launch is authoritative; physical thrown weapons consume one real item and recover it at projectile destruction.");
             }
             catch (Exception e)
             {
                 initialized = false;
-                Log.Error("[Recoverable Throwables 1.5 v1.3] startup failed bootstrap=" + source + ": " + e);
+                Log.Error("[Recoverable Throwables 1.5 v1.4] startup failed bootstrap=" + source + ": " + e);
             }
         }
 
@@ -47,12 +47,12 @@ namespace Allen.RecoverableThrowables15
                     .OrderBy(d => d.defName)
                     .ToList();
 
-                Log.Warning("[Recoverable Throwables 1.5 v1.3] eligible defs=" + eligible.Count +
+                Log.Warning("[Recoverable Throwables 1.5 v1.4] eligible defs=" + eligible.Count +
                     (eligible.Count == 0 ? "." : " [" + string.Join(", ", eligible.Select(d => d.defName)) + "]"));
             }
             catch (Exception e)
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.3] eligible-def audit failed: " + e);
+                Log.Error("[Recoverable Throwables 1.5 v1.4] eligible-def audit failed: " + e);
             }
         }
     }
@@ -357,7 +357,7 @@ namespace Allen.RecoverableThrowables15
             if (map == null || !pos.IsValid || !pos.InBounds(map))
             {
                 payload.Destroy(DestroyMode.Vanish);
-                Log.Warning("[Recoverable Throwables 1.5 v1.3] LOST weapon=" + payload.def.defName + " because projectile left the map.");
+                Log.Warning("[Recoverable Throwables 1.5 v1.4] LOST weapon=" + payload.def.defName + " because projectile left the map.");
                 return;
             }
 
@@ -377,14 +377,14 @@ namespace Allen.RecoverableThrowables15
             }
             catch (Exception e)
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.3] failed to recover " + payload + ": " + e);
+                Log.Error("[Recoverable Throwables 1.5 v1.4] failed to recover " + payload + ": " + e);
             }
 
             if (!placed)
             {
                 if (!payload.Destroyed)
                     payload.Destroy(DestroyMode.Vanish);
-                Log.Error("[Recoverable Throwables 1.5 v1.3] RECOVER FAILED weapon=" +
+                Log.Error("[Recoverable Throwables 1.5 v1.4] RECOVER FAILED weapon=" +
                     payload.def.defName + " near=" + pos + "; item treated as lost.");
                 return;
             }
@@ -393,7 +393,7 @@ namespace Allen.RecoverableThrowables15
             try { recoveredThing.SetForbidden(record.forbidOnRecover, false); }
             catch { }
 
-            Log.Warning("[Recoverable Throwables 1.5 v1.3] RECOVER weapon=" +
+            Log.Warning("[Recoverable Throwables 1.5 v1.4] RECOVER weapon=" +
                 recoveredThing.def.defName + " at=" + recoveredThing.Position);
         }
     }
@@ -425,7 +425,7 @@ namespace Allen.RecoverableThrowables15
 
             if (!(source.ParentHolder is Pawn_EquipmentTracker tracker))
             {
-                Log.Warning("[Recoverable Throwables 1.5 v1.3] MATCHED but source is not in Pawn_EquipmentTracker: " +
+                Log.Warning("[Recoverable Throwables 1.5 v1.4] MATCHED but source is not in Pawn_EquipmentTracker: " +
                     source.def.defName + " holder=" + (source.ParentHolder?.GetType().FullName ?? "<null>"));
                 return;
             }
@@ -449,7 +449,7 @@ namespace Allen.RecoverableThrowables15
             }
             catch (Exception e)
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.3] failed to detach thrown weapon " +
+                Log.Error("[Recoverable Throwables 1.5 v1.4] failed to detach thrown weapon " +
                     source.def.defName + ": " + e);
                 return;
             }
@@ -461,7 +461,7 @@ namespace Allen.RecoverableThrowables15
 
             if (!RecoverableThrowablesComponent.Register(projectile, thrown, forbid))
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.3] register failed for " + thrown.def.defName);
+                Log.Error("[Recoverable Throwables 1.5 v1.4] register failed for " + thrown.def.defName);
                 Map fallbackMap = pawn?.Map;
                 if (fallbackMap != null && pawn.Position.InBounds(fallbackMap))
                     GenPlace.TryPlaceThing(thrown, pawn.Position, fallbackMap, ThingPlaceMode.Near);
@@ -471,7 +471,7 @@ namespace Allen.RecoverableThrowables15
             }
 
             int remaining = source == thrown ? 0 : source.stackCount;
-            Log.Warning("[Recoverable Throwables 1.5 v1.3] THROW pawn=" +
+            Log.Warning("[Recoverable Throwables 1.5 v1.4] THROW pawn=" +
                 SafePawnLabel(pawn) +
                 " weapon=" + thrown.def.defName +
                 " before=" + before +
@@ -486,22 +486,87 @@ namespace Allen.RecoverableThrowables15
         }
     }
 
-    [HarmonyPatch(typeof(Projectile), nameof(Projectile.Launch),
-        new Type[]
-        {
-            typeof(Thing),
-            typeof(Vector3),
-            typeof(LocalTargetInfo),
-            typeof(LocalTargetInfo),
-            typeof(ProjectileHitFlags),
-            typeof(Thing),
-            typeof(ThingDef)
-        })]
+    [HarmonyPatch]
     internal static class Patch_Projectile_Launch_Recoverable
     {
-        private static void Postfix(Projectile __instance, Thing launcher, Thing equipment)
+        private static MethodBase TargetMethod()
         {
-            LaunchHandler.Handle(__instance, launcher, equipment);
+            // Do NOT hard-code the Launch signature. RimWorld 1.5 builds and reference
+            // assemblies can disagree on the exact overload metadata even when source-level
+            // signatures look identical. Resolve the authoritative longest Launch overload
+            // from the runtime assembly instead.
+            MethodInfo target = AccessTools.GetDeclaredMethods(typeof(Projectile))
+                .Where(m => string.Equals(m.Name, nameof(Projectile.Launch), StringComparison.Ordinal))
+                .Where(m =>
+                {
+                    ParameterInfo[] p = m.GetParameters();
+                    return p.Length >= 5 &&
+                           p[0].ParameterType == typeof(Thing) &&
+                           p.Any(x => x.ParameterType == typeof(LocalTargetInfo));
+                })
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+
+            if (target == null)
+                throw new MissingMethodException(
+                    "[Recoverable Throwables 1.5 v1.4] Could not resolve any usable Verse.Projectile.Launch overload at runtime.");
+
+            string signature = string.Join(", ",
+                target.GetParameters().Select(p => p.ParameterType.Name + " " + p.Name));
+            Log.Warning("[Recoverable Throwables 1.5 v1.4] resolved Projectile.Launch(" + signature + ")");
+
+            return target;
+        }
+
+        private static void Postfix(
+            Projectile __instance,
+            MethodBase __originalMethod,
+            object[] __args)
+        {
+            Thing launcher = null;
+            Thing equipment = null;
+
+            try
+            {
+                ParameterInfo[] parms = __originalMethod?.GetParameters();
+
+                if (__args != null && __args.Length > 0)
+                    launcher = __args[0] as Thing;
+
+                if (parms != null && __args != null)
+                {
+                    int count = Math.Min(parms.Length, __args.Length);
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (!string.Equals(parms[i].Name, "equipment", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        equipment = __args[i] as Thing;
+                        break;
+                    }
+
+                    // Fallback for stripped parameter names: in the long overload, equipment
+                    // is the only Thing argument after launcher. ThingDef targetCoverDef is not
+                    // assignable to Thing, so this remains unambiguous.
+                    if (equipment == null)
+                    {
+                        for (int i = 1; i < count; i++)
+                        {
+                            if (__args[i] is Thing t)
+                            {
+                                equipment = t;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                LaunchHandler.Handle(__instance, launcher, equipment);
+            }
+            catch (Exception e)
+            {
+                Log.Error("[Recoverable Throwables 1.5 v1.4] Projectile.Launch postfix failed: " + e);
+            }
         }
     }
 
@@ -526,7 +591,7 @@ namespace Allen.RecoverableThrowables15
 
                 if (t == null)
                 {
-                    Log.Warning("[Recoverable Throwables 1.5 v1.3] Grenade One-Use type not detected.");
+                    Log.Warning("[Recoverable Throwables 1.5 v1.4] Grenade One-Use type not detected.");
                     return;
                 }
 
@@ -550,11 +615,11 @@ namespace Allen.RecoverableThrowables15
                             nameof(ShouldConsumePrefix)));
                 }
 
-                Log.Warning("[Recoverable Throwables 1.5 v1.3] Grenade One-Use compatibility guard installed.");
+                Log.Warning("[Recoverable Throwables 1.5 v1.4] Grenade One-Use compatibility guard installed.");
             }
             catch (Exception e)
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.3] Grenade One-Use compatibility failed: " + e);
+                Log.Error("[Recoverable Throwables 1.5 v1.4] Grenade One-Use compatibility failed: " + e);
             }
         }
 
