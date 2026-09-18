@@ -378,9 +378,17 @@ namespace Allen.RecoverableThrowables15
             }
 
             bool placed = false;
+            Thing resultingThing = null;
             try
             {
-                placed = GenPlace.TryPlaceThing(payload, pos, map, ThingPlaceMode.Near);
+                placed = GenPlace.TryPlaceThing(
+                    payload,
+                    pos,
+                    map,
+                    ThingPlaceMode.Near,
+                    out resultingThing,
+                    null,
+                    null);
             }
             catch (Exception e)
             {
@@ -398,7 +406,7 @@ namespace Allen.RecoverableThrowables15
 
             try
             {
-                payload.SetForbidden(record.forbidOnRecover, false);
+                (resultingThing ?? payload).SetForbidden(record.forbidOnRecover, false);
             }
             catch
             {
