@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Coinage - Silver Currency &amp; MO Smelting 1.5</name>
+  <name>Coinage - Gold Currency &amp; MO Smelting 1.5 V3</name>
   <author>Allen</author>
   <packageId>Allen.Coinage.SilverCurrency.MOSmelting</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -9,10 +9,6 @@
     <li><packageId>zal.coinage</packageId><displayName>Coinage (Continued)</displayName></li>
     <li><packageId>dankpyon.medieval.overhaul</packageId><displayName>Medieval Overhaul</displayName></li>
   </modDependencies>
-  <loadAfter>
-    <li>zal.coinage</li>
-    <li>dankpyon.medieval.overhaul</li>
-    <li>MedievalCoins.Mod</li>
-  </loadAfter>
-  <description>RimWorld 1.5 patch: Coinage's silver-material coin (Coin_Silver) becomes the actual trade denomination at 10 coins per 1 vanilla silver value. Trade prices remain in vanilla silver-value units. Adds a Medieval Overhaul furnace recipe that remelts any pure Coinage metallic coin back to its source metal at 10 coins -> 1 source unit.</description>
+  <loadAfter><li>zal.coinage</li><li>dankpyon.medieval.overhaul</li><li>MedievalCoins.Mod</li></loadAfter>
+  <description>RimWorld 1.5.4063 patch. Coin_Gold is the settlement currency while vanilla Silver remains the pricing unit. All runtime-generated Coinage coins are universally tradeable as goods. MO Furnace gets 10/100/1000/2000 pure-metal coin remelting recipes with dynamic runtime ingredient injection and source-metal output.</description>
 </ModMetaData>
