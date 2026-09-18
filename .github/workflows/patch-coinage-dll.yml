@@ -96,10 +96,16 @@ jobs:
 
           var recipeDefType = new TypeReference("Verse", "RecipeDef", module, gameRef, false);
           var defDbOpen = new TypeReference("Verse", "DefDatabase\u00601", module, gameRef, false);
+          var defDbT = new GenericParameter("T", defDbOpen);
+          defDbOpen.GenericParameters.Add(defDbT);
+
           var defDbRecipe = new GenericInstanceType(defDbOpen);
           defDbRecipe.GenericArguments.Add(recipeDefType);
 
-          var getNamed = new MethodReference("GetNamed", recipeDefType, defDbRecipe)
+          // IMPORTANT: the real method signature is !0 DefDatabase<!0>.GetNamed(string,bool).
+          // Using RecipeDef directly as the MemberRef return type does not resolve on Mono
+          // and caused MissingMethodException in-game.
+          var getNamed = new MethodReference("GetNamed", defDbT, defDbRecipe)
           {
               HasThis = false
           };
@@ -182,7 +188,11 @@ jobs:
               }
           }
 
-          if (!helperReadsRecipe || !generatorCallsHelper || hardcoded50AtProductCtor)
+          bool helperUsesGenericReturn = checkHelper.Body.Instructions.Any(x =>
+              x.OpCode == OpCodes.Call && x.Operand is MethodReference m &&
+              m.Name == "GetNamed" && m.ReturnType is GenericParameter);
+
+          if (!helperReadsRecipe || !generatorCallsHelper || hardcoded50AtProductCtor || !helperUsesGenericReturn)
               throw new Exception("Post-write IL verification failed.");
 
           Console.WriteLine("Patched SHA256=" + Sha(output));
