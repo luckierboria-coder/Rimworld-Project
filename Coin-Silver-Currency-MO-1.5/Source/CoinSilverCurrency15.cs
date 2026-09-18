@@ -12,7 +12,7 @@ namespace Allen.CoinSilverCurrency15
     [StaticConstructorOnStartup]
     public static class Bootstrap
     {
-        internal const string HarmonyId = "allen.coin.silvercurrency.1.5";
+        internal const string HarmonyId = "allen.coin.goldcurrency.mo.1.5.v3";
         internal static readonly Harmony Harmony = new Harmony(HarmonyId);
 
         static Bootstrap()
@@ -20,41 +20,21 @@ namespace Allen.CoinSilverCurrency15
             try
             {
                 Harmony.PatchAll(Assembly.GetExecutingAssembly());
-                PatchCoinageTradeSessionHooks();
                 LongEventHandler.ExecuteWhenFinished(() =>
                 {
-                    CurrencyRuntime.Initialize();
-                    Log.Message("[Silver Coin Currency 1.5] Active. Trade currency = Coin_Silver; denomination 10 coins = 1 vanilla silver. MO furnace pure-metal coin remelting enabled.");
+                    Runtime.Initialize();
+                    Log.Message("[Coinage Gold Currency + MO V3] Active: Coin_Gold settlement; all Coinage coins tradeable; dynamic metallic-coin smelting filters installed.");
                 });
             }
-            catch (Exception e)
-            {
-                Log.Error("[Silver Coin Currency 1.5] Initialization failed: " + e);
-            }
-        }
-
-        private static void PatchCoinageTradeSessionHooks()
-        {
-            try
-            {
-                MethodInfo setup = AccessTools.Method(typeof(TradeSession), nameof(TradeSession.SetupWith));
-                MethodInfo close = AccessTools.Method(typeof(TradeSession), nameof(TradeSession.Close));
-                HarmonyMethod postfix = new HarmonyMethod(typeof(CoinageCompatibility), nameof(CoinageCompatibility.RestoreVanillaSilverPostfix)) { priority = Priority.Last };
-                if (setup != null) Harmony.Patch(setup, postfix: postfix);
-                if (close != null) Harmony.Patch(close, postfix: postfix);
-            }
-            catch (Exception e)
-            {
-                Log.Warning("[Silver Coin Currency 1.5] Could not install Coinage TradeSession safety hooks: " + e.Message);
-            }
+            catch (Exception e) { Log.Error("[Coinage Gold Currency + MO V3] Initialization failed: " + e); }
         }
     }
 
-    internal static class CurrencyRuntime
+    internal static class Runtime
     {
         internal static ThingDef VanillaSilver;
-        internal static ThingDef SilverCoin;
         internal static ThingDef GoldCoin;
+        internal static readonly List<ThingDef> CoinDefs = new List<ThingDef>();
         private static bool initialized;
 
         internal static void Initialize()
@@ -62,122 +42,130 @@ namespace Allen.CoinSilverCurrency15
             if (initialized) return;
             initialized = true;
             VanillaSilver = DefDatabase<ThingDef>.GetNamedSilentFail("Silver");
-            SilverCoin = DefDatabase<ThingDef>.GetNamedSilentFail("Coin_Silver");
             GoldCoin = DefDatabase<ThingDef>.GetNamedSilentFail("Coin_Gold");
-            if (VanillaSilver == null)
+            if (VanillaSilver == null || GoldCoin == null)
             {
-                Log.Error("[Silver Coin Currency 1.5] Vanilla Silver ThingDef was not found.");
+                Log.Error("[Coinage Gold Currency + MO V3] Required defs missing: Silver or Coin_Gold.");
                 return;
             }
-            if (SilverCoin == null)
-            {
-                Log.Error("[Silver Coin Currency 1.5] Coin_Silver was not found. Coinage (Continued) 1.5 must be active and loaded before this patch.");
-                return;
-            }
-            ThingDefOf.Silver = VanillaSilver;
+
+            CoinDefs.Clear();
+            foreach (ThingDef d in DefDatabase<ThingDef>.AllDefsListForReading)
+                if (IsCoin(d)) CoinDefs.Add(d);
+
+            InjectSmeltingFilters();
+            LocalizeGeneratedCoins();
             NormalizeTraderStockGenerators();
-            DisableCoinageGoldSwapBestEffort();
+            Log.Message("[Coinage Gold Currency + MO V3] Found " + CoinDefs.Count + " runtime Coinage coin defs; metallic=" + CoinDefs.Count(d => TryGetMetalSource(d, out _)) + ".");
         }
 
-        internal static bool Ready
+        internal static bool Ready { get { if (!initialized) Initialize(); return GoldCoin != null && VanillaSilver != null; } }
+        internal static bool IsCoin(ThingDef d) => d != null && !d.defName.NullOrEmpty() && d.defName.StartsWith("Coin_", StringComparison.Ordinal);
+
+        internal static bool TryGetSource(ThingDef coin, out ThingDef source)
         {
-            get
+            source = null;
+            if (!IsCoin(coin)) return false;
+            source = DefDatabase<ThingDef>.GetNamedSilentFail(coin.defName.Substring(5));
+            return source != null;
+        }
+
+        internal static bool TryGetMetalSource(ThingDef coin, out ThingDef source)
+        {
+            if (!TryGetSource(coin, out source)) return false;
+            if (source.stuffProps?.categories == null || !source.stuffProps.categories.Contains(StuffCategoryDefOf.Metallic))
+            { source = null; return false; }
+            return true;
+        }
+
+        private static void InjectSmeltingFilters()
+        {
+            string[] names = { "Allen_SmeltPureMetalCoin10", "Allen_SmeltPureMetalCoin100", "Allen_SmeltPureMetalCoin1000", "Allen_SmeltPureMetalCoin2000" };
+            int recipes = 0, coins = 0;
+            foreach (string name in names)
             {
-                if (!initialized) Initialize();
-                return VanillaSilver != null && SilverCoin != null;
+                RecipeDef r = DefDatabase<RecipeDef>.GetNamedSilentFail(name);
+                if (r == null) continue;
+                recipes++;
+                foreach (ThingDef coin in CoinDefs)
+                {
+                    if (!TryGetMetalSource(coin, out _)) continue;
+                    r.fixedIngredientFilter?.SetAllow(coin, true);
+                    if (r.ingredients != null)
+                        foreach (IngredientCount ing in r.ingredients) ing.filter?.SetAllow(coin, true);
+                    coins++;
+                }
             }
+            Log.Message("[Coinage Gold Currency + MO V3] Smelting filter injection: recipes=" + recipes + ", allow entries=" + coins + ".");
         }
 
-        internal static bool IsSilverCoin(ThingDef def) => Ready && def == SilverCoin;
-        internal static bool IsLegacyCurrency(ThingDef def) => Ready && def != null && (def == VanillaSilver || (GoldCoin != null && def == GoldCoin));
-
-        internal static int ToSilverCoinCount(Thing thing)
+        private static void LocalizeGeneratedCoins()
         {
-            if (!Ready || thing == null || thing.def == null) return 0;
-            float coinValue = SilverCoin.GetStatValueAbstract(StatDefOf.MarketValue);
-            if (coinValue <= 0f) coinValue = 0.1f;
-            float oldValue = thing.GetStatValue(StatDefOf.MarketValue);
-            if (oldValue <= 0f) oldValue = thing.def.GetStatValueAbstract(StatDefOf.MarketValue);
-            return Mathf.Max(0, Mathf.RoundToInt(thing.stackCount * oldValue / coinValue));
+            string lang = Prefs.LangFolderName ?? "";
+            if (lang.IndexOf("ChineseSimplified", StringComparison.OrdinalIgnoreCase) < 0 &&
+                lang.IndexOf("简体", StringComparison.OrdinalIgnoreCase) < 0) return;
+
+            foreach (ThingDef coin in CoinDefs)
+            {
+                if (!TryGetSource(coin, out ThingDef source)) continue;
+                string label;
+                switch (source.defName)
+                {
+                    case "Gold": label = "金币"; break;
+                    case "Silver": label = "银币"; break;
+                    case "Steel": label = "钢币"; break;
+                    case "Plasteel": label = "塑钢币"; break;
+                    case "Uranium": label = "铀币"; break;
+                    case "Jade": label = "翡翠币"; break;
+                    case "WoodLog": label = "木币"; break;
+                    case "DankPyon_IronIngot": label = "铁币"; break;
+                    case "CopperIngot": label = "铜币"; break;
+                    case "TinIngot": label = "锡币"; break;
+                    default:
+                        string s = source.label ?? source.defName;
+                        if (s.EndsWith("锭")) s = s.Substring(0, s.Length - 1);
+                        label = s + "币";
+                        break;
+                }
+                coin.label = label;
+            }
         }
 
         private static void NormalizeTraderStockGenerators()
         {
-            FieldInfo thingDefField = AccessTools.Field(typeof(StockGenerator_SingleDef), "thingDef");
-            if (thingDefField == null)
+            FieldInfo f = AccessTools.Field(typeof(StockGenerator_SingleDef), "thingDef");
+            if (f == null) return;
+            foreach (TraderKindDef tk in DefDatabase<TraderKindDef>.AllDefsListForReading)
             {
-                Log.Warning("[Silver Coin Currency 1.5] StockGenerator_SingleDef.thingDef was not found; runtime trade conversion remains active.");
-                return;
-            }
-            foreach (TraderKindDef traderKind in DefDatabase<TraderKindDef>.AllDefsListForReading)
-            {
-                if (traderKind?.stockGenerators == null) continue;
-                StockGenerator_SingleDef keeper = null;
-                List<StockGenerator> remove = null;
-                foreach (StockGenerator generator in traderKind.stockGenerators)
+                if (tk?.stockGenerators == null) continue;
+                foreach (StockGenerator g in tk.stockGenerators)
                 {
-                    StockGenerator_SingleDef single = generator as StockGenerator_SingleDef;
-                    if (single == null) continue;
-                    ThingDef def = thingDefField.GetValue(single) as ThingDef;
-                    if (def != VanillaSilver && def != GoldCoin && def != SilverCoin) continue;
-                    if (keeper == null)
-                    {
-                        keeper = single;
-                        if (def != SilverCoin)
-                        {
-                            thingDefField.SetValue(single, SilverCoin);
-                            single.countRange = ScaleRange(single.countRange, def);
-                        }
-                    }
-                    else
-                    {
-                        if (remove == null) remove = new List<StockGenerator>();
-                        remove.Add(single);
-                    }
+                    StockGenerator_SingleDef s = g as StockGenerator_SingleDef;
+                    if (s == null) continue;
+                    ThingDef d = f.GetValue(s) as ThingDef;
+                    if (d != VanillaSilver) continue;
+                    float oldV = Math.Max(0.01f, d.GetStatValueAbstract(StatDefOf.MarketValue));
+                    float newV = Math.Max(0.01f, GoldCoin.GetStatValueAbstract(StatDefOf.MarketValue));
+                    f.SetValue(s, GoldCoin);
+                    float factor = oldV / newV;
+                    s.countRange = new IntRange(Mathf.Max(0, Mathf.RoundToInt(s.countRange.min * factor)), Mathf.Max(0, Mathf.RoundToInt(s.countRange.max * factor)));
                 }
-                if (remove != null)
-                    for (int i = 0; i < remove.Count; i++) traderKind.stockGenerators.Remove(remove[i]);
             }
         }
 
-        private static IntRange ScaleRange(IntRange range, ThingDef fromDef)
+        internal static int ToGoldCount(Thing t)
         {
-            float fromValue = fromDef?.GetStatValueAbstract(StatDefOf.MarketValue) ?? 1f;
-            float coinValue = SilverCoin.GetStatValueAbstract(StatDefOf.MarketValue);
-            if (coinValue <= 0f) coinValue = 0.1f;
-            float factor = fromValue / coinValue;
-            return new IntRange(Mathf.Max(0, Mathf.RoundToInt(range.min * factor)), Mathf.Max(0, Mathf.RoundToInt(range.max * factor)));
-        }
-
-        private static void DisableCoinageGoldSwapBestEffort()
-        {
-            try
-            {
-                Type currencyManager = AccessTools.TypeByName("Coinage.CurrencyManager");
-                if (currencyManager == null) return;
-                MethodInfo swap = AccessTools.Method(currencyManager, "SwapCurrency");
-                if (swap != null)
-                    Bootstrap.Harmony.Patch(swap, prefix: new HarmonyMethod(typeof(CoinageCompatibility), nameof(CoinageCompatibility.BlockCoinageSwapPrefix)) { priority = Priority.First });
-                ThingDefOf.Silver = VanillaSilver;
-            }
-            catch (Exception e)
-            {
-                Log.Warning("[Silver Coin Currency 1.5] Coinage currency-swap neutralization was partial: " + e.Message);
-            }
+            if (t == null || !Ready) return 0;
+            float oldV = Math.Max(0f, t.GetStatValue(StatDefOf.MarketValue));
+            float goldV = Math.Max(0.01f, GoldCoin.GetStatValueAbstract(StatDefOf.MarketValue));
+            return Mathf.Max(0, Mathf.RoundToInt(t.stackCount * oldV / goldV));
         }
     }
 
-    internal static class CoinageCompatibility
+    [HarmonyPatch(typeof(TraderKindDef), nameof(TraderKindDef.WillTrade), new[] { typeof(ThingDef) })]
+    internal static class TraderKindDef_WillTrade_Patch
     {
-        public static bool BlockCoinageSwapPrefix()
-        {
-            if (CurrencyRuntime.Ready) ThingDefOf.Silver = CurrencyRuntime.VanillaSilver;
-            return false;
-        }
-        public static void RestoreVanillaSilverPostfix()
-        {
-            if (CurrencyRuntime.Ready) ThingDefOf.Silver = CurrencyRuntime.VanillaSilver;
-        }
+        public static void Postfix(ThingDef td, ref bool __result) { if (Runtime.IsCoin(td)) __result = true; }
     }
 
     [HarmonyPatch(typeof(Tradeable), nameof(Tradeable.IsCurrency), MethodType.Getter)]
@@ -185,19 +173,9 @@ namespace Allen.CoinSilverCurrency15
     {
         public static void Postfix(Tradeable __instance, ref bool __result)
         {
-            if (!CurrencyRuntime.Ready || __instance == null) return;
-            ThingDef def = __instance.ThingDef;
-            if (def == CurrencyRuntime.SilverCoin) __result = true;
-            else if (def == CurrencyRuntime.VanillaSilver || (CurrencyRuntime.GoldCoin != null && def == CurrencyRuntime.GoldCoin)) __result = false;
-        }
-    }
-
-    [HarmonyPatch(typeof(TraderKindDef), nameof(TraderKindDef.WillTrade), new[] { typeof(ThingDef) })]
-    internal static class TraderKindDef_WillTrade_Patch
-    {
-        public static void Postfix(ThingDef t, ref bool __result)
-        {
-            if (CurrencyRuntime.IsSilverCoin(t)) __result = true;
+            if (!Runtime.Ready || __instance == null) return;
+            if (__instance.ThingDef == Runtime.GoldCoin) __result = true;
+            else if (__instance.ThingDef == Runtime.VanillaSilver) __result = false;
         }
     }
 
@@ -206,9 +184,9 @@ namespace Allen.CoinSilverCurrency15
     {
         public static void Postfix(TradeDeal __instance, ref Tradeable __result)
         {
-            if (!CurrencyRuntime.Ready || TradeSession.TradeCurrency != TradeCurrency.Silver || __instance == null) return;
-            Tradeable coin = __instance.AllTradeables.FirstOrDefault(t => t?.ThingDef == CurrencyRuntime.SilverCoin);
-            if (coin != null) __result = coin;
+            if (!Runtime.Ready || __instance == null || TradeSession.TradeCurrency != TradeCurrency.Silver) return;
+            Tradeable gold = __instance.AllTradeables.FirstOrDefault(t => t?.ThingDef == Runtime.GoldCoin);
+            if (gold != null) __result = gold;
         }
     }
 
@@ -217,13 +195,10 @@ namespace Allen.CoinSilverCurrency15
     {
         public static void Postfix(TradeDeal __instance)
         {
-            if (!CurrencyRuntime.Ready || TradeSession.giftMode || TradeSession.TradeCurrency != TradeCurrency.Silver || __instance == null) return;
-            if (__instance.AllTradeables.Any(t => t?.ThingDef == CurrencyRuntime.SilverCoin)) return;
-            Thing zeroCoin = ThingMaker.MakeThing(CurrencyRuntime.SilverCoin);
-            zeroCoin.stackCount = 0;
-            Tradeable tradeable = new Tradeable();
-            tradeable.AddThing(zeroCoin, Transactor.Trader);
-            __instance.AllTradeables.Add(tradeable);
+            if (!Runtime.Ready || __instance == null || TradeSession.giftMode || TradeSession.TradeCurrency != TradeCurrency.Silver) return;
+            if (__instance.AllTradeables.Any(t => t?.ThingDef == Runtime.GoldCoin)) return;
+            Thing zero = ThingMaker.MakeThing(Runtime.GoldCoin); zero.stackCount = 0;
+            Tradeable tr = new Tradeable(); tr.AddThing(zero, Transactor.Trader); __instance.AllTradeables.Add(tr);
         }
     }
 
@@ -232,18 +207,14 @@ namespace Allen.CoinSilverCurrency15
     {
         public static bool Prefix(TradeDeal __instance)
         {
-            if (!CurrencyRuntime.Ready || __instance == null || TradeSession.giftMode || TradeSession.TradeCurrency != TradeCurrency.Silver) return true;
-            Tradeable currency = __instance.AllTradeables.FirstOrDefault(t => t?.ThingDef == CurrencyRuntime.SilverCoin);
+            if (!Runtime.Ready || __instance == null || TradeSession.giftMode || TradeSession.TradeCurrency != TradeCurrency.Silver) return true;
+            Tradeable currency = __instance.AllTradeables.FirstOrDefault(t => t?.ThingDef == Runtime.GoldCoin);
             if (currency == null) return true;
-            float silverValue = 0f;
-            List<Tradeable> all = __instance.AllTradeables;
-            for (int i = 0; i < all.Count; i++)
-            {
-                Tradeable tradeable = all[i];
-                if (tradeable == null || tradeable == currency || tradeable.IsCurrency) continue;
-                silverValue += tradeable.CurTotalCurrencyCostForSource;
-            }
-            currency.ForceToSource(-Mathf.RoundToInt(silverValue * 10f));
+            float value = 0f;
+            foreach (Tradeable t in __instance.AllTradeables)
+                if (t != null && t != currency && !t.IsCurrency) value += t.CurTotalCurrencyCostForSource;
+            float goldV = Math.Max(0.01f, Runtime.GoldCoin.GetStatValueAbstract(StatDefOf.MarketValue));
+            currency.ForceToSource(-Mathf.RoundToInt(value / goldV));
             return false;
         }
     }
@@ -253,117 +224,35 @@ namespace Allen.CoinSilverCurrency15
     {
         public static void Prefix(ITrader newTrader)
         {
-            if (!CurrencyRuntime.Ready || newTrader == null) return;
-            ThingDefOf.Silver = CurrencyRuntime.VanillaSilver;
-            ConvertExistingTraderCurrency(newTrader);
-        }
-        public static void Postfix()
-        {
-            if (CurrencyRuntime.Ready) ThingDefOf.Silver = CurrencyRuntime.VanillaSilver;
-        }
-        private static void ConvertExistingTraderCurrency(ITrader trader)
-        {
+            if (!Runtime.Ready || newTrader == null) return;
             try
             {
-                List<Thing> goods = trader.Goods?.ToList();
+                List<Thing> goods = newTrader.Goods?.ToList();
                 if (goods == null) return;
-                for (int i = 0; i < goods.Count; i++)
+                foreach (Thing old in goods)
                 {
-                    Thing oldThing = goods[i];
-                    if (oldThing == null || !CurrencyRuntime.IsLegacyCurrency(oldThing.def)) continue;
-                    ThingOwner owner = oldThing.holdingOwner;
-                    if (owner == null) continue;
-                    int coinCount = CurrencyRuntime.ToSilverCoinCount(oldThing);
-                    if (coinCount <= 0) continue;
-                    owner.Remove(oldThing);
-                    oldThing.Destroy(DestroyMode.Vanish);
-                    int stackLimit = Math.Max(1, CurrencyRuntime.SilverCoin.stackLimit);
-                    while (coinCount > 0)
+                    if (old == null || old.def != Runtime.VanillaSilver || old.holdingOwner == null) continue;
+                    ThingOwner owner = old.holdingOwner;
+                    int count = Runtime.ToGoldCount(old);
+                    owner.Remove(old); old.Destroy(DestroyMode.Vanish);
+                    int limit = Math.Max(1, Runtime.GoldCoin.stackLimit);
+                    while (count > 0)
                     {
-                        int stack = Math.Min(stackLimit, coinCount);
-                        Thing coin = ThingMaker.MakeThing(CurrencyRuntime.SilverCoin);
-                        coin.stackCount = stack;
-                        if (!owner.TryAdd(coin, true))
-                        {
-                            coin.Destroy(DestroyMode.Vanish);
-                            break;
-                        }
-                        coinCount -= stack;
+                        int n = Math.Min(limit, count);
+                        Thing c = ThingMaker.MakeThing(Runtime.GoldCoin); c.stackCount = n;
+                        if (!owner.TryAdd(c, true)) { c.Destroy(DestroyMode.Vanish); break; }
+                        count -= n;
                     }
                 }
             }
-            catch (Exception e)
-            {
-                Log.Warning("[Silver Coin Currency 1.5] Existing trader currency conversion skipped: " + e.Message);
-            }
-        }
-    }
-
-    [HarmonyPatch]
-    internal static class StockGenerator_Currency_Postfix
-    {
-        static IEnumerable<MethodBase> TargetMethods()
-        {
-            foreach (Type type in GenTypes.AllSubclasses(typeof(StockGenerator)))
-            {
-                MethodInfo method = AccessTools.DeclaredMethod(type, "GenerateThings");
-                if (method != null && typeof(IEnumerable<Thing>).IsAssignableFrom(method.ReturnType)) yield return method;
-            }
-        }
-        public static void Postfix(ref IEnumerable<Thing> __result)
-        {
-            if (!CurrencyRuntime.Ready || __result == null) return;
-            __result = Convert(__result);
-        }
-        private static IEnumerable<Thing> Convert(IEnumerable<Thing> source)
-        {
-            foreach (Thing thing in source)
-            {
-                if (thing == null || !CurrencyRuntime.IsLegacyCurrency(thing.def))
-                {
-                    yield return thing;
-                    continue;
-                }
-                int coinCount = CurrencyRuntime.ToSilverCoinCount(thing);
-                int stackLimit = Math.Max(1, CurrencyRuntime.SilverCoin.stackLimit);
-                while (coinCount > 0)
-                {
-                    int stack = Math.Min(stackLimit, coinCount);
-                    Thing coin = ThingMaker.MakeThing(CurrencyRuntime.SilverCoin);
-                    coin.stackCount = stack;
-                    yield return coin;
-                    coinCount -= stack;
-                }
-            }
+            catch (Exception e) { Log.Warning("[Coinage Gold Currency + MO V3] Trader currency conversion skipped: " + e.Message); }
         }
     }
 
     public class SpecialThingFilterWorker_PureMetalCoin : SpecialThingFilterWorker
     {
-        public override bool Matches(Thing t) => t != null && CoinUtility.TryGetMetalSource(t.def, out _);
-        public override bool CanEverMatch(ThingDef def) => CoinUtility.TryGetMetalSource(def, out _);
-    }
-
-    internal static class CoinUtility
-    {
-        internal static bool TryGetMetalSource(ThingDef coinDef, out ThingDef source)
-        {
-            source = null;
-            if (coinDef == null || coinDef.defName.NullOrEmpty() || !coinDef.defName.StartsWith("Coin_", StringComparison.Ordinal)) return false;
-            string sourceName = coinDef.defName.Substring("Coin_".Length);
-            source = DefDatabase<ThingDef>.GetNamedSilentFail(sourceName);
-            if (source?.stuffProps?.categories == null)
-            {
-                source = null;
-                return false;
-            }
-            if (!source.stuffProps.categories.Contains(StuffCategoryDefOf.Metallic))
-            {
-                source = null;
-                return false;
-            }
-            return true;
-        }
+        public override bool Matches(Thing t) => t != null && Runtime.TryGetMetalSource(t.def, out _);
+        public override bool CanEverMatch(ThingDef def) => Runtime.TryGetMetalSource(def, out _);
     }
 
     [HarmonyPatch(typeof(GenRecipe), nameof(GenRecipe.MakeRecipeProducts))]
@@ -371,11 +260,18 @@ namespace Allen.CoinSilverCurrency15
     {
         public static void Postfix(RecipeDef recipeDef, List<Thing> ingredients, ref IEnumerable<Thing> __result)
         {
-            if (recipeDef?.defName != "Allen_SmeltPureMetalCoin" || ingredients == null || ingredients.Count == 0) return;
-            ThingDef source;
-            if (!CoinUtility.TryGetMetalSource(ingredients[0]?.def, out source) || source == null) return;
-            Thing product = ThingMaker.MakeThing(source);
-            product.stackCount = 1;
+            if (recipeDef == null || ingredients == null || ingredients.Count == 0) return;
+            int output;
+            switch (recipeDef.defName)
+            {
+                case "Allen_SmeltPureMetalCoin10": output = 1; break;
+                case "Allen_SmeltPureMetalCoin100": output = 10; break;
+                case "Allen_SmeltPureMetalCoin1000": output = 100; break;
+                case "Allen_SmeltPureMetalCoin2000": output = 200; break;
+                default: return;
+            }
+            if (!Runtime.TryGetMetalSource(ingredients[0]?.def, out ThingDef source)) return;
+            Thing product = ThingMaker.MakeThing(source); product.stackCount = output;
             __result = new[] { product };
         }
     }
