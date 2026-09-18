@@ -244,18 +244,32 @@ namespace Allen.RecoverableThrowables15
         public void ExposeData()
         {
             Scribe_References.Look(ref projectile, "projectile");
-            Scribe_Deep.Look(ref payload, "payload");
+            Scribe_References.Look(ref payload, "payload");
             Scribe_Values.Look(ref forbidOnRecover, "forbidOnRecover", false);
         }
     }
 
-    internal sealed class RecoverableThrowablesComponent : GameComponent
+    internal sealed class RecoverableThrowablesComponent : GameComponent, IThingHolder
     {
         private List<RecoverableRecord> records = new List<RecoverableRecord>();
+        private ThingOwner<Thing> payloads;
         private readonly Dictionary<Projectile, RecoverableRecord> byProjectile =
             new Dictionary<Projectile, RecoverableRecord>();
 
-        public RecoverableThrowablesComponent(Game game) { }
+        public RecoverableThrowablesComponent(Game game)
+        {
+            payloads = new ThingOwner<Thing>(this, false, LookMode.Deep);
+        }
+
+        public IThingHolder ParentHolder => null;
+
+        public ThingOwner GetDirectlyHeldThings() => payloads;
+
+        public void GetChildHolders(List<IThingHolder> outChildren)
+        {
+            if (payloads != null)
+                ThingOwnerUtility.AppendThingHoldersFromThings(outChildren, payloads);
+        }
 
         private static RecoverableThrowablesComponent Current
         {
@@ -268,7 +282,11 @@ namespace Allen.RecoverableThrowables15
 
         public override void ExposeData()
         {
+            Scribe_Deep.Look(ref payloads, "recoverableThrowablePayloads", new object[] { this, false, LookMode.Deep });
             Scribe_Collections.Look(ref records, "recoverableThrowables", LookMode.Deep);
+
+            if (payloads == null)
+                payloads = new ThingOwner<Thing>(this, false, LookMode.Deep);
             if (records == null)
                 records = new List<RecoverableRecord>();
 
@@ -293,6 +311,8 @@ namespace Allen.RecoverableThrowables15
                 {
                     // The projectile is no longer in the save. The physical weapon cannot be
                     // assigned a reliable landing cell, so treat it as lost rather than duplicating it.
+                    if (payloads.Contains(record.payload))
+                        payloads.Remove(record.payload);
                     if (!record.payload.Destroyed)
                         record.payload.Destroy(DestroyMode.Vanish);
                     records.RemoveAt(i);
@@ -309,17 +329,24 @@ namespace Allen.RecoverableThrowables15
             return c != null && projectile != null && c.byProjectile.ContainsKey(projectile);
         }
 
-        internal static void Register(Projectile projectile, ThingWithComps payload, bool forbidOnRecover)
+        internal static bool Register(Projectile projectile, ThingWithComps payload, bool forbidOnRecover)
         {
             RecoverableThrowablesComponent c = Current;
             if (c == null || projectile == null || payload == null || payload.Destroyed)
-                return;
+                return false;
             if (c.byProjectile.ContainsKey(projectile))
-                return;
+                return false;
+
+            if (payload.ParentHolder != null)
+                payload.ParentHolder.GetDirectlyHeldThings()?.Remove(payload);
+
+            if (!c.payloads.TryAdd(payload, false))
+                return false;
 
             var record = new RecoverableRecord(projectile, payload, forbidOnRecover);
             c.records.Add(record);
             c.byProjectile[projectile] = record;
+            return true;
         }
 
         internal static void RecoverBeforeProjectileDestroy(Projectile projectile)
@@ -339,6 +366,9 @@ namespace Allen.RecoverableThrowables15
 
             Map map = projectile.Map;
             IntVec3 pos = projectile.Position;
+
+            if (c.payloads.Contains(payload))
+                c.payloads.Remove(payload);
 
             if (map == null || !pos.IsValid || !pos.InBounds(map))
             {
@@ -452,10 +482,20 @@ namespace Allen.RecoverableThrowables15
             if (thrown == null || thrown.Destroyed)
                 return;
 
-            RecoverableThrowablesComponent.Register(
+            if (!RecoverableThrowablesComponent.Register(
                 launch.projectile,
                 thrown,
-                launch.forbidOnRecover);
+                launch.forbidOnRecover))
+            {
+                // Registration should normally be impossible to fail. If it does,
+                // place the detached item by the shooter instead of deleting it.
+                Pawn pawn = verb?.CasterPawn;
+                Map map = pawn?.Map;
+                if (map != null && pawn.Position.InBounds(map))
+                    GenPlace.TryPlaceThing(thrown, pawn.Position, map, ThingPlaceMode.Near);
+                else if (!thrown.Destroyed)
+                    thrown.Destroy(DestroyMode.Vanish);
+            }
         }
     }
 
