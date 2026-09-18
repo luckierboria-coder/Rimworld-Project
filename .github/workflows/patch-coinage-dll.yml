@@ -1,4 +1,4 @@
-name: Patch Coinage 1.5 DLL XML-driven mint output
+name: Build Coinage DLL XML patcher
 
 on:
   workflow_dispatch:
@@ -11,60 +11,36 @@ permissions:
   contents: read
 
 jobs:
-  patch:
-    runs-on: windows-latest
+  build-patcher:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install SteamCMD
-        shell: pwsh
-        run: choco install steamcmd -y --no-progress
-
-      - name: Download Coinage Continued workshop item
-        shell: pwsh
-        run: |
-          $steam = (Get-Command steamcmd.exe).Source
-          Write-Host "steamcmd=$steam"
-          & $steam +login anonymous +workshop_download_item 294100 3500063189 validate +quit
-          if ($LASTEXITCODE -ne 0) { throw "SteamCMD failed with exit code $LASTEXITCODE" }
-
-          $root = Split-Path $steam -Parent
-          $candidate = Join-Path $root 'steamapps\workshop\content\294100\3500063189\1.5\Assemblies\Coinage.dll'
-          if (!(Test-Path $candidate)) {
-            $candidate = Get-ChildItem -Path $root -Filter Coinage.dll -Recurse -ErrorAction SilentlyContinue |
-              Where-Object { $_.FullName -match '3500063189.*1\.5.*Assemblies' } |
-              Select-Object -First 1 -ExpandProperty FullName
-          }
-          if (!$candidate -or !(Test-Path $candidate)) { throw "Could not locate Coinage 1.5 DLL after workshop download." }
-
-          New-Item -ItemType Directory -Force -Path input | Out-Null
-          Copy-Item $candidate input\Coinage.dll
-          Write-Host "Coinage DLL: $candidate"
-          Get-FileHash input\Coinage.dll -Algorithm SHA256
-
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
       - name: Create Cecil patcher
-        shell: pwsh
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Force -Path patcher | Out-Null
-          @'
+          mkdir -p patcher
+          cat > patcher/patcher.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
               <OutputType>Exe</OutputType>
               <TargetFramework>net8.0</TargetFramework>
               <ImplicitUsings>enable</ImplicitUsings>
               <Nullable>enable</Nullable>
+              <PublishSingleFile>true</PublishSingleFile>
+              <SelfContained>true</SelfContained>
+              <InvariantGlobalization>true</InvariantGlobalization>
             </PropertyGroup>
             <ItemGroup>
               <PackageReference Include="Mono.Cecil" Version="0.11.5" />
             </ItemGroup>
           </Project>
-          '@ | Set-Content -Encoding UTF8 patcher\patcher.csproj
+          EOF
 
-          @'
+          cat > patcher/Program.cs <<'EOF'
           using System.Security.Cryptography;
           using Mono.Cecil;
           using Mono.Cecil.Cil;
@@ -92,12 +68,19 @@ jobs:
               return Convert.ToHexString(SHA256.HashData(s)).ToLowerInvariant();
           }
 
-          if (args.Length != 2) throw new Exception("usage: patcher <input Coinage.dll> <output Coinage.dll>");
-          var input = args[0];
-          var output = args[1];
+          if (args.Length != 2)
+              throw new Exception("usage: CoinageXmlPatcher <input Coinage.dll> <output Coinage.dll>");
+
+          string input = args[0];
+          string output = args[1];
 
           Console.WriteLine("Original SHA256=" + Sha(input));
-          var asm = AssemblyDefinition.ReadAssembly(input, new ReaderParameters { ReadSymbols = false, InMemory = true });
+
+          var asm = AssemblyDefinition.ReadAssembly(input, new ReaderParameters
+          {
+              ReadSymbols = false,
+              InMemory = true
+          });
           var module = asm.MainModule;
 
           var util = module.Types.FirstOrDefault(t => t.FullName == "Coinage.CoinageUtility")
@@ -140,59 +123,79 @@ jobs:
 
           var ins = gen.Body.Instructions;
           int patched = 0;
+
           for (int i = 0; i < ins.Count - 1; i++)
           {
-              if (ReadInt32(ins[i]) != 50) continue;
+              if (ReadInt32(ins[i]) != 50)
+                  continue;
 
               int j = i + 1;
-              while (j < ins.Count && ins[j].OpCode == OpCodes.Nop) j++;
-              if (j >= ins.Count || ins[j].OpCode != OpCodes.Newobj) continue;
-              if (ins[j].Operand is not MethodReference ctor) continue;
-              if (ctor.DeclaringType.FullName != "Verse.ThingDefCountClass") continue;
+              while (j < ins.Count && ins[j].OpCode == OpCodes.Nop)
+                  j++;
+
+              if (j >= ins.Count || ins[j].OpCode != OpCodes.Newobj)
+                  continue;
+              if (ins[j].Operand is not MethodReference ctor)
+                  continue;
+              if (ctor.DeclaringType.FullName != "Verse.ThingDefCountClass")
+                  continue;
 
               ins[i].OpCode = OpCodes.Call;
               ins[i].Operand = helper;
               patched++;
-              Console.WriteLine($"Patched CoinDefGenerator IL at instruction {i}: hardcoded 50 -> XML Mill_Coinage.targetCountAdjustment");
+
+              Console.WriteLine($"PATCHED instruction {i}: hardcoded 50 -> Mill_Coinage.targetCountAdjustment");
           }
 
           if (patched != 1)
-              throw new Exception($"Expected exactly one hardcoded coin-output site, patched={patched}.");
+              throw new Exception($"Expected exactly one Coinage mint-output hardcode site; patched={patched}.");
 
-          Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+          Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
           asm.Write(output, new WriterParameters { WriteSymbols = false });
 
-          // Structural verification by reopening output.
           var check = AssemblyDefinition.ReadAssembly(output, new ReaderParameters { ReadSymbols = false });
           var checkUtil = check.MainModule.Types.First(t => t.FullName == "Coinage.CoinageUtility");
           var checkHelper = checkUtil.Methods.Single(m => m.Name == "GetCoinOutputCountFromRecipe");
           var checkGen = checkUtil.Methods.Single(m => m.Name == "CoinDefGenerator");
 
-          bool helperReadsRecipe = checkHelper.Body.Instructions.Any(x =>
-              x.OpCode == OpCodes.Ldstr && (string)x.Operand == "Mill_Coinage")
+          bool helperReadsRecipe =
+              checkHelper.Body.Instructions.Any(x => x.OpCode == OpCodes.Ldstr && (string)x.Operand == "Mill_Coinage")
               && checkHelper.Body.Instructions.Any(x =>
                   x.OpCode == OpCodes.Ldfld && x.Operand is FieldReference f && f.Name == "targetCountAdjustment");
 
-          bool generatorCallsHelper = checkGen.Body.Instructions.Any(x =>
-              x.OpCode == OpCodes.Call && x.Operand is MethodReference m && m.Name == "GetCoinOutputCountFromRecipe");
+          bool generatorCallsHelper =
+              checkGen.Body.Instructions.Any(x =>
+                  x.OpCode == OpCodes.Call && x.Operand is MethodReference m && m.Name == "GetCoinOutputCountFromRecipe");
 
-          if (!helperReadsRecipe || !generatorCallsHelper)
+          bool hardcoded50AtProductCtor = false;
+          var ci = checkGen.Body.Instructions;
+          for (int i = 0; i < ci.Count - 1; i++)
+          {
+              if (ReadInt32(ci[i]) != 50) continue;
+              int j = i + 1;
+              while (j < ci.Count && ci[j].OpCode == OpCodes.Nop) j++;
+              if (j < ci.Count && ci[j].OpCode == OpCodes.Newobj &&
+                  ci[j].Operand is MethodReference c &&
+                  c.DeclaringType.FullName == "Verse.ThingDefCountClass")
+              {
+                  hardcoded50AtProductCtor = true;
+              }
+          }
+
+          if (!helperReadsRecipe || !generatorCallsHelper || hardcoded50AtProductCtor)
               throw new Exception("Post-write IL verification failed.");
 
           Console.WriteLine("Patched SHA256=" + Sha(output));
-          Console.WriteLine("VERIFY: output source = RecipeDef Mill_Coinage.targetCountAdjustment");
-          Console.WriteLine("VERIFY: ingredient cost remains controlled by Recipes_Coinage.xml <ingredients><li><count>...</count>");
-          '@ | Set-Content -Encoding UTF8 patcher\Program.cs
+          Console.WriteLine("VERIFY output count source: RecipeDef Mill_Coinage.targetCountAdjustment");
+          Console.WriteLine("VERIFY ingredient cost source unchanged: Recipes_Coinage.xml ingredient count");
+          EOF
 
-      - name: Patch Coinage.dll
-        shell: pwsh
-        run: |
-          dotnet run --project patcher\patcher.csproj --configuration Release -- input\Coinage.dll out\Coinage.dll
-          if (!(Test-Path out\Coinage.dll)) { throw "Patched DLL missing." }
+      - name: Publish self-contained Linux patcher
+        run: dotnet publish patcher/patcher.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o publish
 
-      - name: Upload patched Coinage.dll
+      - name: Upload patcher
         uses: actions/upload-artifact@v4
         with:
-          name: Coinage-1.5-XMLDriven-MintOutput
-          path: out/Coinage.dll
+          name: CoinageXmlPatcher-linux-x64
+          path: publish/
           if-no-files-found: error
