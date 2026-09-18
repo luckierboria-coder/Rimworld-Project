@@ -11,7 +11,7 @@ namespace Allen.RecoverableThrowables15
 {
     internal static class Bootstrap
     {
-        private const string HarmonyId = "allen.recoverablethrowables.1.5.v15";
+        private const string HarmonyId = "allen.recoverablethrowables.1.5.v20";
         private static bool initialized;
 
         internal static void EnsureInitialized(string source)
@@ -27,18 +27,18 @@ namespace Allen.RecoverableThrowables15
                 harmony.PatchAll(Assembly.GetExecutingAssembly());
                 GrenadeOneUseCompat.TryPatch(harmony);
 
-                LongEventHandler.ExecuteWhenFinished(LogEligibleDefs);
-                Log.Warning("[Recoverable Throwables 1.5 v1.5] ACTIVE bootstrap=" + source +
-                    ". Projectile.Launch is authoritative; physical thrown weapons consume one real item and recover it at projectile destruction.");
+                LongEventHandler.ExecuteWhenFinished(PrepareThrowableDefs);
+                Log.Message("[Recoverable Throwables 1.5 v2.0] active bootstrap=" + source +
+                    ". Finite/recoverable physical throwables + stackable loadouts enabled.");
             }
             catch (Exception e)
             {
                 initialized = false;
-                Log.Error("[Recoverable Throwables 1.5 v1.5] startup failed bootstrap=" + source + ": " + e);
+                Log.Error("[Recoverable Throwables 1.5 v2.0] startup failed bootstrap=" + source + ": " + e);
             }
         }
 
-        private static void LogEligibleDefs()
+        private static void PrepareThrowableDefs()
         {
             try
             {
@@ -47,12 +47,25 @@ namespace Allen.RecoverableThrowables15
                     .OrderBy(d => d.defName)
                     .ToList();
 
-                Log.Warning("[Recoverable Throwables 1.5 v1.5] eligible defs=" + eligible.Count +
-                    (eligible.Count == 0 ? "." : " [" + string.Join(", ", eligible.Select(d => d.defName)) + "]"));
+                int raised = 0;
+                for (int i = 0; i < eligible.Count; i++)
+                {
+                    ThingDef def = eligible[i];
+                    if (def.stackLimit < ThrowableLoadout.StackLimit)
+                    {
+                        def.stackLimit = ThrowableLoadout.StackLimit;
+                        raised++;
+                    }
+                }
+
+                Log.Message("[Recoverable Throwables 1.5 v2.0] ready: eligible=" + eligible.Count +
+                    ", stackLimit=" + ThrowableLoadout.StackLimit +
+                    ", stackLimitsRaised=" + raised +
+                    (eligible.Count == 0 ? "." : ", defs=[" + string.Join(", ", eligible.Select(d => d.defName)) + "]"));
             }
             catch (Exception e)
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.5] eligible-def audit failed: " + e);
+                Log.Error("[Recoverable Throwables 1.5 v2.0] throwable-def preparation failed: " + e);
             }
         }
     }
@@ -211,6 +224,107 @@ namespace Allen.RecoverableThrowables15
         }
     }
 
+    internal static class ThrowableLoadout
+    {
+        internal const int StackLimit = 10;
+
+        internal static int GeneratedCount(ThingWithComps weapon)
+        {
+            if (weapon?.def == null || !RecoverableClassifier.DefLooksRecoverable(weapon.def))
+                return 1;
+
+            float mass = 0f;
+            try { mass = weapon.GetStatValue(StatDefOf.Mass); }
+            catch
+            {
+                try { mass = weapon.def.GetStatValueAbstract(StatDefOf.Mass); }
+                catch { mass = 0f; }
+            }
+
+            int min;
+            int max;
+
+            // Keep generated loadouts believable: light knives get more, heavy javelins/axes fewer.
+            if (mass > 0f && mass <= 0.75f)
+            {
+                min = 4;
+                max = 6;
+            }
+            else if (mass > 2.0f)
+            {
+                min = 2;
+                max = 4;
+            }
+            else
+            {
+                min = 3;
+                max = 5;
+            }
+
+            int hardCap = Math.Max(1, weapon.def.stackLimit);
+            min = Math.Min(min, hardCap);
+            max = Math.Min(max, hardCap);
+            if (max <= min)
+                return min;
+
+            return Rand.RangeInclusive(min, max);
+        }
+
+        internal static void ApplyGeneratedPawnLoadout(Pawn pawn)
+        {
+            ThingWithComps primary = pawn?.equipment?.Primary;
+            if (primary == null || primary.Destroyed)
+                return;
+            if (!RecoverableClassifier.DefLooksRecoverable(primary.def))
+                return;
+
+            // Only expand the freshly generated singleton. Do not refill or multiply an
+            // already-established stack if another generator/compatibility mod set one.
+            if (primary.stackCount != 1)
+                return;
+
+            int desired = GeneratedCount(primary);
+            if (desired > 1)
+                primary.stackCount = desired;
+        }
+    }
+
+    [HarmonyPatch]
+    internal static class Patch_PawnGenerator_GenerateGearFor_ThrowableLoadout
+    {
+        private static MethodBase TargetMethod()
+        {
+            MethodInfo target = AccessTools.GetDeclaredMethods(typeof(PawnGenerator))
+                .FirstOrDefault(m =>
+                {
+                    if (!string.Equals(m.Name, "GenerateGearFor", StringComparison.Ordinal))
+                        return false;
+                    ParameterInfo[] p = m.GetParameters();
+                    return p.Length == 2 &&
+                           p[0].ParameterType == typeof(Pawn) &&
+                           p[1].ParameterType == typeof(PawnGenerationRequest);
+                });
+
+            if (target == null)
+                throw new MissingMethodException(
+                    "[Recoverable Throwables 1.5 v2.0] Could not resolve PawnGenerator.GenerateGearFor(Pawn, PawnGenerationRequest).");
+
+            return target;
+        }
+
+        private static void Postfix(Pawn pawn)
+        {
+            try
+            {
+                ThrowableLoadout.ApplyGeneratedPawnLoadout(pawn);
+            }
+            catch (Exception e)
+            {
+                Log.Error("[Recoverable Throwables 1.5 v2.0] generated throwable loadout failed: " + e);
+            }
+        }
+    }
+
     internal sealed class RecoverableRecord : IExposable
     {
         public Projectile projectile;
@@ -355,7 +469,7 @@ namespace Allen.RecoverableThrowables15
             if (map == null || !pos.IsValid || !pos.InBounds(map))
             {
                 payload.Destroy(DestroyMode.Vanish);
-                Log.Warning("[Recoverable Throwables 1.5 v1.5] LOST weapon=" + payload.def.defName + " because projectile left the map.");
+                // Leaving the map is an intentional physical loss, not an error.
                 return;
             }
 
@@ -375,14 +489,14 @@ namespace Allen.RecoverableThrowables15
             }
             catch (Exception e)
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.5] failed to recover " + payload + ": " + e);
+                Log.Error("[Recoverable Throwables 1.5 v2.0] failed to recover " + payload + ": " + e);
             }
 
             if (!placed)
             {
                 if (!payload.Destroyed)
                     payload.Destroy(DestroyMode.Vanish);
-                Log.Error("[Recoverable Throwables 1.5 v1.5] RECOVER FAILED weapon=" +
+                Log.Error("[Recoverable Throwables 1.5 v2.0] RECOVER FAILED weapon=" +
                     payload.def.defName + " near=" + pos + "; item treated as lost.");
                 return;
             }
@@ -391,8 +505,7 @@ namespace Allen.RecoverableThrowables15
             try { recoveredThing.SetForbidden(record.forbidOnRecover, false); }
             catch { }
 
-            Log.Warning("[Recoverable Throwables 1.5 v1.5] RECOVER weapon=" +
-                recoveredThing.def.defName + " at=" + recoveredThing.Position);
+            // Stable build: successful recovery is intentionally silent.
         }
     }
 
@@ -421,22 +534,12 @@ namespace Allen.RecoverableThrowables15
             if (source == null)
                 return;
 
-            bool defEligible = RecoverableClassifier.DefLooksRecoverable(source.def);
-            if (defEligible)
-            {
-                Log.Warning("[Recoverable Throwables 1.5 v1.5] LAUNCH-SEEN pawn=" +
-                    SafePawnLabel(pawn) +
-                    " weapon=" + source.def.defName +
-                    " projectile=" + projectile.def.defName +
-                    " holder=" + (source.ParentHolder?.GetType().FullName ?? "<null>"));
-            }
-
             if (!RecoverableClassifier.IsRecoverableShot(source, projectile.def))
                 return;
 
             if (!(source.ParentHolder is Pawn_EquipmentTracker tracker))
             {
-                Log.Warning("[Recoverable Throwables 1.5 v1.5] MATCHED but source is not in Pawn_EquipmentTracker: " +
+                Log.Warning("[Recoverable Throwables 1.5 v2.0] MATCHED but source is not in Pawn_EquipmentTracker: " +
                     source.def.defName + " holder=" + (source.ParentHolder?.GetType().FullName ?? "<null>"));
                 return;
             }
@@ -460,7 +563,7 @@ namespace Allen.RecoverableThrowables15
             }
             catch (Exception e)
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.5] failed to detach thrown weapon " +
+                Log.Error("[Recoverable Throwables 1.5 v2.0] failed to detach thrown weapon " +
                     source.def.defName + ": " + e);
                 return;
             }
@@ -472,7 +575,7 @@ namespace Allen.RecoverableThrowables15
 
             if (!RecoverableThrowablesComponent.Register(projectile, thrown, forbid))
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.5] register failed for " + thrown.def.defName);
+                Log.Error("[Recoverable Throwables 1.5 v2.0] register failed for " + thrown.def.defName);
                 Map fallbackMap = pawn?.Map;
                 if (fallbackMap != null && pawn.Position.InBounds(fallbackMap))
                     GenPlace.TryPlaceThing(thrown, pawn.Position, fallbackMap, ThingPlaceMode.Near);
@@ -481,13 +584,7 @@ namespace Allen.RecoverableThrowables15
                 return;
             }
 
-            int remaining = source == thrown ? 0 : source.stackCount;
-            Log.Warning("[Recoverable Throwables 1.5 v1.5] THROW pawn=" +
-                SafePawnLabel(pawn) +
-                " weapon=" + thrown.def.defName +
-                " before=" + before +
-                " remaining=" + remaining +
-                " projectile=" + projectile.def.defName);
+            // Stable build: successful throws are intentionally silent. Errors still log.
         }
 
         private static string SafePawnLabel(Pawn pawn)
@@ -520,11 +617,11 @@ namespace Allen.RecoverableThrowables15
 
             if (target == null)
                 throw new MissingMethodException(
-                    "[Recoverable Throwables 1.5 v1.5] Could not resolve any usable Verse.Projectile.Launch overload at runtime.");
+                    "[Recoverable Throwables 1.5 v2.0] Could not resolve any usable Verse.Projectile.Launch overload at runtime.");
 
             string signature = string.Join(", ",
                 target.GetParameters().Select(p => p.ParameterType.Name + " " + p.Name));
-            Log.Warning("[Recoverable Throwables 1.5 v1.5] resolved Projectile.Launch(" + signature + ")");
+            Log.Message("[Recoverable Throwables 1.5 v2.0] resolved Projectile.Launch(" + signature + ")");
 
             return target;
         }
@@ -576,7 +673,7 @@ namespace Allen.RecoverableThrowables15
             }
             catch (Exception e)
             {
-                Log.Error("[Recoverable Throwables 1.5 v1.5] Projectile.Launch postfix failed: " + e);
+                Log.Error("[Recoverable Throwables 1.5 v2.0] Projectile.Launch postfix failed: " + e);
             }
         }
     }
@@ -602,9 +699,9 @@ namespace Allen.RecoverableThrowables15
                 "GrenadeOneUse15.Patch_VerbLaunchProjectile_TryCastShot_ConsumeThrowable");
 
             if (t != null)
-                Log.Warning("[Recoverable Throwables 1.5 v1.5] Grenade One-Use detected; v1.1 separation assumed, no cross-patch required.");
+                Log.Message("[Recoverable Throwables 1.5 v2.0] Grenade One-Use detected; no cross-patch required.");
             else
-                Log.Warning("[Recoverable Throwables 1.5 v1.5] Grenade One-Use not detected.");
+                Log.Message("[Recoverable Throwables 1.5 v2.0] Grenade One-Use not detected.");
         }
     }
 }
