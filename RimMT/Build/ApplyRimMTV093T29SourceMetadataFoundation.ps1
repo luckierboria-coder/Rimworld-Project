@@ -167,14 +167,10 @@ Set-Content $t22Path $t22 -Encoding UTF8
 $reportPath='RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $report=Get-Content $reportPath -Raw
 $report=$report.Replace('V0.9.3-T28 Unified Job Search Transaction','V0.9.3-T29 Source Metadata Foundation')
-$report=Replace-OrThrow $report @'
-            sb.AppendLine(JobSearchPackageContext093T28.Summary());
-            sb.AppendLine(JobSearchTransaction093T20.Summary());
-'@ @'
-            sb.AppendLine(JobSearchPackageContext093T28.Summary());
-            sb.AppendLine(SourceMetadata093T29.Summary());
-            sb.AppendLine(JobSearchTransaction093T20.Summary());
-'@ 'production report T29 summary'
+$reportAnchor='            sb.AppendLine(JobSearchPackageContext093T28.Summary());'
+if(-not $report.Contains($reportAnchor)){ throw 'T29 anchor missing: production report T28 summary' }
+$report=$report.Replace($reportAnchor,
+  $reportAnchor + [Environment]::NewLine + '            sb.AppendLine(SourceMetadata093T29.Summary());')
 $report=$report.Replace(
   'T28 package-local false readiness proof;',
   'T28 package-local false readiness proof; T29 package-local source metadata capture/reuse;')
