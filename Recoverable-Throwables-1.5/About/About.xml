@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Recoverable Throwables 1.5 v1.5</name>
+  <name>Recoverable Throwables 1.5 v2.0</name>
   <author>Allen / ChatGPT</author>
   <packageId>allen.recoverablethrowables</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
-  <description>Physical thrown weapons such as javelins, throwing axes and throwing knives become finite, recoverable equipment. V1.5 keeps the runtime-resolved Projectile.Launch hook from v1.4, makes the eligible weapon definition authoritative even if ballistics patches substitute the runtime projectile, tightens throwable-name detection to avoid false positives such as Gun_Slugthrower, and removes the broken Grenade One-Use cross-patch. Explosive grenade-style throwables remain the responsibility of Grenade One-Use v1.1.</description>
+  <description>Stable RimWorld 1.5 patch for finite recoverable physical thrown weapons. Javelins, throwing axes, throwing knives and similar weapons are stackable, newly generated pawns spawn with multiple copies in their equipped stack, one real weapon is consumed per throw, and that exact item is recovered where the projectile ends. Explosive grenade-style throwables remain handled separately by Grenade One-Use v1.1.</description>
   <modDependencies>
     <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
   </modDependencies>
