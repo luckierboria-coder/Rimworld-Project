@@ -12,7 +12,7 @@ namespace Allen.CoinSilverCurrency15
     [StaticConstructorOnStartup]
     public static class Bootstrap
     {
-        internal const string HarmonyId = "allen.coin.goldcurrency.mo.1.5.v31";
+        internal const string HarmonyId = "allen.coin.goldcurrency.mo.1.5.v32";
         internal static readonly Harmony Harmony = new Harmony(HarmonyId);
 
         static Bootstrap()
@@ -28,13 +28,13 @@ namespace Allen.CoinSilverCurrency15
                     }
                     catch (Exception e)
                     {
-                        Log.Error("[Coinage Gold Currency + MO V3.1] Post-load initialization failed: " + e);
+                        Log.Error("[Coinage Gold Currency + MO V3.2] Post-load initialization failed: " + e);
                     }
                 });
             }
             catch (Exception e)
             {
-                Log.Error("[Coinage Gold Currency + MO V3.1] Harmony initialization failed: " + e);
+                Log.Error("[Coinage Gold Currency + MO V3.2] Harmony initialization failed: " + e);
             }
         }
     }
@@ -60,7 +60,7 @@ namespace Allen.CoinSilverCurrency15
 
                 if (VanillaSilver == null || GoldCoin == null)
                 {
-                    Log.Error("[Coinage Gold Currency + MO V3.1] Required defs missing after play-data load: Silver or Coin_Gold.");
+                    Log.Error("[Coinage Gold Currency + MO V3.2] Required defs missing after play-data load: Silver or Coin_Gold.");
                     return;
                 }
 
@@ -81,7 +81,7 @@ namespace Allen.CoinSilverCurrency15
                 foreach (ThingDef d in CoinDefs)
                     if (TryGetMetalSource(d, out _)) metallic.Add(d.defName);
 
-                Log.Message("[Coinage Gold Currency + MO V3.1] Active. Coin_Gold settlement; runtime coins=" +
+                Log.Message("[Coinage Gold Currency + MO V3.2] Active. Coin_Gold settlement; runtime coins=" +
                     CoinDefs.Count + "; metallic=" + metallic.Count + "; metallic defs=[" +
                     string.Join(", ", metallic.ToArray()) + "].");
             }
@@ -137,7 +137,7 @@ namespace Allen.CoinSilverCurrency15
                 RecipeDef recipe = DefDatabase<RecipeDef>.GetNamedSilentFail(name);
                 if (recipe == null)
                 {
-                    Log.Error("[Coinage Gold Currency + MO V3.1] Missing recipe def: " + name);
+                    Log.Error("[Coinage Gold Currency + MO V3.2] Missing recipe def: " + name);
                     continue;
                 }
 
@@ -161,7 +161,7 @@ namespace Allen.CoinSilverCurrency15
                 }
             }
 
-            Log.Message("[Coinage Gold Currency + MO V3.1] Smelting filters injected: recipes=" +
+            Log.Message("[Coinage Gold Currency + MO V3.2] Smelting filters injected: recipes=" +
                         recipes + ", metallic coin defs per recipe=" + metalCoins.Count + ".");
         }
 
@@ -206,7 +206,7 @@ namespace Allen.CoinSilverCurrency15
             FieldInfo f = AccessTools.Field(typeof(StockGenerator_SingleDef), "thingDef");
             if (f == null)
             {
-                Log.Warning("[Coinage Gold Currency + MO V3.1] StockGenerator_SingleDef.thingDef field not found; runtime trader conversion remains enabled.");
+                Log.Warning("[Coinage Gold Currency + MO V3.2] StockGenerator_SingleDef.thingDef field not found; runtime trader conversion remains enabled.");
                 return;
             }
 
@@ -266,6 +266,86 @@ namespace Allen.CoinSilverCurrency15
                 __result = d == Runtime.GoldCoin;
             else if (d == Runtime.VanillaSilver)
                 __result = false;
+        }
+    }
+
+    // Coinage denominations are money even when traded as ordinary goods:
+    // one unit always trades at its actual MarketValue, with no buy/sell spread,
+    // trader price type, negotiator social/trade-price bonus, faction-base modifier,
+    // difficulty trade-price loss, or SellPriceFactor.
+    [HarmonyPatch(typeof(Tradeable), nameof(Tradeable.GetPriceFor))]
+    internal static class Tradeable_GetPriceFor_FixedCoinValue_Patch
+    {
+        public static bool Prefix(Tradeable __instance, ref float __result)
+        {
+            if (__instance == null) return true;
+
+            ThingDef d = __instance.ThingDef;
+            if (!Runtime.IsCoin(d) || !Runtime.TryGetSource(d, out _))
+                return true;
+
+            __result = __instance.BaseMarketValue;
+            return false;
+        }
+    }
+
+    // Keep the trade UI neutral for fixed-value currency goods instead of
+    // coloring them as cheap/expensive according to the trader's price profile.
+    [HarmonyPatch(typeof(Tradeable), nameof(Tradeable.PriceTypeFor))]
+    internal static class Tradeable_PriceTypeFor_FixedCoinValue_Patch
+    {
+        public static bool Prefix(Tradeable __instance, ref PriceType __result)
+        {
+            if (__instance == null) return true;
+
+            ThingDef d = __instance.ThingDef;
+            if (!Runtime.IsCoin(d) || !Runtime.TryGetSource(d, out _))
+                return true;
+
+            __result = PriceType.Normal;
+            return false;
+        }
+    }
+
+    // Vanilla's tooltip explains the normal x1.4/x0.6 spread, trader type,
+    // negotiator bonus and other modifiers. Those do not apply to Coinage
+    // currency goods, so replace the tooltip with the actual fixed-value rule.
+    [HarmonyPatch(typeof(Tradeable), nameof(Tradeable.GetPriceTooltip))]
+    internal static class Tradeable_GetPriceTooltip_FixedCoinValue_Patch
+    {
+        public static bool Prefix(Tradeable __instance, ref string __result)
+        {
+            if (__instance == null) return true;
+
+            ThingDef d = __instance.ThingDef;
+            if (!Runtime.IsCoin(d) || !Runtime.TryGetSource(d, out _))
+                return true;
+
+            float value = __instance.BaseMarketValue;
+            string lang = Prefs.LangFolderName ?? "";
+            bool zh = lang.IndexOf("ChineseSimplified", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                      lang.IndexOf("简体", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (zh)
+            {
+                __result =
+                    "固定货币价值\n\n" +
+                    "Coinage货币作为普通商品交易时，买入价和卖出价恒等于其市场价值。" +
+                    "不受买入/卖出倍率、商人价格类型、谈判者社交或交易价格改善、派系交易修正、难度交易价格损失、SellPriceFactor等因素影响。\n\n" +
+                    StatDefOf.MarketValue.LabelCap + ": " + value.ToStringMoney("F2") + "\n" +
+                    "FinalPrice".Translate() + ": " + value.ToStringMoney("F2");
+            }
+            else
+            {
+                __result =
+                    "Fixed currency value\n\n" +
+                    "When a Coinage denomination is traded as an ordinary good, both its buy and sell price equal its Market Value. " +
+                    "Buy/sell spread, trader price type, negotiator trade-price/social modifiers, faction-base modifiers, difficulty trade-price loss, and SellPriceFactor do not apply.\n\n" +
+                    StatDefOf.MarketValue.LabelCap + ": " + value.ToStringMoney("F2") + "\n" +
+                    "FinalPrice".Translate() + ": " + value.ToStringMoney("F2");
+            }
+
+            return false;
         }
     }
 
@@ -372,7 +452,7 @@ namespace Allen.CoinSilverCurrency15
             }
             catch (Exception e)
             {
-                Log.Warning("[Coinage Gold Currency + MO V3.1] Trader currency conversion skipped: " + e.Message);
+                Log.Warning("[Coinage Gold Currency + MO V3.2] Trader currency conversion skipped: " + e.Message);
             }
         }
     }
@@ -405,7 +485,7 @@ namespace Allen.CoinSilverCurrency15
                     source = current;
                 else if (source != current)
                 {
-                    Log.Error("[Coinage Gold Currency + MO V3.1] Mixed source metals reached a no-mixing smelt recipe; refusing dynamic output.");
+                    Log.Error("[Coinage Gold Currency + MO V3.2] Mixed source metals reached a no-mixing smelt recipe; refusing dynamic output.");
                     return;
                 }
             }
