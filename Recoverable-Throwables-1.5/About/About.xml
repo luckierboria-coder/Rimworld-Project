@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Recoverable Throwables 1.5 v1.2</name>
+  <name>Recoverable Throwables 1.5 v1.4</name>
   <author>Allen / ChatGPT</author>
   <packageId>allen.recoverablethrowables</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
-  <description>Physical thrown weapons such as javelins, throwing axes and throwing knives become finite, recoverable equipment. V1.2 hooks Projectile.Launch directly, consumes one real weapon per launched projectile, and restores that exact item when the projectile ends. It supports thrown weapons that do not use Combat_RangedFire_Thrown, including VFE Medieval 2's throwing axe. Explosive grenade-style throwables remain the responsibility of Grenade One-Use. Configure these physical thrown weapons as no-ammo weapons in LTS Ammunition.</description>
+  <description>Physical thrown weapons such as javelins, throwing axes and throwing knives become finite, recoverable equipment. V1.4 resolves the actual Verse.Projectile.Launch overload from the runtime assembly instead of hard-coding a signature, fixing Harmony startup failure on RimWorld 1.5.4063. One real weapon is removed per launched projectile and restored when that projectile ends. Explosive grenade-style throwables remain the responsibility of Grenade One-Use.</description>
   <modDependencies>
     <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
   </modDependencies>
