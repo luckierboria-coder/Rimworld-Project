@@ -38,12 +38,14 @@ namespace Allen.RecoverableThrowables15
             {
                 var eligible = DefDatabase<ThingDef>.AllDefsListForReading
                     .Where(RecoverableClassifier.DefLooksRecoverable)
-                    .Select(d => d.defName)
-                    .OrderBy(x => x)
+                    .OrderBy(d => d.defName)
                     .ToList();
 
+                string details = string.Join(", ", eligible.Select(d =>
+                    d.defName + "(LTS-compatible=" + (LtsAmmoGuard.RequiresAmmo(d) ? "yes" : "no") + ")"));
+
                 Log.Message("[Recoverable Throwables 1.5] eligible defs=" + eligible.Count +
-                    (eligible.Count == 0 ? "." : " [" + string.Join(", ", eligible) + "]"));
+                    (eligible.Count == 0 ? "." : " [" + details + "]"));
             }
             catch (Exception e)
             {
@@ -122,8 +124,10 @@ namespace Allen.RecoverableThrowables15
         {
             if (weaponDef == null || !weaponDef.IsWeapon || weaponDef.IsApparel)
                 return false;
-            if (LtsAmmoGuard.RequiresAmmo(weaponDef))
-                return false;
+            // Do not gate on LTS compatibility here. LTS' WeaponDefCanUseAmmoDef answers
+            // whether a weapon *can* use an ammo type, not whether ammo consumption is
+            // currently enabled for that weapon in the user's settings. The user-configured
+            // no-ammo state is authoritative for recoverable physical throwables.
             if (weaponDef.Verbs == null)
                 return false;
 
@@ -147,8 +151,8 @@ namespace Allen.RecoverableThrowables15
                 return false;
             if (source.def == null || !source.def.IsWeapon || source.def.IsApparel)
                 return false;
-            if (LtsAmmoGuard.RequiresAmmo(source.def))
-                return false;
+            // Do not exclude merely because LTS knows compatible ammo for this weapon.
+            // That is not the same as the user's current "requires ammo" setting.
             if (!HasThrownProjectileVerb(source.def))
                 return false;
 
@@ -161,8 +165,8 @@ namespace Allen.RecoverableThrowables15
                 return false;
             if (!source.def.IsWeapon || source.def.IsApparel)
                 return false;
-            if (LtsAmmoGuard.RequiresAmmo(source.def))
-                return false;
+            // Do not exclude merely because LTS knows compatible ammo for this weapon.
+            // That is not the same as the user's current "requires ammo" setting.
             if (!HasThrownProjectileVerb(source.def))
                 return false;
 
@@ -404,9 +408,16 @@ namespace Allen.RecoverableThrowables15
                 return;
             }
 
+            Thing recoveredThing = resultingThing ?? payload;
+
+            Log.Message("[Recoverable Throwables 1.5] RECOVER weapon=" +
+                recoveredThing.def.defName +
+                " at=" + recoveredThing.Position +
+                " map=" + (map?.uniqueID.ToString() ?? "<null>"));
+
             try
             {
-                (resultingThing ?? payload).SetForbidden(record.forbidOnRecover, false);
+                recoveredThing.SetForbidden(record.forbidOnRecover, false);
             }
             catch
             {
@@ -426,6 +437,12 @@ namespace Allen.RecoverableThrowables15
     {
         [ThreadStatic]
         private static PendingLaunch pending;
+
+        private static string __SafePawnLabel(Pawn pawn)
+        {
+            try { return pawn == null ? "<null>" : pawn.LabelShortCap; }
+            catch { return pawn?.thingIDNumber.ToString() ?? "<null>"; }
+        }
 
         internal static void Clear()
         {
@@ -456,6 +473,12 @@ namespace Allen.RecoverableThrowables15
                 source = source,
                 forbidOnRecover = forbid
             };
+
+            Log.Message("[Recoverable Throwables 1.5] CAPTURE pawn=" +
+                (pawn == null ? "<null>" : pawn.LabelShortCap) +
+                " weapon=" + source.def.defName +
+                " stack=" + source.stackCount +
+                " projectile=" + projectile.def.defName);
         }
 
         internal static void Commit(Verb_LaunchProjectile verb, bool shotSucceeded)
@@ -476,6 +499,7 @@ namespace Allen.RecoverableThrowables15
             if (launch.source.Destroyed || launch.source.stackCount <= 0)
                 return;
 
+            int beforeCount = launch.source.stackCount;
             ThingWithComps thrown = null;
             try
             {
@@ -489,6 +513,13 @@ namespace Allen.RecoverableThrowables15
 
             if (thrown == null || thrown.Destroyed)
                 return;
+
+            Log.Message("[Recoverable Throwables 1.5] THROW pawn=" +
+                (__SafePawnLabel(verb?.CasterPawn)) +
+                " weapon=" + thrown.def.defName +
+                " before=" + beforeCount +
+                " remaining=" + (launch.source == thrown ? 0 : launch.source.stackCount) +
+                " projectile=" + launch.projectile.def.defName);
 
             if (!RecoverableThrowablesComponent.Register(
                 launch.projectile,
