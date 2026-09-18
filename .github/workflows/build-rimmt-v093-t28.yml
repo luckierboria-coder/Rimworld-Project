@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - rimmt-v0.9.3-t28-unified-job-search-transaction
+  pull_request:
+    branches:
+      - rimmt-v0.9.3-t27.8-job-search-foundation
   workflow_dispatch:
 
 permissions:
