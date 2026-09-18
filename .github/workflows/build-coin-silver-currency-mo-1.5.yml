@@ -37,6 +37,9 @@ jobs:
           Copy-Item 'Coin-Silver-Currency-MO-1.5\LoadFolders.xml' "$stage\LoadFolders.xml"
           Copy-Item $dll "$stage\1.5\Assemblies\CoinSilverCurrency15.dll"
           Copy-Item 'Coin-Silver-Currency-MO-1.5\1.5\Defs\CoinSilverCurrency.xml' "$stage\1.5\Defs\CoinSilverCurrency.xml"
+          if (Test-Path 'Coin-Silver-Currency-MO-1.5\Languages') {
+            Copy-Item 'Coin-Silver-Currency-MO-1.5\Languages' "$stage\Languages" -Recurse
+          }
           $zip = 'dist-coin-silver\Coin-Silver-Currency-MO-1.5.zip'
           Compress-Archive -Path $stage -DestinationPath $zip -Force
       - name: Upload patch zip
