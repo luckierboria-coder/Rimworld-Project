@@ -1,0 +1,40 @@
+name: Build RimMT V0.9.3-T30 Job Search Redundancy Census
+
+on:
+  push:
+    branches:
+      - rimmt-v0.9.3-t30-job-search-redundancy-census
+  pull_request:
+    branches:
+      - rimmt-v0.9.3-t28-unified-job-search-transaction
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rimmt-t30-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and verify T30
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTT30.ps1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-T30-Job-Search-Redundancy-Census
+          path: |
+            build/RimMT_V0.9.3_T30_Production.zip
+            build/RimMT_Diagnostics_v0.8.zip
+            build/RimMT_T30_With_Diagnostics_Bundle.zip
+          if-no-files-found: error
