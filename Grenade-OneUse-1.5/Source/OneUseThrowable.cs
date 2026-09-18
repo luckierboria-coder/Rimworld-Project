@@ -29,16 +29,11 @@ namespace GrenadeOneUse15
         private static bool ShouldConsume(Verb_LaunchProjectile verb, ThingWithComps source)
         {
             if (source == null || source.Destroyed || source.stackCount <= 0) return false;
-
-            // Apparel reloadable belts use a static projectile verb but are containers/launch platforms,
-            // not the thrown physical item itself. Never consume apparel.
             if (source is Apparel) return false;
 
             VerbProperties props = verb.verbProps;
             if (props == null || props.rangedFireRulepack == null) return false;
 
-            // This is the semantic marker used by Core grenades and mods inheriting/copying
-            // vanilla grenade behavior. Guns, bows and launchers normally use other rulepacks.
             if (!string.Equals(props.rangedFireRulepack.defName, ThrownRulePackDefName, StringComparison.Ordinal))
                 return false;
 
@@ -46,21 +41,56 @@ namespace GrenadeOneUse15
             if (verbClass != null && !typeof(Verb_LaunchProjectile).IsAssignableFrom(verbClass))
                 return false;
 
-            return true;
+            ThingDef projectile = null;
+            try { projectile = verb.Projectile; }
+            catch { projectile = props.defaultProjectile; }
+
+            // V1.1: only grenade-like / area-effect thrown projectiles are consumed here.
+            // Physical thrown weapons (javelins, throwing axes, throwing knives, etc.)
+            // are intentionally excluded so Recoverable Throwables can own their lifecycle.
+            if (IsGrenadeLikeProjectile(projectile))
+                return true;
+
+            return NameLooksDisposableGrenade(source.def?.defName) &&
+                   (source.def?.tools == null || source.def.tools.Count == 0);
+        }
+
+        private static bool IsGrenadeLikeProjectile(ThingDef projectile)
+        {
+            if (projectile?.projectile == null)
+                return false;
+
+            Type projectileClass = projectile.thingClass;
+            if (projectileClass != null && typeof(Projectile_Explosive).IsAssignableFrom(projectileClass))
+                return true;
+
+            return projectile.projectile.explosionRadius > 0.01f;
+        }
+
+        private static bool NameLooksDisposableGrenade(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return false;
+
+            string s = value.ToLowerInvariant();
+            return s.Contains("grenade") ||
+                   s.Contains("molotov") ||
+                   s.Contains("dynamite") ||
+                   s.Contains("bomb") ||
+                   s.Contains("explosive") ||
+                   s.Contains("smoke") ||
+                   s.Contains("emp") ||
+                   s.Contains("gas");
         }
 
         private static void ConsumeOne(ThingWithComps source)
         {
-            // If another mod already allows throwable stacks, consume exactly one physical unit
-            // and leave the remainder equipped. We deliberately do not alter stackLimit ourselves.
             if (source.stackCount > 1)
             {
                 source.stackCount--;
                 return;
             }
 
-            // Remove from its holder before destruction so equipment/apparel/inventory trackers
-            // remain internally consistent. The common case is Pawn_EquipmentTracker.
             if (source.ParentHolder is Pawn_EquipmentTracker equipmentTracker)
             {
                 equipmentTracker.Remove(source);
