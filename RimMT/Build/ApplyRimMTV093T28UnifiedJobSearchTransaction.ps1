@@ -162,6 +162,7 @@ if($report.Contains('            sb.AppendLine(AdaptiveGenClosestAssist.Summary(
 }
 $report=$report.Replace('DoBill=persistent incremental membership + live readiness + zero-yield-sleeping worker-tail fabric;',
                         'DoBill=persistent incremental membership + T28 package-local false readiness proof;')
+$report=[regex]::Replace($report,'ReachProfile=V0\\.4\\.18[^;]*;','ReachProfile=RETIRED/OFF;')
 Set-Content $reportPath $report -Encoding UTF8
 
 $aboutPath='RimMT/About/About.xml'
@@ -169,6 +170,7 @@ if(Test-Path $aboutPath){
   $a=Get-Content $aboutPath -Raw
   $a=$a.Replace('V0.9.3-T27.8 Job Search Foundation','V0.9.3-T28 Unified Job Search Transaction')
   $a=$a.Replace('V0.9.3-T27.7 Dead Path Retirement','V0.9.3-T28 Unified Job Search Transaction')
+  $a=[regex]::Replace($a,'(?s)<description>.*?</description>','<description>RimMT T28 for RimWorld 1.5. One unified synchronous JobGiver_Work package boundary coordinates the validated T20/T21 validator-reach transaction, T22 repeated-IList GenClosest index, GlobalNearest plans and DoBill false-only readiness proof. The zero-yield persistent-fabric GenClosest consumer and ReachProfile runtime path are retired. No Job, reservation, priority or cross-package gameplay result is cached; final gameplay decisions remain Vanilla-authoritative and uncertain cases fail open.</description>')
   Set-Content $aboutPath $a -Encoding UTF8
 }
 
@@ -197,6 +199,7 @@ if(Test-Path $diagAbout){
   $a=Get-Content $diagAbout -Raw
   $a=$a.Replace('RimMT Diagnostics v0.5','RimMT Diagnostics v0.6')
   $a=$a.Replace('RimMT Diagnostics v0.4','RimMT Diagnostics v0.6')
+  $a=[regex]::Replace($a,'(?s)<description>.*?</description>','<description>Optional measurement-only diagnostics companion for RimMT T28. v0.6 surfaces the unified Job Search package context alongside SlowDNJ correlation, live wait census, Pather child timing, pause/resume markers, world-component timing and Harmony audit. Search timing remains opt-in. Disable this companion when measuring pure production performance.</description>')
   Set-Content $diagAbout $a -Encoding UTF8
 }
 
