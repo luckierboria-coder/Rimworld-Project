@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Coinage - Gold Currency &amp; MO Smelting 1.5 V3.1</name>
+  <name>Coinage - Gold Currency &amp; MO Smelting 1.5 V3.2</name>
   <author>Allen</author>
   <packageId>Allen.Coinage.SilverCurrency.MOSmelting</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -10,5 +10,5 @@
     <li><packageId>dankpyon.medieval.overhaul</packageId><displayName>Medieval Overhaul</displayName></li>
   </modDependencies>
   <loadAfter><li>zal.coinage</li><li>dankpyon.medieval.overhaul</li><li>MedievalCoins.Mod</li></loadAfter>
-  <description>RimWorld 1.5.4063 patch. Coin_Gold is the settlement currency while vanilla Silver remains the pricing unit. All runtime-generated Coinage coins are universally tradeable as goods. MO Furnace gets 10/100/1000/2000 pure-metal coin remelting recipes with post-load runtime ingredient injection and source-metal output. V3.1 removes the unsafe V3.0 SpecialThingFilterDef and hardens initialization and bulk outputs.</description>
+  <description>RimWorld 1.5.4063 patch. Coin_Gold is the settlement currency while vanilla Silver remains the pricing unit. All runtime-generated Coinage coins are universally tradeable as goods. MO Furnace gets 10/100/1000/2000 pure-metal coin remelting recipes with post-load runtime ingredient injection and source-metal output. V3.2 also makes every Coinage denomination trade at exactly its MarketValue when used as an ordinary good, ignoring buy/sell spread, trader price type, negotiator/social trade modifiers, faction-base modifiers, difficulty trade-price loss and SellPriceFactor.</description>
 </ModMetaData>
