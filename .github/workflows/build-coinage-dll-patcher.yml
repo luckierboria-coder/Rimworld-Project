@@ -1,0 +1,25 @@
+name: Build Coinage DLL Patcher
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Coinage-DLL-Patcher/**'
+      - '.github/workflows/build-coinage-dll-patcher.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish self-contained patcher
+        run: dotnet publish Coinage-DLL-Patcher/CoinageDllPatcher.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o out
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoinageDllPatcher-linux-x64
+          path: out/CoinageDllPatcher
