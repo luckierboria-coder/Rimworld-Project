@@ -119,32 +119,37 @@ Set-Content $globalPath $global -Encoding UTF8
 # S4 sees ClosestThingReachable source identities. Never enumerate a custom source for T30.
 $s4Path='RimMT/Source/RimMT/AI/JobGiverSlowSearch0419S.cs'
 $s4=Get-Content $s4Path -Raw
-$s4=Replace-OrThrow $s4 @'
-            if (__7 != null)
-            {
-                if (Stopwatch.GetTimestamp() - scopeStart < TailRescueThresholdTicks) return true;
-'@ @'
-            if (__7 != null)
-            {
-                if (JobSearchRedundancyCensus093T30.Sampling)
-                    JobSearchRedundancyCensus093T30.RecordSource(
-                        __7, __0,
-                        JobSearchRedundancyCensus093T30.SourceRoute.ClosestReachableCustom,
-                        -1);
-                if (Stopwatch.GetTimestamp() - scopeStart < TailRescueThresholdTicks) return true;
-'@ 'S4 custom source census'
-$s4=Replace-OrThrow $s4 @'
-            int count = source.Count;
-            if (count > MaxSourceCount) return true;
-'@ @'
-            int count = source.Count;
-            if (JobSearchRedundancyCensus093T30.Sampling)
-                JobSearchRedundancyCensus093T30.RecordSource(
-                    source, __0,
-                    JobSearchRedundancyCensus093T30.SourceRoute.ClosestReachableLister,
-                    count);
-            if (count > MaxSourceCount) return true;
-'@ 'S4 lister source census'
+$customPattern='(?m)^(\s*if \(__7 != null\)\s*\r?\n\s*\{\r?\n)'
+if(-not [regex]::IsMatch($s4,$customPattern)){ throw 'T30 anchor missing: generated S4 custom-source branch' }
+$s4=[regex]::Replace(
+    $s4,
+    $customPattern,
+    [System.Text.RegularExpressions.MatchEvaluator]{
+      param($m)
+      $m.Groups[1].Value +
+      '                if (JobSearchRedundancyCensus093T30.Sampling)' + [Environment]::NewLine +
+      '                    JobSearchRedundancyCensus093T30.RecordSource(' + [Environment]::NewLine +
+      '                        __7, __0,' + [Environment]::NewLine +
+      '                        JobSearchRedundancyCensus093T30.SourceRoute.ClosestReachableCustom,' + [Environment]::NewLine +
+      '                        -1);' + [Environment]::NewLine
+    },
+    1)
+
+$listerCountPattern='(?m)^(\s*int count = source\.Count;\r?\n)'
+if(-not [regex]::IsMatch($s4,$listerCountPattern)){ throw 'T30 anchor missing: generated S4 lister source count' }
+$s4=[regex]::Replace(
+    $s4,
+    $listerCountPattern,
+    [System.Text.RegularExpressions.MatchEvaluator]{
+      param($m)
+      $m.Groups[1].Value +
+      '            if (JobSearchRedundancyCensus093T30.Sampling)' + [Environment]::NewLine +
+      '                JobSearchRedundancyCensus093T30.RecordSource(' + [Environment]::NewLine +
+      '                    source, __0,' + [Environment]::NewLine +
+      '                    JobSearchRedundancyCensus093T30.SourceRoute.ClosestReachableLister,' + [Environment]::NewLine +
+      '                    count);' + [Environment]::NewLine
+    },
+    1)
 Set-Content $s4Path $s4 -Encoding UTF8
 
 # Production report.
