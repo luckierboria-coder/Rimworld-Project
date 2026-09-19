@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Ideology Delete UI 1.5</name>
+  <name>Ideology Delete UI 1.5 v1.1</name>
   <author>Allen</author>
   <packageId>Allen.IdeologyDeleteUI</packageId>
   <supportedVersions>
@@ -21,7 +21,7 @@
     <li>brrainz.harmony</li>
     <li>Ludeon.RimWorld.Ideology</li>
   </loadAfter>
-  <description>Adds a delete button to every ideoligion row in the in-game Ideology screen and adds a developer action: Ideoligion -> Delete ideoligion....
+  <description>Adds a delete button to every ideoligion row in the in-game Ideology screen and a developer action: Ideoligion -> Delete ideoligion....
 
-Deletion is deliberately safe: it is blocked while any faction still uses the ideoligion or any pawn currently believes in it. If no live references remain, the mod calls RimWorld's own IdeoManager.Remove() and cleans baby ideology exposure references.</description>
+v1.1: minor faction references no longer block deletion. They are detached automatically. Primary faction ownership and current pawn believers remain hard blockers. Deletion then uses RimWorld's own IdeoManager.Remove() and cleans baby ideology exposure references.</description>
 </ModMetaData>

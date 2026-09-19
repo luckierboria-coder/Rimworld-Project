@@ -1,4 +1,4 @@
-# Ideology Delete UI 1.5
+# Ideology Delete UI 1.5 v1.1
 
 For RimWorld 1.5.4063-class saves.
 
@@ -6,13 +6,14 @@ For RimWorld 1.5.4063-class saves.
 
 - Adds a trash/delete icon to every ideoligion row in the normal in-game Ideology screen.
 - Adds developer action: `Ideoligion -> Delete ideoligion...`.
-- Clicking delete first scans current references.
-- If any faction still has the ideoligion as primary/minor, or any pawn currently believes in it, deletion is blocked and the references are listed.
-- When no blocking references remain, deletion calls vanilla `Find.IdeoManager.Remove(ideo)`.
+- Primary faction references block deletion.
+- Current pawn believers block deletion.
+- Minor faction references do **not** block deletion; they are detached automatically at deletion time.
+- After references are safe, deletion calls vanilla `Find.IdeoManager.Remove(ideo)`.
 - Also clears stale baby ideology-exposure references that vanilla `IdeoManager.Remove` does not explicitly clean.
 
-## Safety
+## v1.1 change
 
-This mod does not force-delete an ideoligion that is still owned by a faction or currently used by a pawn. Change those references first and then delete it.
+A faction keeping an ideoligion only as a minor ideology is treated as stale/non-owning bookkeeping. The delete operation removes that minor entry automatically before invoking vanilla removal.
 
 The pre-game ideology configuration pages are not modified.
