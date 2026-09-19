@@ -1,0 +1,33 @@
+name: RimFG Native
+
+on:
+  push:
+    branches: [ main, rimfg-v0.1 ]
+    paths:
+      - 'RimFG/Source/Native/**'
+      - '.github/workflows/rimfg-native.yml'
+  pull_request:
+    paths:
+      - 'RimFG/Source/Native/**'
+      - '.github/workflows/rimfg-native.yml'
+
+jobs:
+  build-native:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure x64 Release
+        shell: pwsh
+        run: cmake -S RimFG/Source/Native -B build/rimfg-native -A x64
+
+      - name: Build x64 Release
+        shell: pwsh
+        run: cmake --build build/rimfg-native --config Release --parallel
+
+      - name: Upload RimFG.Native.dll
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimFG.Native-x64
+          path: RimFG/Plugins/x86_64/Release/RimFG.Native.dll
+          if-no-files-found: error
