@@ -1,0 +1,44 @@
+name: Build BPC Area OOB Fix
+
+on:
+  pull_request:
+    paths:
+      - 'BPC-AreaRestriction-OOB-Fix/**'
+      - '.github/workflows/build-bpc-area-oob-fix.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore BPC-AreaRestriction-OOB-Fix/Source/BPCAreaOOBFix.csproj
+
+      - name: Build
+        run: dotnet build BPC-AreaRestriction-OOB-Fix/Source/BPCAreaOOBFix.csproj -c Release --no-restore
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf out
+          mkdir -p out/BPC_AreaRestriction_OOB_Fix_1.5/1.5/Assemblies
+          mkdir -p out/BPC_AreaRestriction_OOB_Fix_1.5/About
+          cp BPC-AreaRestriction-OOB-Fix/Source/bin/Release/net472/BPCAreaOOBFix.dll out/BPC_AreaRestriction_OOB_Fix_1.5/1.5/Assemblies/
+          cp BPC-AreaRestriction-OOB-Fix/About/About.xml out/BPC_AreaRestriction_OOB_Fix_1.5/About/
+          cp BPC-AreaRestriction-OOB-Fix/README.md out/BPC_AreaRestriction_OOB_Fix_1.5/
+          cd out
+          zip -r BPC_AreaRestriction_OOB_Fix_1.5.zip BPC_AreaRestriction_OOB_Fix_1.5
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BPC_AreaRestriction_OOB_Fix_1.5
+          path: |
+            out/BPC_AreaRestriction_OOB_Fix_1.5.zip
+            out/BPC_AreaRestriction_OOB_Fix_1.5/1.5/Assemblies/BPCAreaOOBFix.dll
