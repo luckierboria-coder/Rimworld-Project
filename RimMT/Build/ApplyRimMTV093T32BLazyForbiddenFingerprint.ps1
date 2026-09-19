@@ -43,18 +43,8 @@ $t20=Replace-OrThrow $t20 @'
         private static long reachObserved;
 '@ 'lazy fingerprint counters'
 
-$t20=Replace-OrThrow $t20 @'
-            if (!entry.Fingerprint.Matches(context.Pawn, thing))
-            {
-                context.ValidatorNegatives.Remove(key);
-                Interlocked.Increment(ref validatorFingerprintBypass);
-                __state = ValidatorCallState.Store(context, key, scanner, thing);
-                return true;
-            }
-
-            Interlocked.Increment(ref validatorMemoCandidates);
-            ValidatorTrustState trust = GetTrust(__originalMethod, scanner);
-'@ @'
+$prefixPattern='(?s)            if \(!entry\.Fingerprint\.Matches\(context\.Pawn, thing\)\)\s*\{\s*context\.ValidatorNegatives\.Remove\(key\);\s*Interlocked\.Increment\(ref validatorFingerprintBypass\);\s*__state = ValidatorCallState\.Store\(context, key, scanner, thing\);\s*return true;\s*\}\s*Interlocked\.Increment\(ref validatorMemoCandidates\);\s*ValidatorTrustState trust = GetTrust\(__originalMethod, scanner\);'
+$prefixReplacement=@'
             if (!entry.Fingerprint.MatchesCheap(thing))
             {
                 context.ValidatorNegatives.Remove(key);
@@ -90,7 +80,10 @@ $t20=Replace-OrThrow $t20 @'
 
             Interlocked.Increment(ref validatorMemoCandidates);
             ValidatorTrustState trust = GetTrust(__originalMethod, scanner);
-'@ 'validator lazy prefix'
+'@
+$new=[regex]::Replace($t20,$prefixPattern,$prefixReplacement,1)
+if($new -eq $t20){ throw 'T32-B anchor missing: validator lazy prefix' }
+$t20=$new
 
 $t20=Replace-OrThrow $t20 @'
             if (__state.Verify && __state.Trust != null)
