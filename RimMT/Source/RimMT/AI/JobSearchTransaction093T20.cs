@@ -67,13 +67,6 @@ namespace RimMT
         private static long validatorCapacityBypass;
         private static long validatorScannerResolveBypass;
         private static long validatorPositiveLive;
-        private static long validatorLazyStores;
-        private static long validatorLazyRepeatProbes;
-        private static long validatorLazyPrimeSuccess;
-        private static long validatorLazyPrimePositive;
-        private static long validatorLazyPrimeUnstable;
-        private static long validatorForbiddenReads;
-        private static long validatorStoreForbiddenReadsAvoided;
 
         private static long reachObserved;
         private static long reachStores;
@@ -301,32 +294,7 @@ namespace RimMT
                 return true;
             }
 
-            if (!entry.Fingerprint.MatchesCheap(thing))
-            {
-                context.ValidatorNegatives.Remove(key);
-                Interlocked.Increment(ref validatorFingerprintBypass);
-                __state = ValidatorCallState.Store(context, key, scanner, thing);
-                return true;
-            }
-
-            if (!entry.Primed)
-            {
-                bool forbiddenBefore;
-                if (!TryReadForbidden(context.Pawn, thing, out forbiddenBefore))
-                {
-                    context.ValidatorNegatives.Remove(key);
-                    Interlocked.Increment(ref validatorFingerprintBypass);
-                    __state = ValidatorCallState.Store(context, key, scanner, thing);
-                    return true;
-                }
-
-                Interlocked.Increment(ref validatorLazyRepeatProbes);
-                __state = ValidatorCallState.Prime(
-                    context, key, scanner, thing, entry.Fingerprint, forbiddenBefore);
-                return true;
-            }
-
-            if (!entry.Fingerprint.MatchesForbidden(context.Pawn, thing))
+            if (!entry.Fingerprint.Matches(context.Pawn, thing))
             {
                 context.ValidatorNegatives.Remove(key);
                 Interlocked.Increment(ref validatorFingerprintBypass);
@@ -359,44 +327,6 @@ namespace RimMT
             if (__state.AuthoritativeHit) return;
             TransactionContext context = __state.Context;
             if (context == null || !ReferenceEquals(current, context)) return;
-
-            if (__state.Prime)
-            {
-                if (__result)
-                {
-                    context.ValidatorNegatives.Remove(__state.Key);
-                    Interlocked.Increment(ref validatorLazyPrimePositive);
-                    return;
-                }
-
-                Thing thing = __state.Thing;
-                if (thing == null || !__state.PrimeFingerprint.MatchesCheap(thing))
-                {
-                    context.ValidatorNegatives.Remove(__state.Key);
-                    Interlocked.Increment(ref validatorLazyPrimeUnstable);
-                    return;
-                }
-
-                bool forbiddenAfter;
-                if (!TryReadForbidden(context.Pawn, thing, out forbiddenAfter) ||
-                    forbiddenAfter != __state.PrimeForbiddenBefore)
-                {
-                    context.ValidatorNegatives.Remove(__state.Key);
-                    Interlocked.Increment(ref validatorLazyPrimeUnstable);
-                    return;
-                }
-
-                ValidatorNegativeEntry existing;
-                if (context.ValidatorNegatives.TryGetValue(__state.Key, out existing) &&
-                    existing.Fingerprint.MatchesCheap(thing))
-                {
-                    existing.Primed = true;
-                    existing.Fingerprint = existing.Fingerprint.WithForbidden(forbiddenAfter);
-                    context.ValidatorNegatives[__state.Key] = existing;
-                    Interlocked.Increment(ref validatorLazyPrimeSuccess);
-                }
-                return;
-            }
 
             if (__state.Verify && __state.Trust != null)
             {
@@ -432,10 +362,8 @@ namespace RimMT
             if (!context.ValidatorNegatives.ContainsKey(__state.Key))
             {
                 context.ValidatorNegatives.Add(__state.Key,
-                    new ValidatorNegativeEntry(ThingFingerprint.CaptureCheap(__state.Thing), false));
+                    new ValidatorNegativeEntry(ThingFingerprint.Capture(context.Pawn, __state.Thing)));
                 Interlocked.Increment(ref validatorNegativeStores);
-                Interlocked.Increment(ref validatorLazyStores);
-                Interlocked.Increment(ref validatorStoreForbiddenReadsAvoided);
             }
         }
 
@@ -662,14 +590,7 @@ namespace RimMT
                 ", fingerprintBypass=" + Interlocked.Read(ref validatorFingerprintBypass) +
                 ", capBypass=" + Interlocked.Read(ref validatorCapacityBypass) +
                 ", scannerResolveBypass=" + Interlocked.Read(ref validatorScannerResolveBypass) +
-                ", positiveLive=" + Interlocked.Read(ref validatorPositiveLive) +
-                ", lazy[stores=" + Interlocked.Read(ref validatorLazyStores) +
-                ", repeatProbes=" + Interlocked.Read(ref validatorLazyRepeatProbes) +
-                ", primeSuccess=" + Interlocked.Read(ref validatorLazyPrimeSuccess) +
-                ", primePositive=" + Interlocked.Read(ref validatorLazyPrimePositive) +
-                ", primeUnstable=" + Interlocked.Read(ref validatorLazyPrimeUnstable) +
-                ", forbiddenReads=" + Interlocked.Read(ref validatorForbiddenReads) +
-                ", storeForbiddenReadsAvoided=" + Interlocked.Read(ref validatorStoreForbiddenReadsAvoided) + "]]" +
+                ", positiveLive=" + Interlocked.Read(ref validatorPositiveLive) + "]" +
                 ", reach[observed=" + Interlocked.Read(ref reachObserved) +
                 ", stores=" + Interlocked.Read(ref reachStores) +
                 ", memoCandidates=" + Interlocked.Read(ref reachMemoCandidates) +
@@ -703,9 +624,6 @@ namespace RimMT
             internal ValidatorTrustState Trust;
             internal bool Store;
             internal bool Verify;
-            internal bool Prime;
-            internal bool PrimeForbiddenBefore;
-            internal ThingFingerprint PrimeFingerprint;
             internal bool AuthoritativeHit;
 
             internal static ValidatorCallState Store(TransactionContext context, ValidatorKey key,
@@ -714,21 +632,6 @@ namespace RimMT
                 return new ValidatorCallState
                 {
                     Context = context, Key = key, Scanner = scanner, Thing = thing, Store = true
-                };
-            }
-
-            internal static ValidatorCallState Prime(TransactionContext context, ValidatorKey key,
-                WorkGiver_Scanner scanner, Thing thing, ThingFingerprint fingerprint, bool forbiddenBefore)
-            {
-                return new ValidatorCallState
-                {
-                    Context = context,
-                    Key = key,
-                    Scanner = scanner,
-                    Thing = thing,
-                    Prime = true,
-                    PrimeFingerprint = fingerprint,
-                    PrimeForbiddenBefore = forbiddenBefore
                 };
             }
 
@@ -797,14 +700,8 @@ namespace RimMT
 
         internal struct ValidatorNegativeEntry
         {
-            internal ThingFingerprint Fingerprint;
-            internal bool Primed;
-
-            internal ValidatorNegativeEntry(ThingFingerprint fingerprint, bool primed)
-            {
-                Fingerprint = fingerprint;
-                Primed = primed;
-            }
+            internal readonly ThingFingerprint Fingerprint;
+            internal ValidatorNegativeEntry(ThingFingerprint fingerprint) { Fingerprint = fingerprint; }
         }
 
         internal struct ReachEntry
@@ -909,22 +806,6 @@ namespace RimMT
             }
         }
 
-        private static bool TryReadForbidden(Pawn pawn, Thing thing, out bool forbidden)
-        {
-            forbidden = false;
-            if (pawn == null || thing == null) return false;
-            try
-            {
-                forbidden = thing.IsForbidden(pawn);
-                Interlocked.Increment(ref validatorForbiddenReads);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
         internal struct ThingFingerprint
         {
             internal readonly Map MapHeld;
@@ -932,60 +813,30 @@ namespace RimMT
             internal readonly bool Spawned;
             internal readonly int StackCount;
             internal readonly int HitPoints;
-            internal readonly bool HasForbidden;
             internal readonly bool Forbidden;
 
             internal ThingFingerprint(Map mapHeld, IntVec3 positionHeld, bool spawned, int stackCount,
-                int hitPoints, bool hasForbidden, bool forbidden)
+                int hitPoints, bool forbidden)
             {
-                MapHeld = mapHeld;
-                PositionHeld = positionHeld;
-                Spawned = spawned;
-                StackCount = stackCount;
-                HitPoints = hitPoints;
-                HasForbidden = hasForbidden;
-                Forbidden = forbidden;
+                MapHeld = mapHeld; PositionHeld = positionHeld; Spawned = spawned;
+                StackCount = stackCount; HitPoints = hitPoints; Forbidden = forbidden;
             }
 
-            internal static ThingFingerprint CaptureCheap(Thing thing)
+            internal static ThingFingerprint Capture(Pawn pawn, Thing thing)
             {
-                if (thing == null)
-                    return new ThingFingerprint(null, IntVec3.Invalid, false, 0, 0, false, false);
-
-                return new ThingFingerprint(
-                    thing.MapHeld,
-                    thing.PositionHeld,
-                    thing.Spawned,
-                    thing.stackCount,
-                    thing.HitPoints,
-                    false,
-                    false);
+                bool forbidden = false;
+                try { forbidden = pawn != null && thing.IsForbidden(pawn); } catch { }
+                return new ThingFingerprint(thing.MapHeld, thing.PositionHeld, thing.Spawned,
+                    thing.stackCount, thing.HitPoints, forbidden);
             }
 
-            internal ThingFingerprint WithForbidden(bool forbidden)
+            internal bool Matches(Pawn pawn, Thing thing)
             {
-                return new ThingFingerprint(
-                    MapHeld, PositionHeld, Spawned, StackCount, HitPoints, true, forbidden);
-            }
-
-            internal bool MatchesCheap(Thing thing)
-            {
-                return thing != null &&
-                    ReferenceEquals(MapHeld, thing.MapHeld) &&
-                    PositionHeld == thing.PositionHeld &&
-                    Spawned == thing.Spawned &&
-                    StackCount == thing.stackCount &&
-                    HitPoints == thing.HitPoints;
-            }
-
-            internal bool MatchesForbidden(Pawn pawn, Thing thing)
-            {
-                if (!HasForbidden || !MatchesCheap(thing))
+                if (thing == null || !ReferenceEquals(MapHeld, thing.MapHeld) || PositionHeld != thing.PositionHeld ||
+                    Spawned != thing.Spawned || StackCount != thing.stackCount || HitPoints != thing.HitPoints)
                     return false;
-
-                bool currentForbidden;
-                return TryReadForbidden(pawn, thing, out currentForbidden) &&
-                    Forbidden == currentForbidden;
+                try { return Forbidden == (pawn != null && thing.IsForbidden(pawn)); }
+                catch { return false; }
             }
         }
 
