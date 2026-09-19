@@ -234,7 +234,7 @@ $core=Replace-OrThrow $core @'
             }
 '@ 'lazy state factory'
 
-$fpPattern='(?s)        internal struct ThingFingerprint\s*\{.*?\n        \}\n\n        internal struct TargetFingerprint'
+$fpPattern='(?s)        internal struct ThingFingerprint\s*\{.*?\r?\n        \}\r?\n\r?\n        internal struct TargetFingerprint'
 if(-not [regex]::IsMatch($core,$fpPattern)){ throw 'T32-B anchor missing: ThingFingerprint block' }
 $newFp=@'
         internal struct ThingFingerprint
