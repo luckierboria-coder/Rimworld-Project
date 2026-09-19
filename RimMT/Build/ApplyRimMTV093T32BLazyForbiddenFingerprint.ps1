@@ -61,8 +61,16 @@ $t20=Replace-OrThrow $t20 @'
                 }
 
                 Interlocked.Increment(ref validatorLazyRepeatProbes);
-                __state = ValidatorCallState.Prime(
-                    context, key, scanner, thing, entry.Fingerprint, forbiddenBefore);
+                __state = new ValidatorCallState
+                {
+                    Context = context,
+                    Key = key,
+                    Scanner = scanner,
+                    Thing = thing,
+                    Prime = true,
+                    PrimeFingerprint = entry.Fingerprint,
+                    PrimeForbiddenBefore = forbiddenBefore
+                };
                 return true;
             }
 
@@ -200,27 +208,6 @@ $t20=Replace-OrThrow $t20 @'
             internal bool AuthoritativeHit;
 '@ 'validator state prime fields'
 
-$primeMethod=@'
-            internal static ValidatorCallState Prime(TransactionContext context, ValidatorKey key,
-                WorkGiver_Scanner scanner, Thing thing, ThingFingerprint fingerprint, bool forbiddenBefore)
-            {
-                return new ValidatorCallState
-                {
-                    Context = context,
-                    Key = key,
-                    Scanner = scanner,
-                    Thing = thing,
-                    Prime = true,
-                    PrimeFingerprint = fingerprint,
-                    PrimeForbiddenBefore = forbiddenBefore
-                };
-            }
-
-'@
-$verifyPattern='(?m)^(\s*)internal static ValidatorCallState Verify\('
-$verifyMatch=[regex]::Match($t20,$verifyPattern)
-if(-not $verifyMatch.Success){ throw 'T32-B anchor missing: validator state prime constructor' }
-$t20=$t20.Insert($verifyMatch.Index,$primeMethod)
 
 
 $t20=Replace-OrThrow $t20 @'
