@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 & (Join-Path $PSScriptRoot 'BuildRimMTT32A.ps1')
 if(-not $?){ throw 'T32-A prerequisite build failed' }
 
+$root=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 # TEMP T32-B generated-structure census (remove after transform is stabilized).
 $generatedT20=Get-Content (Join-Path $root 'RimMT/Source/RimMT/AI/JobSearchTransaction093T20.cs') -Raw
 foreach($needle in @('internal struct ValidatorCallState','internal struct ReachCallState')){
@@ -18,7 +19,6 @@ foreach($needle in @('internal struct ValidatorCallState','internal struct Reach
 & (Join-Path $PSScriptRoot 'ApplyRimMTV093T32BLazyForbiddenFingerprint.ps1')
 if(-not $?){ throw 'T32-B transform failed' }
 
-$root=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $mainProj=Join-Path $root 'RimMT/Source/RimMT/RimMT.csproj'
 $diagProj=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/RimMTDiagnostics.csproj'
 
