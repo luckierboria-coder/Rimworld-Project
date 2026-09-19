@@ -25,7 +25,7 @@ foreach($required in @(
   'CaptureCheap(__state.Thing)',
   'MatchesCheap(thing)',
   '!entry.Fingerprint.HasForbidden',
-  'ValidatorCallState.Prime',
+  'PrimeFingerprint',
   'PrimeForbiddenBefore',
   'TryReadForbidden(context.Pawn, thing',
   'MatchesForbidden(context.Pawn, thing)',
