@@ -217,7 +217,7 @@ namespace RimMT
             NegativeEntry entry;
             if (!context.Negatives.TryGetValue(key, out entry))
             {
-                __state = CallState.Store(context, key, target);
+                __state = CallState.ForStore(context, key, target);
                 return true;
             }
 
@@ -226,7 +226,7 @@ namespace RimMT
             {
                 context.Negatives.Remove(key);
                 Interlocked.Increment(ref fingerprintBypass);
-                __state = CallState.Store(context, key, target);
+                __state = CallState.ForStore(context, key, target);
                 return true;
             }
 
@@ -235,7 +235,7 @@ namespace RimMT
             if (!chainAuthoritativeSafe || runtimeQuarantined)
             {
                 Interlocked.Increment(ref authorityBypass);
-                __state = CallState.Verify(context, key, target);
+                __state = CallState.ForVerify(context, key, target);
                 Interlocked.Increment(ref verifyRuns);
                 return true;
             }
@@ -246,13 +246,13 @@ namespace RimMT
 
             if (verify)
             {
-                __state = CallState.Verify(context, key, target);
+                __state = CallState.ForVerify(context, key, target);
                 Interlocked.Increment(ref verifyRuns);
                 return true;
             }
 
             __result = false;
-            __state = CallState.Authoritative(context);
+            __state = CallState.ForAuthoritative(context);
             Interlocked.Increment(ref authoritativeHits);
             return false;
         }
@@ -514,7 +514,7 @@ namespace RimMT
             internal bool Verify;
             internal bool AuthoritativeHit;
 
-            internal static CallState Store(
+            internal static CallState ForStore(
                 PackageContext context,
                 ReserveKey key,
                 LocalTargetInfo target)
@@ -528,7 +528,7 @@ namespace RimMT
                 };
             }
 
-            internal static CallState Verify(
+            internal static CallState ForVerify(
                 PackageContext context,
                 ReserveKey key,
                 LocalTargetInfo target)
@@ -542,7 +542,7 @@ namespace RimMT
                 };
             }
 
-            internal static CallState Authoritative(PackageContext context)
+            internal static CallState ForAuthoritative(PackageContext context)
             {
                 return new CallState
                 {
