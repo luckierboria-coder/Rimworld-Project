@@ -26,7 +26,9 @@ namespace RimMT
     /// Foreign transpilers/finalizers are treated as authority-unsafe and force live fallback.
     ///
     /// No reservation is created/released by this module. No Job, priority, reachability or
-    /// cross-package result is cached.
+    /// cross-package result is cached. T32-A deliberately starts false-only; T31 showed most
+    /// CanReserve results were true, so runtime counters will decide whether a later dual-result
+    /// transaction is worth the larger proof surface.
     /// </summary>
     internal static class ReservationTransaction093T32A
     {
