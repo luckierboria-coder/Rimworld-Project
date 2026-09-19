@@ -200,11 +200,7 @@ $t20=Replace-OrThrow $t20 @'
             internal bool AuthoritativeHit;
 '@ 'validator state prime fields'
 
-$verifySignature=@'
-            internal static ValidatorCallState Verify(TransactionContext context, ValidatorKey key,
-                ValidatorTrustState trust)
-'@
-$primeAndVerify=@'
+$primeMethod=@'
             internal static ValidatorCallState Prime(TransactionContext context, ValidatorKey key,
                 WorkGiver_Scanner scanner, Thing thing, ThingFingerprint fingerprint, bool forbiddenBefore)
             {
@@ -220,10 +216,12 @@ $primeAndVerify=@'
                 };
             }
 
-            internal static ValidatorCallState Verify(TransactionContext context, ValidatorKey key,
-                ValidatorTrustState trust)
 '@
-$t20=Replace-OrThrow $t20 $verifySignature $primeAndVerify 'validator state prime constructor'
+$verifyPattern='(?m)^(\s*)internal static ValidatorCallState Verify\('
+$verifyMatch=[regex]::Match($t20,$verifyPattern)
+if(-not $verifyMatch.Success){ throw 'T32-B anchor missing: validator state prime constructor' }
+$t20=$t20.Insert($verifyMatch.Index,$primeMethod)
+
 
 $t20=Replace-OrThrow $t20 @'
         internal struct ValidatorNegativeEntry
