@@ -56,7 +56,7 @@ $t20=Replace-OrThrow $t20 @'
                 {
                     context.ValidatorNegatives.Remove(key);
                     Interlocked.Increment(ref validatorFingerprintBypass);
-                    __state = ValidatorCallState.ForStore(context, key, scanner, thing);
+                    __state = ValidatorCallState.Store(context, key, scanner, thing);
                     return true;
                 }
 
@@ -78,7 +78,7 @@ $t20=Replace-OrThrow $t20 @'
             {
                 context.ValidatorNegatives.Remove(key);
                 Interlocked.Increment(ref validatorFingerprintBypass);
-                __state = ValidatorCallState.ForStore(context, key, scanner, thing);
+                __state = ValidatorCallState.Store(context, key, scanner, thing);
                 return true;
             }
 
