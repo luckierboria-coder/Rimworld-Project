@@ -63,7 +63,7 @@ $core=Replace-OrThrow $core @'
             if (!entry.Fingerprint.ForbiddenKnown)
             {
                 Interlocked.Increment(ref validatorLazyPrimeAttempts);
-                __state = ValidatorCallState.LazyPrime(context, key, scanner, thing);
+                __state = ValidatorCallState.ForLazyPrime(context, key, scanner, thing);
                 return true;
             }
 
@@ -224,7 +224,7 @@ $core=Replace-OrThrow $core @'
                 };
             }
 
-            internal static ValidatorCallState LazyPrime(TransactionContext context, ValidatorKey key,
+            internal static ValidatorCallState ForLazyPrime(TransactionContext context, ValidatorKey key,
                 WorkGiver_Scanner scanner, Thing thing)
             {
                 return new ValidatorCallState
