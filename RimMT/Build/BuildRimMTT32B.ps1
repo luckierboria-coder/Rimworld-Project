@@ -32,7 +32,7 @@ foreach($requiredState in @('internal bool Prime;','PrimeForbiddenBefore','Prime
   if(-not $validatorState.Contains($requiredState)){ throw "T32-B validator state marker missing: $requiredState" }
   if($reachState.Contains($requiredState)){ throw "T32-B leaked prime state into ReachCallState: $requiredState" }
 }
-if(-not $validatorState.Contains('ForStore(')){ throw 'Generated ValidatorCallState ForStore helper missing' }
+if(-not $validatorState.Contains('Store(')){ throw 'Generated ValidatorCallState Store helper missing' }
 
 foreach($required in @(
   'CaptureCheap(__state.Thing)',
