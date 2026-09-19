@@ -7,10 +7,21 @@ function Replace-OrThrow {
 }
 
 # T32-B Lazy Forbidden Fingerprint
-# Runs after the verified T32-A build transform.
-# It changes only T21 validator negative-entry fingerprint construction:
-#   StoreCheap -> first repeat runs live validator -> on live false capture Forbidden -> Primed.
-# Existing scanner/method trust, warmup, sampled parity and mismatch quarantine stay intact.
+# Applied on top of verified T32-A.
+# Scope is deliberately narrow: only T21 validator-negative fingerprint construction changes.
+#
+# Safety model:
+# - first negative store captures cheap Thing facts only; no IsForbidden call
+# - first revisit of an unprimed entry is ALWAYS live
+# - Forbidden is sampled immediately before that live validator call
+# - after the live false result, cheap facts and Forbidden are sampled again
+# - only if pre/post Forbidden are identical and cheap facts stayed stable is the entry Primed
+# - only Primed entries may enter the existing T21 warmup/parity/authoritative replay path
+# - live positive on the first revisit simply removes the unprimed entry; no quarantine is needed
+#   because no cached result has yet been replayed
+# - existing T21 mismatch quarantine remains unchanged after Primed
+#
+# This removes eager store-time IsForbidden reads while preserving the original authority boundary.
 
 $t20Path='RimMT/Source/RimMT/AI/JobSearchTransaction093T20.cs'
 $t20=Get-Content $t20Path -Raw
@@ -22,17 +33,18 @@ $t20=Replace-OrThrow $t20 @'
 '@ @'
         private static long validatorPositiveLive;
         private static long validatorLazyStores;
-        private static long validatorLazyPrimeAttempts;
+        private static long validatorLazyRepeatProbes;
         private static long validatorLazyPrimeSuccess;
         private static long validatorLazyPrimePositive;
-        private static long validatorLazyPrimeReadFailures;
+        private static long validatorLazyPrimeUnstable;
+        private static long validatorForbiddenReads;
+        private static long validatorStoreForbiddenReadsAvoided;
 
         private static long reachObserved;
 '@ 'lazy fingerprint counters'
 
-$pattern='(?s)            if \(!entry\.Fingerprint\.Matches\(context\.Pawn, thing\)\)\s*\{\s*context\.ValidatorNegatives\.Remove\(key\);\s*Interlocked\.Increment\(ref validatorFingerprintBypass\);\s*__state = ValidatorCallState\.Store\(context, key, scanner, thing\);\s*return true;\s*\}\s*Interlocked\.Increment\(ref validatorMemoCandidates\);\s*ValidatorTrustState trust = GetTrust\(__originalMethod, scanner\);'
-$replacement=@'
-            if (!entry.Fingerprint.MatchesCheap(thing))
+$t20=Replace-OrThrow $t20 @'
+            if (!entry.Fingerprint.Matches(context.Pawn, thing))
             {
                 context.ValidatorNegatives.Remove(key);
                 Interlocked.Increment(ref validatorFingerprintBypass);
@@ -41,19 +53,9 @@ $replacement=@'
             }
 
             Interlocked.Increment(ref validatorMemoCandidates);
-
-            // T32-B: the first repeat of a cheap-only entry is always live. Only if that
-            // live validator is still false do we pay for IsForbidden and promote the entry
-            // to a full fingerprint. One-shot entries therefore never call IsForbidden just
-            // to populate a memo that is never reused.
-            if (!entry.Fingerprint.HasForbidden)
-            {
-                Interlocked.Increment(ref validatorLazyPrimeAttempts);
-                __state = ValidatorCallState.Prime(context, key, scanner, thing);
-                return true;
-            }
-
-            if (!entry.Fingerprint.MatchesPrimed(context.Pawn, thing))
+            ValidatorTrustState trust = GetTrust(__originalMethod, scanner);
+'@ @'
+            if (!entry.Fingerprint.MatchesCheap(thing))
             {
                 context.ValidatorNegatives.Remove(key);
                 Interlocked.Increment(ref validatorFingerprintBypass);
@@ -61,11 +63,34 @@ $replacement=@'
                 return true;
             }
 
+            if (!entry.Primed)
+            {
+                bool forbiddenBefore;
+                if (!TryReadForbidden(context.Pawn, thing, out forbiddenBefore))
+                {
+                    context.ValidatorNegatives.Remove(key);
+                    Interlocked.Increment(ref validatorFingerprintBypass);
+                    __state = ValidatorCallState.Store(context, key, scanner, thing);
+                    return true;
+                }
+
+                Interlocked.Increment(ref validatorLazyRepeatProbes);
+                __state = ValidatorCallState.Prime(
+                    context, key, scanner, thing, entry.Fingerprint, forbiddenBefore);
+                return true;
+            }
+
+            if (!entry.Fingerprint.MatchesForbidden(context.Pawn, thing))
+            {
+                context.ValidatorNegatives.Remove(key);
+                Interlocked.Increment(ref validatorFingerprintBypass);
+                __state = ValidatorCallState.Store(context, key, scanner, thing);
+                return true;
+            }
+
+            Interlocked.Increment(ref validatorMemoCandidates);
             ValidatorTrustState trust = GetTrust(__originalMethod, scanner);
-'@
-$new=[regex]::Replace($t20,$pattern,$replacement,1)
-if($new -eq $t20){ throw 'T32-B anchor missing: validator lazy prefix' }
-$t20=$new
+'@ 'validator lazy prefix'
 
 $t20=Replace-OrThrow $t20 @'
             if (__state.Verify && __state.Trust != null)
@@ -90,27 +115,39 @@ $t20=Replace-OrThrow $t20 @'
 '@ @'
             if (__state.Prime)
             {
-                ValidatorNegativeEntry existing;
-                if (!context.ValidatorNegatives.TryGetValue(__state.Key, out existing))
-                    return;
-
                 if (__result)
                 {
                     context.ValidatorNegatives.Remove(__state.Key);
-                    Interlocked.Increment(ref validatorPositiveLive);
                     Interlocked.Increment(ref validatorLazyPrimePositive);
                     return;
                 }
 
-                ThingFingerprint primed;
-                if (!ThingFingerprint.TryPrime(context.Pawn, __state.Thing, existing.Fingerprint, out primed))
+                Thing thing = __state.Thing;
+                if (thing == null || !__state.PrimeFingerprint.MatchesCheap(thing))
                 {
-                    Interlocked.Increment(ref validatorLazyPrimeReadFailures);
+                    context.ValidatorNegatives.Remove(__state.Key);
+                    Interlocked.Increment(ref validatorLazyPrimeUnstable);
                     return;
                 }
 
-                context.ValidatorNegatives[__state.Key] = new ValidatorNegativeEntry(primed);
-                Interlocked.Increment(ref validatorLazyPrimeSuccess);
+                bool forbiddenAfter;
+                if (!TryReadForbidden(context.Pawn, thing, out forbiddenAfter) ||
+                    forbiddenAfter != __state.PrimeForbiddenBefore)
+                {
+                    context.ValidatorNegatives.Remove(__state.Key);
+                    Interlocked.Increment(ref validatorLazyPrimeUnstable);
+                    return;
+                }
+
+                ValidatorNegativeEntry existing;
+                if (context.ValidatorNegatives.TryGetValue(__state.Key, out existing) &&
+                    existing.Fingerprint.MatchesCheap(thing))
+                {
+                    existing.Primed = true;
+                    existing.Fingerprint = existing.Fingerprint.WithForbidden(forbiddenAfter);
+                    context.ValidatorNegatives[__state.Key] = existing;
+                    Interlocked.Increment(ref validatorLazyPrimeSuccess);
+                }
                 return;
             }
 
@@ -141,9 +178,10 @@ $t20=Replace-OrThrow $t20 @'
                 Interlocked.Increment(ref validatorNegativeStores);
 '@ @'
                 context.ValidatorNegatives.Add(__state.Key,
-                    new ValidatorNegativeEntry(ThingFingerprint.CaptureCheap(__state.Thing)));
+                    new ValidatorNegativeEntry(ThingFingerprint.CaptureCheap(__state.Thing), false));
                 Interlocked.Increment(ref validatorNegativeStores);
                 Interlocked.Increment(ref validatorLazyStores);
+                Interlocked.Increment(ref validatorStoreForbiddenReadsAvoided);
 '@ 'cheap store'
 
 $t20=Replace-OrThrow $t20 @'
@@ -154,14 +192,12 @@ $t20=Replace-OrThrow $t20 @'
                 ", scannerResolveBypass=" + Interlocked.Read(ref validatorScannerResolveBypass) +
                 ", positiveLive=" + Interlocked.Read(ref validatorPositiveLive) +
                 ", lazy[stores=" + Interlocked.Read(ref validatorLazyStores) +
-                ", primeAttempts=" + Interlocked.Read(ref validatorLazyPrimeAttempts) +
+                ", repeatProbes=" + Interlocked.Read(ref validatorLazyRepeatProbes) +
                 ", primeSuccess=" + Interlocked.Read(ref validatorLazyPrimeSuccess) +
                 ", primePositive=" + Interlocked.Read(ref validatorLazyPrimePositive) +
-                ", primeReadFailures=" + Interlocked.Read(ref validatorLazyPrimeReadFailures) +
-                ", estimatedStoreForbiddenReadsAvoided=" +
-                Math.Max(0L, Interlocked.Read(ref validatorLazyStores) -
-                    Interlocked.Read(ref validatorLazyPrimeSuccess) -
-                    Interlocked.Read(ref validatorLazyPrimeReadFailures)) + "]]" +
+                ", primeUnstable=" + Interlocked.Read(ref validatorLazyPrimeUnstable) +
+                ", forbiddenReads=" + Interlocked.Read(ref validatorForbiddenReads) +
+                ", storeForbiddenReadsAvoided=" + Interlocked.Read(ref validatorStoreForbiddenReadsAvoided) + "]]" +
                 ", reach[observed=" + Interlocked.Read(ref reachObserved) +
 '@ 'lazy summary'
 
@@ -171,10 +207,12 @@ $t20=Replace-OrThrow $t20 @'
             internal bool AuthoritativeHit;
 '@ @'
             internal bool Store;
-            internal bool Prime;
             internal bool Verify;
+            internal bool Prime;
+            internal bool PrimeForbiddenBefore;
+            internal ThingFingerprint PrimeFingerprint;
             internal bool AuthoritativeHit;
-'@ 'validator state prime flag'
+'@ 'validator state prime fields'
 
 $t20=Replace-OrThrow $t20 @'
             internal static ValidatorCallState Verify(TransactionContext context, ValidatorKey key,
@@ -187,11 +225,17 @@ $t20=Replace-OrThrow $t20 @'
             }
 '@ @'
             internal static ValidatorCallState Prime(TransactionContext context, ValidatorKey key,
-                WorkGiver_Scanner scanner, Thing thing)
+                WorkGiver_Scanner scanner, Thing thing, ThingFingerprint fingerprint, bool forbiddenBefore)
             {
                 return new ValidatorCallState
                 {
-                    Context = context, Key = key, Scanner = scanner, Thing = thing, Prime = true
+                    Context = context,
+                    Key = key,
+                    Scanner = scanner,
+                    Thing = thing,
+                    Prime = true,
+                    PrimeFingerprint = fingerprint,
+                    PrimeForbiddenBefore = forbiddenBefore
                 };
             }
 
@@ -204,6 +248,26 @@ $t20=Replace-OrThrow $t20 @'
                 };
             }
 '@ 'validator state prime constructor'
+
+$t20=Replace-OrThrow $t20 @'
+        internal struct ValidatorNegativeEntry
+        {
+            internal readonly ThingFingerprint Fingerprint;
+            internal ValidatorNegativeEntry(ThingFingerprint fingerprint) { Fingerprint = fingerprint; }
+        }
+'@ @'
+        internal struct ValidatorNegativeEntry
+        {
+            internal ThingFingerprint Fingerprint;
+            internal bool Primed;
+
+            internal ValidatorNegativeEntry(ThingFingerprint fingerprint, bool primed)
+            {
+                Fingerprint = fingerprint;
+                Primed = primed;
+            }
+        }
+'@ 'validator entry primed state'
 
 $oldFingerprint=@'
         internal struct ThingFingerprint
@@ -242,6 +306,22 @@ $oldFingerprint=@'
 '@
 
 $newFingerprint=@'
+        private static bool TryReadForbidden(Pawn pawn, Thing thing, out bool forbidden)
+        {
+            forbidden = false;
+            if (pawn == null || thing == null) return false;
+            try
+            {
+                forbidden = thing.IsForbidden(pawn);
+                Interlocked.Increment(ref validatorForbiddenReads);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         internal struct ThingFingerprint
         {
             internal readonly Map MapHeld;
@@ -255,9 +335,13 @@ $newFingerprint=@'
             internal ThingFingerprint(Map mapHeld, IntVec3 positionHeld, bool spawned, int stackCount,
                 int hitPoints, bool hasForbidden, bool forbidden)
             {
-                MapHeld = mapHeld; PositionHeld = positionHeld; Spawned = spawned;
-                StackCount = stackCount; HitPoints = hitPoints;
-                HasForbidden = hasForbidden; Forbidden = forbidden;
+                MapHeld = mapHeld;
+                PositionHeld = positionHeld;
+                Spawned = spawned;
+                StackCount = stackCount;
+                HitPoints = hitPoints;
+                HasForbidden = hasForbidden;
+                Forbidden = forbidden;
             }
 
             // Store path: deliberately cheap. No IsForbidden call here.
@@ -265,8 +349,21 @@ $newFingerprint=@'
             {
                 if (thing == null)
                     return new ThingFingerprint(null, IntVec3.Invalid, false, 0, 0, false, false);
-                return new ThingFingerprint(thing.MapHeld, thing.PositionHeld, thing.Spawned,
-                    thing.stackCount, thing.HitPoints, false, false);
+
+                return new ThingFingerprint(
+                    thing.MapHeld,
+                    thing.PositionHeld,
+                    thing.Spawned,
+                    thing.stackCount,
+                    thing.HitPoints,
+                    false,
+                    false);
+            }
+
+            internal ThingFingerprint WithForbidden(bool forbidden)
+            {
+                return new ThingFingerprint(
+                    MapHeld, PositionHeld, Spawned, StackCount, HitPoints, true, forbidden);
             }
 
             internal bool MatchesCheap(Thing thing)
@@ -279,41 +376,19 @@ $newFingerprint=@'
                     HitPoints == thing.HitPoints;
             }
 
-            // Promotion happens only after the same entry was encountered again and the live
-            // validator returned false again. Capture the post-live Forbidden state so future
-            // authoritative hits retain the old mutation guard.
-            internal static bool TryPrime(Pawn pawn, Thing thing, ThingFingerprint cheap,
-                out ThingFingerprint primed)
-            {
-                primed = cheap;
-                if (!cheap.MatchesCheap(thing))
-                    return false;
-
-                try
-                {
-                    bool forbidden = pawn != null && thing.IsForbidden(pawn);
-                    primed = new ThingFingerprint(
-                        thing.MapHeld, thing.PositionHeld, thing.Spawned,
-                        thing.stackCount, thing.HitPoints, true, forbidden);
-                    return true;
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-
-            internal bool MatchesPrimed(Pawn pawn, Thing thing)
+            internal bool MatchesForbidden(Pawn pawn, Thing thing)
             {
                 if (!HasForbidden || !MatchesCheap(thing))
                     return false;
-                try { return Forbidden == (pawn != null && thing.IsForbidden(pawn)); }
-                catch { return false; }
+
+                bool currentForbidden;
+                return TryReadForbidden(pawn, thing, out currentForbidden) &&
+                    Forbidden == currentForbidden;
             }
         }
 '@
-$t20=Replace-OrThrow $t20 $oldFingerprint $newFingerprint 'ThingFingerprint lazy replacement'
 
+$t20=Replace-OrThrow $t20 $oldFingerprint $newFingerprint 'ThingFingerprint lazy replacement'
 Set-Content $t20Path $t20 -Encoding UTF8
 
 $bootPath='RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
@@ -333,7 +408,7 @@ if(Test-Path $aboutPath){
   $a=Get-Content $aboutPath -Raw
   $a=$a.Replace('V0.9.3-T32A Reservation Transaction','V0.9.3-T32B Lazy Forbidden Fingerprint')
   $a=[regex]::Replace($a,'(?s)<description>.*?</description>',
-    '<description>RimMT T32-B for RimWorld 1.5. T32-A Reservation Transaction remains active. T32-B reduces T21 validator memo self-overhead by storing only cheap Thing facts on first negative observation. IsForbidden is deferred until that exact entry is encountered again and the live validator is still negative; only then is the entry promoted to the original full mutation guard. Existing scanner/method trust, warmup, sampled parity, mismatch quarantine and fail-open behavior remain intact. No global forbidden cache, Job mutation, reservation mutation, worker wait or cross-package result is introduced.</description>')
+    '<description>RimMT T32-B for RimWorld 1.5. T32-A Reservation Transaction remains active. T32-B reduces T21 validator fingerprint self-overhead without weakening its false-only authority boundary: first negative stores capture only cheap Thing facts; the first revisit stays live, samples Forbidden before and after the live validator, and becomes Primed only when the live result is false and both cheap facts and Forbidden remain stable. Existing scanner/method trust, warmup, sampled parity and mismatch quarantine remain unchanged after priming. No global forbidden cache, Job mutation, reservation mutation, worker wait or cross-package result is introduced.</description>')
   Set-Content $aboutPath $a -Encoding UTF8
 }
 
@@ -347,7 +422,7 @@ if(Test-Path $diagAbout){
   $a=Get-Content $diagAbout -Raw
   $a=$a.Replace('RimMT Diagnostics v0.10','RimMT Diagnostics v0.11')
   $a=[regex]::Replace($a,'(?s)<description>.*?</description>',
-    '<description>Optional diagnostics companion for RimMT T32-B. v0.11 surfaces the existing T32-A Reservation Transaction counters and the T21 lazy Forbidden fingerprint counters. No T30/T31 experimental primitive profiler is included.</description>')
+    '<description>Optional diagnostics companion for RimMT T32-B. v0.11 surfaces T32-A Reservation Transaction counters plus T21 lazy Forbidden fingerprint counters. T30/T31 experimental profilers remain absent.</description>')
   Set-Content $diagAbout $a -Encoding UTF8
 }
 
