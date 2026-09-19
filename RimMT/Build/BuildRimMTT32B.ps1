@@ -26,14 +26,15 @@ foreach($required in @(
   'MatchesCheap(thing)',
   '!entry.Fingerprint.HasForbidden',
   'ValidatorCallState.Prime',
-  'ThingFingerprint.TryPrime',
-  'MatchesPrimed(context.Pawn, thing)',
+  'PrimeForbiddenBefore',
+  'TryReadForbidden(context.Pawn, thing',
+  'MatchesForbidden(context.Pawn, thing)',
   'validatorLazyStores',
-  'validatorLazyPrimeAttempts',
+  'validatorLazyRepeatProbes',
   'validatorLazyPrimeSuccess',
   'validatorLazyPrimePositive',
-  'validatorLazyPrimeReadFailures',
-  'estimatedStoreForbiddenReadsAvoided',
+  'validatorLazyPrimeUnstable',
+  'storeForbiddenReadsAvoided',
   'validator caches false only',
   'ValidatorWarmupMatches = 12',
   'ValidatorVerifyMask = 63'
@@ -69,11 +70,12 @@ $fpEnd=$t20.IndexOf('internal struct TargetFingerprint',$fpStart)
 if($fpStart -lt 0 -or $fpEnd -lt 0){ throw 'Cannot isolate ThingFingerprint' }
 $fp=$t20.Substring($fpStart,$fpEnd-$fpStart)
 if($fp -notmatch 'CaptureCheap\(Thing thing\)'){ throw 'CaptureCheap missing' }
-if($fp -notmatch 'TryPrime\(Pawn pawn, Thing thing'){ throw 'TryPrime missing' }
+if($fp -notmatch 'MatchesForbidden\(Pawn pawn, Thing thing'){ throw 'MatchesForbidden missing' }
 
-# The only IsForbidden reads in ThingFingerprint must be in TryPrime / MatchesPrimed.
-$forbidCount=([regex]::Matches($fp,'IsForbidden\(pawn\)')).Count
-if($forbidCount -ne 2){ throw "Unexpected T32-B ThingFingerprint IsForbidden read count: $forbidCount" }
+# All IsForbidden reads are centralized through TryReadForbidden; the store path must stay free of it.
+$allT20ForbidCount=([regex]::Matches($t20,'IsForbidden\(pawn\)')).Count
+if($allT20ForbidCount -ne 1){ throw "Unexpected T32-B direct IsForbidden read count: $allT20ForbidCount" }
+if($validatorPost -match 'CaptureCheap\([^\)]*pawn'){ throw 'Store path unexpectedly depends on pawn/Forbidden' }
 
 # T32-A remains intact.
 $t32a=Get-Content (Join-Path $root 'RimMT/Source/RimMT/AI/ReservationTransaction093T32A.cs') -Raw
