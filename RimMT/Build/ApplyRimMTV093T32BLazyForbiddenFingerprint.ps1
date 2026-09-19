@@ -200,16 +200,11 @@ $t20=Replace-OrThrow $t20 @'
             internal bool AuthoritativeHit;
 '@ 'validator state prime fields'
 
-$t20=Replace-OrThrow $t20 @'
+$verifySignature=@'
             internal static ValidatorCallState Verify(TransactionContext context, ValidatorKey key,
                 ValidatorTrustState trust)
-            {
-                return new ValidatorCallState
-                {
-                    Context = context, Key = key, Trust = trust, Verify = true
-                };
-            }
-'@ @'
+'@
+$primeAndVerify=@'
             internal static ValidatorCallState Prime(TransactionContext context, ValidatorKey key,
                 WorkGiver_Scanner scanner, Thing thing, ThingFingerprint fingerprint, bool forbiddenBefore)
             {
@@ -227,13 +222,8 @@ $t20=Replace-OrThrow $t20 @'
 
             internal static ValidatorCallState Verify(TransactionContext context, ValidatorKey key,
                 ValidatorTrustState trust)
-            {
-                return new ValidatorCallState
-                {
-                    Context = context, Key = key, Trust = trust, Verify = true
-                };
-            }
-'@ 'validator state prime constructor'
+'@
+$t20=Replace-OrThrow $t20 $verifySignature $primeAndVerify 'validator state prime constructor'
 
 $t20=Replace-OrThrow $t20 @'
         internal struct ValidatorNegativeEntry
