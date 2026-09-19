@@ -43,6 +43,9 @@ namespace RimMT
         private static bool chainAuthoritativeSafe;
         private static bool runtimeQuarantined;
         private static int installFailures;
+        private static MethodBase canReserveTarget;
+        private static long chainAudits;
+        private static long lateUnsafeTransitions;
 
         private static int foreignPrefixes;
         private static int foreignPostfixes;
@@ -102,6 +105,7 @@ namespace RimMT
                     return;
                 }
 
+                canReserveTarget = target;
                 AuditChain(target);
                 chainAuthoritativeSafe = !chainAuditUnknown &&
                     foreignTranspilers == 0 &&
@@ -116,12 +120,14 @@ namespace RimMT
 
                 canReservePatched = true;
                 PatchMutationMethods(harmony);
-                installed = canReservePatched && mutationMethodsPatched > 0;
+                installed = canReservePatched && mutationMethodsPatched > 0 && mutationMethodsMissing == 0;
 
                 Log.Message("[RimMT] T32-A Reservation transaction installed=" + installed +
                     ", canReserve=" + canReservePatched +
                     ", authoritySafe=" + chainAuthoritativeSafe +
-                    ", chain[foreignPrefixes=" + foreignPrefixes +
+                    ", chain[audits=" + Interlocked.Read(ref chainAudits) +
+                ", lateUnsafeTransitions=" + Interlocked.Read(ref lateUnsafeTransitions) +
+                ", foreignPrefixes=" + foreignPrefixes +
                     ", foreignPostfixes=" + foreignPostfixes +
                     ", foreignTranspilers=" + foreignTranspilers +
                     ", foreignFinalizers=" + foreignFinalizers +
@@ -143,8 +149,12 @@ namespace RimMT
         {
             current = null;
             if (!installed || pawn == null) return;
+
+            long packageNumber = Interlocked.Increment(ref packages);
+            if (packageNumber == 1L || (packageNumber & 1023L) == 0L)
+                ReauditChain();
+
             current = new PackageContext(pawn, generation);
-            Interlocked.Increment(ref packages);
         }
 
         internal static void EndPackage()
@@ -154,12 +164,12 @@ namespace RimMT
 
         public static bool CanReservePrefix(
             ReservationManager __instance,
-            Pawn claimant,
-            LocalTargetInfo target,
-            int maxPawns,
-            int stackCount,
-            ReservationLayerDef layer,
-            bool ignoreOtherReservations,
+            Pawn __0,
+            LocalTargetInfo __1,
+            int __2,
+            int __3,
+            ReservationLayerDef __4,
+            bool __5,
             bool __runOriginal,
             ref bool __result,
             ref CallState __state)
@@ -178,6 +188,13 @@ namespace RimMT
                 Interlocked.Increment(ref runOriginalBypass);
                 return true;
             }
+
+            Pawn claimant = __0;
+            LocalTargetInfo target = __1;
+            int maxPawns = __2;
+            int stackCount = __3;
+            ReservationLayerDef layer = __4;
+            bool ignoreOtherReservations = __5;
 
             if (__instance == null || claimant == null ||
                 !ReferenceEquals(claimant, context.Pawn))
@@ -371,12 +388,49 @@ namespace RimMT
             }
         }
 
+        private static void ReauditChain()
+        {
+            MethodBase target = canReserveTarget;
+            if (target == null)
+            {
+                chainAuditUnknown = true;
+                chainAuthoritativeSafe = false;
+                return;
+            }
+
+            bool wasSafe = chainAuthoritativeSafe;
+            AuditChain(target);
+            Interlocked.Increment(ref chainAudits);
+
+            bool nowSafe = !chainAuditUnknown &&
+                foreignTranspilers == 0 &&
+                foreignFinalizers == 0;
+
+            if (wasSafe && !nowSafe)
+            {
+                chainAuthoritativeSafe = false;
+                PackageContext context = current;
+                if (context != null)
+                    context.Negatives.Clear();
+                Interlocked.Increment(ref lateUnsafeTransitions);
+            }
+            else if (!runtimeQuarantined)
+            {
+                chainAuthoritativeSafe = nowSafe;
+            }
+        }
+
         private static void AuditChain(MethodBase target)
         {
             try
             {
+                chainAuditUnknown = false;
                 Patches info = Harmony.GetPatchInfo(target);
-                if (info == null) return;
+                if (info == null)
+                {
+                    foreignPrefixes = foreignPostfixes = foreignTranspilers = foreignFinalizers = 0;
+                    return;
+                }
 
                 foreignPrefixes = CountForeign(info.Prefixes);
                 foreignPostfixes = CountForeign(info.Postfixes);
