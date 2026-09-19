@@ -1,27 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Ideology Delete UI 1.5 v1.1</name>
+  <name>Ideology Delete UI 1.5 v1.2</name>
   <author>Allen</author>
   <packageId>Allen.IdeologyDeleteUI</packageId>
-  <supportedVersions>
-    <li>1.5</li>
-  </supportedVersions>
+  <supportedVersions><li>1.5</li></supportedVersions>
   <modDependencies>
-    <li>
-      <packageId>brrainz.harmony</packageId>
-      <displayName>Harmony</displayName>
-      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
-    </li>
-    <li>
-      <packageId>Ludeon.RimWorld.Ideology</packageId>
-      <displayName>Ideology</displayName>
-    </li>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li>
+    <li><packageId>Ludeon.RimWorld.Ideology</packageId><displayName>Ideology</displayName></li>
   </modDependencies>
-  <loadAfter>
-    <li>brrainz.harmony</li>
-    <li>Ludeon.RimWorld.Ideology</li>
-  </loadAfter>
-  <description>Adds a delete button to every ideoligion row in the in-game Ideology screen and a developer action: Ideoligion -> Delete ideoligion....
+  <loadAfter><li>brrainz.harmony</li><li>Ludeon.RimWorld.Ideology</li></loadAfter>
+  <description>One-click force deletion for ideoligions in an active RimWorld 1.5 save.
 
-v1.1: minor faction references no longer block deletion. They are detached automatically. Primary faction ownership and current pawn believers remain hard blockers. Deletion then uses RimWorld's own IdeoManager.Remove() and cleans baby ideology exposure references.</description>
+v1.2: deletion no longer blocks on faction or pawn references. Primary factions and believers are reassigned automatically, minor references are removed, active rituals are cancelled, stale baby exposure references are cleaned, and a fallback ideoligion is generated if deleting the last one. The selected ideoligion is then removed through vanilla IdeoManager.Remove().</description>
 </ModMetaData>
