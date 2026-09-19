@@ -28,7 +28,7 @@ namespace Allen.IdeologyDeleteUI
                 target,
                 postfix: new HarmonyMethod(typeof(DrawIdeoRowPatch), nameof(DrawIdeoRowPatch.Postfix)));
 
-            Log.Message("[Ideology Delete UI] v1.1 active. Minor faction references are auto-detached on delete.");
+            Log.Message("[Ideology Delete UI] v1.2 FORCE DELETE active.");
         }
     }
 
@@ -47,197 +47,225 @@ namespace Allen.IdeologyDeleteUI
             float rowTop = curY - rowHeight;
 
             Rect deleteRect = new Rect(fillRect.width - 30f, rowTop + 10f, 22f, 22f);
-            TooltipHandler.TipRegion(deleteRect, "Delete ideoligion");
+            TooltipHandler.TipRegion(deleteRect, "Force delete ideoligion");
 
             if (Widgets.ButtonImage(deleteRect, TexButton.Delete, Color.white, GenUI.SubtleMouseoverColor))
-                IdeologyDeletion.RequestDelete(ideo);
+                IdeologyDeletion.RequestForceDelete(ideo);
         }
     }
 
     internal static class IdeologyDeletion
     {
+        private static readonly FieldInfo PawnIdeoField =
+            AccessTools.Field(typeof(Pawn_IdeoTracker), "ideo");
+
         private static readonly FieldInfo BabyExposureField =
             AccessTools.Field(typeof(Pawn_IdeoTracker), "babyIdeoExposure");
 
-        public static void RequestDelete(Ideo ideo)
+        public static void RequestForceDelete(Ideo ideo)
         {
-            if (ideo == null || Find.IdeoManager == null)
+            if (ideo == null || Find.IdeoManager == null || !Find.IdeoManager.IdeosListForReading.Contains(ideo))
                 return;
 
-            List<Ideo> all = Find.IdeoManager.IdeosListForReading;
-            if (!all.Contains(ideo))
-            {
-                Messages.Message(
-                    "Ideology Delete UI: this ideoligion is no longer present.",
-                    MessageTypeDefOf.RejectInput,
-                    historical: false);
-                return;
-            }
+            int primaryFactions = Find.FactionManager.AllFactions
+                .Count(f => f?.ideos?.PrimaryIdeo == ideo);
 
-            if (all.Count <= 1)
-            {
-                Messages.Message(
-                    "Ideology Delete UI: the last remaining ideoligion cannot be deleted.",
-                    MessageTypeDefOf.RejectInput,
-                    historical: false);
-                return;
-            }
+            int minorFactions = Find.FactionManager.AllFactions
+                .Count(f => f?.ideos != null && f.ideos.IsMinor(ideo));
 
-            List<Faction> primaryRefs = Find.FactionManager.AllFactions
-                .Where(f => f?.ideos != null && f.ideos.PrimaryIdeo == ideo)
-                .ToList();
-
-            List<Faction> minorRefs = Find.FactionManager.AllFactions
-                .Where(f => f?.ideos != null && f.ideos.IsMinor(ideo))
-                .ToList();
-
-            List<Pawn> pawnRefs = PawnsFinder.AllMapsWorldAndTemporary_AliveOrDead
-                .Where(p => p?.ideo?.Ideo == ideo)
-                .ToList();
-
-            // Primary faction ownership and current believers are hard blockers.
-            // Minor faction references are only bookkeeping and are safe to detach.
-            if (primaryRefs.Count > 0 || pawnRefs.Count > 0)
-            {
-                string details = BuildBlockingReferenceReport(ideo, primaryRefs, minorRefs, pawnRefs);
-                Find.WindowStack.Add(new Dialog_MessageBox(
-                    details,
-                    "OK",
-                    null,
-                    null,
-                    null,
-                    "Cannot delete ideoligion"));
-                return;
-            }
-
-            string minorText = minorRefs.Count > 0
-                ? "\n\nMinor faction references to remove automatically: " + minorRefs.Count +
-                  "\n" + string.Join("\n", minorRefs.Take(10).Select(f => " - " + f.Name)) +
-                  (minorRefs.Count > 10 ? "\n - ... +" + (minorRefs.Count - 10) + " more" : "")
-                : "";
+            int believers = PawnsFinder.AllMapsWorldAndTemporary_AliveOrDead
+                .Count(p => p?.ideo?.Ideo == ideo);
 
             string confirm =
-                "Delete ideoligion '" + ideo.name + "'?" +
-                minorText +
-                "\n\nNo faction uses it as a primary ideoligion and no pawn currently believes in it." +
-                "\nMinor faction references will be detached automatically before deletion." +
-                "\nHistorical pawn references will be cleaned by RimWorld's own IdeoManager.Remove()." +
-                "\n\nThis cannot be undone without reloading the save.";
+                "FORCE DELETE ideoligion '" + ideo.name + "'?\n\n" +
+                "This operation will automatically resolve every vanilla core reference it can find:\n" +
+                " - primary factions: " + primaryFactions + "\n" +
+                " - minor faction references: " + minorFactions + "\n" +
+                " - pawn believers: " + believers + "\n\n" +
+                "Primary factions and believers will be reassigned automatically. Minor references will be removed. " +
+                "Active rituals belonging to this ideoligion will be cancelled. " +
+                "If this is the last ideoligion, a replacement fallback ideoligion will be generated automatically.\n\n" +
+                "The selected ideoligion itself will then be removed from IdeoManager.";
 
             Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
                 confirm,
-                delegate { DeleteNow(ideo); },
+                delegate { ForceDeleteNow(ideo); },
                 destructive: true));
         }
 
-        private static string BuildBlockingReferenceReport(
-            Ideo ideo,
-            List<Faction> primaryRefs,
-            List<Faction> minorRefs,
-            List<Pawn> pawns)
+        private static void ForceDeleteNow(Ideo removedIdeo)
         {
-            var lines = new List<string>
-            {
-                "Cannot delete ideoligion '" + ideo.name + "' because it still has blocking references.",
-                "",
-                "Primary faction references: " + primaryRefs.Count,
-                "Pawn believers: " + pawns.Count,
-                "Minor faction references: " + minorRefs.Count + " (these are auto-removable)"
-            };
-
-            if (primaryRefs.Count > 0)
-            {
-                lines.Add("");
-                lines.Add("Primary factions:");
-                foreach (Faction faction in primaryRefs.Take(12))
-                    lines.Add(" - " + faction.Name);
-                if (primaryRefs.Count > 12)
-                    lines.Add(" - ... +" + (primaryRefs.Count - 12) + " more");
-            }
-
-            if (pawns.Count > 0)
-            {
-                lines.Add("");
-                lines.Add("Pawns:");
-                foreach (Pawn pawn in pawns.Take(16))
-                    lines.Add(" - " + pawn.LabelShortCap);
-                if (pawns.Count > 16)
-                    lines.Add(" - ... +" + (pawns.Count - 16) + " more");
-            }
-
-            if (minorRefs.Count > 0)
-            {
-                lines.Add("");
-                lines.Add("Minor references (not blocking once the above are cleared):");
-                foreach (Faction faction in minorRefs.Take(12))
-                    lines.Add(" - " + faction.Name);
-                if (minorRefs.Count > 12)
-                    lines.Add(" - ... +" + (minorRefs.Count - 12) + " more");
-            }
-
-            lines.Add("");
-            lines.Add("Change primary faction / pawn ideologies first, then press Delete again.");
-            return string.Join("\n", lines);
-        }
-
-        private static void DeleteNow(Ideo ideo)
-        {
-            if (ideo == null || Find.IdeoManager == null)
+            if (removedIdeo == null || Find.IdeoManager == null ||
+                !Find.IdeoManager.IdeosListForReading.Contains(removedIdeo))
                 return;
 
-            bool primaryStillUses = Find.FactionManager.AllFactions
-                .Any(f => f?.ideos != null && f.ideos.PrimaryIdeo == ideo);
-
-            bool pawnStillUses = PawnsFinder.AllMapsWorldAndTemporary_AliveOrDead
-                .Any(p => p?.ideo?.Ideo == ideo);
-
-            if (primaryStillUses || pawnStillUses)
+            Ideo globalFallback = EnsureFallbackIdeo(removedIdeo);
+            if (globalFallback == null)
             {
                 Messages.Message(
-                    "Ideology Delete UI: blocking references changed; deletion cancelled.",
+                    "Ideology Delete UI: could not create/find a fallback ideoligion.",
                     MessageTypeDefOf.RejectInput,
                     historical: false);
                 return;
             }
 
-            int detachedMinorRefs = 0;
+            int ritualsCancelled = CancelActiveRituals(removedIdeo);
+            int pawnsMoved = ReassignPawnBelievers(removedIdeo, globalFallback);
+            int primaryMoved = 0;
+            int minorDetached = 0;
+
+            // Final faction scrub is intentionally AFTER pawn reassignment because
+            // player pawn ideology changes can recalculate the player faction tracker.
             foreach (Faction faction in Find.FactionManager.AllFactions)
             {
-                if (faction?.ideos == null || !faction.ideos.IsMinor(ideo))
+                if (faction?.ideos == null)
                     continue;
 
-                if (faction.ideos.IdeosMinorListForReading.Remove(ideo))
-                    detachedMinorRefs++;
+                if (faction.ideos.PrimaryIdeo == removedIdeo)
+                {
+                    Ideo replacement = faction.ideos.IdeosMinorListForReading
+                        .FirstOrDefault(i => i != null && i != removedIdeo)
+                        ?? globalFallback;
+
+                    faction.ideos.IdeosMinorListForReading.Remove(replacement);
+                    faction.ideos.SetPrimary(replacement);
+                    primaryMoved++;
+                }
+
+                while (faction.ideos.IdeosMinorListForReading.Remove(removedIdeo))
+                    minorDetached++;
             }
 
-            CleanBabyExposureReferences(ideo);
+            CleanBabyExposureReferences(removedIdeo);
 
-            Ideo fallback = Find.IdeoManager.IdeosInViewOrder.FirstOrDefault(i => i != ideo)
-                ?? Find.IdeoManager.IdeosListForReading.FirstOrDefault(i => i != ideo);
+            // One last direct scrub covers babies/dead/modded pawns for which SetIdeo
+            // may refuse or perform no transition.
+            foreach (Pawn pawn in PawnsFinder.AllMapsWorldAndTemporary_AliveOrDead)
+            {
+                if (pawn?.ideo == null || pawn.ideo.Ideo != removedIdeo)
+                    continue;
 
-            bool removed = Find.IdeoManager.Remove(ideo);
+                Ideo replacement = GetPawnFallback(pawn, removedIdeo, globalFallback);
+                PawnIdeoField?.SetValue(pawn.ideo, replacement);
+            }
+
+            bool removed = Find.IdeoManager.Remove(removedIdeo);
             if (!removed)
             {
                 Messages.Message(
-                    "Ideology Delete UI: RimWorld refused to remove the ideoligion.",
+                    "Ideology Delete UI: IdeoManager.Remove returned false.",
                     MessageTypeDefOf.RejectInput,
                     historical: false);
                 return;
             }
 
-            if (IdeoUIUtility.selected == null || IdeoUIUtility.selected == ideo)
-                IdeoUIUtility.SetSelected(fallback);
+            if (IdeoUIUtility.selected == null || IdeoUIUtility.selected == removedIdeo)
+                IdeoUIUtility.SetSelected(globalFallback);
 
             Find.IdeoManager.SortIdeos();
 
-            string suffix = detachedMinorRefs > 0
-                ? " (detached " + detachedMinorRefs + " minor faction reference(s))"
-                : "";
-
             Messages.Message(
-                "Deleted ideoligion: " + ideo.name + suffix,
+                "Force-deleted ideoligion: " + removedIdeo.name +
+                " | pawns reassigned: " + pawnsMoved +
+                " | primary factions reassigned: " + primaryMoved +
+                " | minor refs removed: " + minorDetached +
+                " | rituals cancelled: " + ritualsCancelled,
                 MessageTypeDefOf.PositiveEvent,
                 historical: false);
+        }
+
+        private static Ideo EnsureFallbackIdeo(Ideo removedIdeo)
+        {
+            Ideo existing = Find.IdeoManager.IdeosInViewOrder.FirstOrDefault(i => i != removedIdeo)
+                ?? Find.IdeoManager.IdeosListForReading.FirstOrDefault(i => i != removedIdeo);
+
+            if (existing != null)
+                return existing;
+
+            Faction player = Faction.OfPlayerSilentFail;
+            FactionDef factionDef = player?.def
+                ?? Find.FactionManager.AllFactions.FirstOrDefault(f => f?.def != null)?.def;
+
+            if (factionDef == null)
+                return null;
+
+            Ideo generated = IdeoGenerator.GenerateIdeo(new IdeoGenerationParms(factionDef));
+            Find.IdeoManager.Add(generated);
+            return generated;
+        }
+
+        private static Ideo GetPawnFallback(Pawn pawn, Ideo removedIdeo, Ideo globalFallback)
+        {
+            Ideo factionPrimary = pawn?.Faction?.ideos?.PrimaryIdeo;
+            if (factionPrimary != null && factionPrimary != removedIdeo)
+                return factionPrimary;
+
+            return globalFallback;
+        }
+
+        private static int ReassignPawnBelievers(Ideo removedIdeo, Ideo globalFallback)
+        {
+            int count = 0;
+            foreach (Pawn pawn in PawnsFinder.AllMapsWorldAndTemporary_AliveOrDead.ToList())
+            {
+                if (pawn?.ideo == null || pawn.ideo.Ideo != removedIdeo)
+                    continue;
+
+                Ideo replacement = GetPawnFallback(pawn, removedIdeo, globalFallback);
+
+                try
+                {
+                    pawn.ideo.SetIdeo(replacement);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning("[Ideology Delete UI] SetIdeo failed for " + pawn.ToStringSafe() +
+                                "; forcing tracker field instead. " + ex.GetType().Name + ": " + ex.Message);
+                }
+
+                if (pawn.ideo.Ideo == removedIdeo)
+                    PawnIdeoField?.SetValue(pawn.ideo, replacement);
+
+                count++;
+            }
+            return count;
+        }
+
+        private static int CancelActiveRituals(Ideo removedIdeo)
+        {
+            int count = 0;
+
+            foreach (Map map in Find.Maps.ToList())
+            {
+                if (map?.lordManager?.lords == null)
+                    continue;
+
+                foreach (var lord in map.lordManager.lords.ToList())
+                {
+                    if (!(lord?.LordJob is LordJob_Ritual ritualJob))
+                        continue;
+
+                    if (ritualJob.Ritual?.ideo != removedIdeo)
+                        continue;
+
+                    try
+                    {
+                        ritualJob.ApplyOutcome(
+                            ritualJob.Progress,
+                            showFinishedMessage: false,
+                            showFailedMessage: false,
+                            cancelled: true);
+                        count++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning("[Ideology Delete UI] Failed to cancel an active ritual before force deletion: " +
+                                    ex.GetType().Name + ": " + ex.Message);
+                    }
+                }
+            }
+
+            return count;
         }
 
         private static void CleanBabyExposureReferences(Ideo removedIdeo)
@@ -263,7 +291,7 @@ namespace Allen.IdeologyDeleteUI
     {
         [DebugAction(
             "Ideoligion",
-            "Delete ideoligion...",
+            "Force delete ideoligion...",
             requiresIdeology: true,
             actionType = DebugActionType.Action,
             allowedGameStates = AllowedGameStates.PlayingOnMap)]
@@ -277,16 +305,7 @@ namespace Allen.IdeologyDeleteUI
                 options.Add(new DebugMenuOption(
                     local.name,
                     DebugMenuOptionMode.Action,
-                    delegate { IdeologyDeletion.RequestDelete(local); }));
-            }
-
-            if (options.Count == 0)
-            {
-                Messages.Message(
-                    "Ideology Delete UI: no ideoligions found.",
-                    MessageTypeDefOf.RejectInput,
-                    historical: false);
-                return;
+                    delegate { IdeologyDeletion.RequestForceDelete(local); }));
             }
 
             Find.WindowStack.Add(new Dialog_DebugOptionListLister(options));
