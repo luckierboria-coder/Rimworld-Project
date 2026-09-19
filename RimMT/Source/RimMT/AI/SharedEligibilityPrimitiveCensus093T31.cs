@@ -262,7 +262,7 @@ namespace RimMT
                 name == "ShouldSkip" || name == "NonScanJob";
         }
 
-        public static void ScannerScopePrefix(object __instance, ref ScannerScopeState __state)
+        private static void ScannerScopePrefix(object __instance, ref ScannerScopeState __state)
         {
             __state = default(ScannerScopeState);
             if (current == null) return;
@@ -275,14 +275,14 @@ namespace RimMT
             currentScanner = scanner;
         }
 
-        public static Exception ScannerScopeFinalizer(Exception __exception, ScannerScopeState __state)
+        private static Exception ScannerScopeFinalizer(Exception __exception, ScannerScopeState __state)
         {
             if (__state.Entered)
                 currentScanner = __state.Previous;
             return __exception;
         }
 
-        public static void PrimitivePrefix(MethodBase __originalMethod, object[] __args, ref PrimitiveCallState __state)
+        private static void PrimitivePrefix(MethodBase __originalMethod, object[] __args, ref PrimitiveCallState __state)
         {
             __state = default(PrimitiveCallState);
 
@@ -322,7 +322,7 @@ namespace RimMT
             __state.Admitted = true;
         }
 
-        public static void PrimitivePostfix(bool __result, PrimitiveCallState __state)
+        private static void PrimitivePostfix(bool __result, PrimitiveCallState __state)
         {
             if (!__state.Admitted) return;
 
@@ -466,13 +466,13 @@ namespace RimMT
                 "No WorkGiver/mod special case, no result cache, no reservation mutation, no Job/state commit.";
         }
 
-        internal struct ScannerScopeState
+        private struct ScannerScopeState
         {
             internal bool Entered;
             internal WorkGiver_Scanner Previous;
         }
 
-        public struct PrimitiveCallState
+        private struct PrimitiveCallState
         {
             internal SampleContext Context;
             internal PrimitiveKind Kind;
