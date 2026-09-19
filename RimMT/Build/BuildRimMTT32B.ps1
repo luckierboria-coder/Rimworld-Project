@@ -37,7 +37,7 @@ if(-not $validatorState.Contains('ForStore(')){ throw 'Generated ValidatorCallSt
 foreach($required in @(
   'CaptureCheap(__state.Thing)',
   'MatchesCheap(thing)',
-  '!entry.Fingerprint.HasForbidden',
+  '!entry.Primed',
   'PrimeFingerprint',
   'PrimeForbiddenBefore',
   'TryReadForbidden(context.Pawn, thing',
