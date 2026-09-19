@@ -4,18 +4,6 @@ $ErrorActionPreference='Stop'
 if(-not $?){ throw 'T32-A prerequisite build failed' }
 
 $root=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-# TEMP T32-B generated-structure census (remove after transform is stabilized).
-$generatedT20=Get-Content (Join-Path $root 'RimMT/Source/RimMT/AI/JobSearchTransaction093T20.cs') -Raw
-foreach($needle in @('internal struct ValidatorCallState','internal struct ReachCallState')){
-  $i=$generatedT20.IndexOf($needle)
-  if($i -ge 0){
-    $j=$generatedT20.IndexOf('        internal ', $i + $needle.Length)
-    if($j -lt 0){ $j=[Math]::Min($generatedT20.Length,$i+5000) }
-    Write-Host ('===== T32B GENERATED ' + $needle + ' =====')
-    Write-Host $generatedT20.Substring($i,[Math]::Min(5000,$generatedT20.Length-$i))
-  }
-}
-
 & (Join-Path $PSScriptRoot 'ApplyRimMTV093T32BLazyForbiddenFingerprint.ps1')
 if(-not $?){ throw 'T32-B transform failed' }
 
@@ -32,6 +20,19 @@ if($boot -notmatch '0\.9\.3-t32b-lazy-forbidden-fingerprint'){ throw 'T32-B vers
 
 $t20Path=Join-Path $root 'RimMT/Source/RimMT/AI/JobSearchTransaction093T20.cs'
 $t20=Get-Content $t20Path -Raw
+
+$validatorStateStart=$t20.IndexOf('internal struct ValidatorCallState')
+$reachStateStart=$t20.IndexOf('internal struct ReachCallState',$validatorStateStart)
+if($validatorStateStart -lt 0 -or $reachStateStart -lt 0){ throw 'Cannot isolate ValidatorCallState/ReachCallState' }
+$validatorState=$t20.Substring($validatorStateStart,$reachStateStart-$validatorStateStart)
+$reachStateEnd=$t20.IndexOf('internal sealed class TransactionContext',$reachStateStart)
+if($reachStateEnd -lt 0){ throw 'Cannot isolate ReachCallState end' }
+$reachState=$t20.Substring($reachStateStart,$reachStateEnd-$reachStateStart)
+foreach($requiredState in @('internal bool Prime;','PrimeForbiddenBefore','PrimeFingerprint')){
+  if(-not $validatorState.Contains($requiredState)){ throw "T32-B validator state marker missing: $requiredState" }
+  if($reachState.Contains($requiredState)){ throw "T32-B leaked prime state into ReachCallState: $requiredState" }
+}
+if(-not $validatorState.Contains('ForStore(')){ throw 'Generated ValidatorCallState ForStore helper missing' }
 
 foreach($required in @(
   'CaptureCheap(__state.Thing)',
