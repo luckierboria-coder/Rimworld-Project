@@ -3,6 +3,18 @@ $ErrorActionPreference='Stop'
 & (Join-Path $PSScriptRoot 'BuildRimMTT32A.ps1')
 if(-not $?){ throw 'T32-A prerequisite build failed' }
 
+# TEMP T32-B generated-structure census (remove after transform is stabilized).
+$generatedT20=Get-Content (Join-Path $root 'RimMT/Source/RimMT/AI/JobSearchTransaction093T20.cs') -Raw
+foreach($needle in @('internal struct ValidatorCallState','internal struct ReachCallState')){
+  $i=$generatedT20.IndexOf($needle)
+  if($i -ge 0){
+    $j=$generatedT20.IndexOf('        internal ', $i + $needle.Length)
+    if($j -lt 0){ $j=[Math]::Min($generatedT20.Length,$i+5000) }
+    Write-Host ('===== T32B GENERATED ' + $needle + ' =====')
+    Write-Host $generatedT20.Substring($i,[Math]::Min(5000,$generatedT20.Length-$i))
+  }
+}
+
 & (Join-Path $PSScriptRoot 'ApplyRimMTV093T32BLazyForbiddenFingerprint.ps1')
 if(-not $?){ throw 'T32-B transform failed' }
 
