@@ -18,7 +18,7 @@ namespace RimMT
     /// - estimate the replayable population under a deliberately conservative mutable-state
     ///   envelope before any cross-package result is ever allowed to skip live HasJobOnThing.
     ///
-    /// T33-A is measurement-only. It never writes __result, never skips the original validator,
+    /// T33-A is measurement-only. It never mutates the validator result and never skips the original validator,
     /// never creates Jobs/reservations and never changes candidate order.
     ///
     /// The first live false stores cheap pawn/Thing fingerprints only. A later cross-package
@@ -705,7 +705,7 @@ namespace RimMT
                 ", topScanners=" + BuildTopScannerSummary() +
                 ", installFailures=" + installFailures +
                 ". Measurement-only: every cross-package candidate still executes the live " +
-                "JobGiver_Work validator; no __result write, no skip-original, no Job/reservation/" +
+                "JobGiver_Work validator; no result mutation, no skip-original, no Job/reservation/" +
                 "priority/reachability/candidate-order mutation.";
         }
 
