@@ -585,14 +585,14 @@ namespace RimMT.Diagnostics
             }
         }
 
-        private sealed class ScannerProfile
+        internal sealed class ScannerProfile
         {
-            internal readonly string Key;
-            internal readonly MemberFamily[] Members;
-            internal bool RejectSeen;
-            internal bool AcceptSeen;
+            private readonly string Key;
+            private readonly MemberFamily[] Members;
+            private bool RejectSeen;
+            private bool AcceptSeen;
 
-            internal ScannerProfile(string key, MemberFamily[] members)
+            private ScannerProfile(string key, MemberFamily[] members)
             {
                 Key = key;
                 Members = members ?? new MemberFamily[0];
