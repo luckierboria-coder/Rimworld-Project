@@ -1,3 +1,4 @@
+# A/B2 correctness-isolation workflow
 name: Build RimMT V0.9.3 A-B2 GenClosest Off
 
 on:
