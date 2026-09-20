@@ -587,19 +587,19 @@ namespace RimMT.Diagnostics
 
         internal sealed class ScannerProfile
         {
-            private readonly string Key;
-            private readonly MemberFamily[] Members;
-            private bool RejectSeen;
-            private bool AcceptSeen;
+            internal readonly string Key;
+            internal readonly MemberFamily[] Members;
+            internal bool RejectSeen;
+            internal bool AcceptSeen;
 
-            private ScannerProfile(string key, MemberFamily[] members)
+            internal ScannerProfile(string key, MemberFamily[] members)
             {
                 Key = key;
                 Members = members ?? new MemberFamily[0];
             }
         }
 
-        private sealed class MemberFamily
+        internal sealed class MemberFamily
         {
             internal readonly string Key;
             internal readonly MemberKind Kind;
@@ -640,7 +640,7 @@ namespace RimMT.Diagnostics
             }
         }
 
-        private enum MemberKind
+        internal enum MemberKind
         {
             Method,
             Field
