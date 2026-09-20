@@ -234,11 +234,9 @@ $t20=Replace-OrThrow $t20 @'
 '@ 'repeat-observed entry state'
 
 # On-demand diagnostics may inspect trust modes; this is not a hot-path operation.
-$t20=Replace-OrThrow $t20 @'
-        internal static string Summary()
-        {
-            return "T20 foundation transaction: installed=" + installed +
-'@ @'
+$summaryPattern='(?m)^        internal static string Summary\(\)\r?\n        \{'
+if(-not [regex]::IsMatch($t20,$summaryPattern)){ throw 'T32-B.1 anchor missing: adaptive mode summary helper' }
+$summaryInsert=@'
         private static void CountAdaptiveModes(out int lazy, out int eager)
         {
             lazy = 0;
@@ -258,9 +256,8 @@ $t20=Replace-OrThrow $t20 @'
             int adaptiveLazyModes;
             int adaptiveEagerModes;
             CountAdaptiveModes(out adaptiveLazyModes, out adaptiveEagerModes);
-
-            return "T20 foundation transaction: installed=" + installed +
-'@ 'adaptive mode summary helper'
+'@
+$t20=[regex]::Replace($t20,$summaryPattern,[System.Text.RegularExpressions.MatchEvaluator]{ param($m) $summaryInsert },1)
 
 $t20=Replace-OrThrow $t20 @'
                 ", storeForbiddenReadsAvoided=" + Interlocked.Read(ref validatorStoreForbiddenReadsAvoided) + "]]" +
