@@ -44,7 +44,6 @@ foreach($required in @(
 # Measurement-only hard guard: census must never assign Harmony results or skip originals.
 foreach($forbidden in @(
   '__result =',
-  'return false;',
   'StartJob(',
   'EndCurrentJob(',
   '.Reserve(',
@@ -58,9 +57,16 @@ foreach($forbidden in @(
   if($c.Contains($forbidden)){ throw "T33-A measurement-only violation: $forbidden" }
 }
 
-# It must explicitly respect already-skipped validators so T20 authoritative false replays
-# are not misreported as live-validator samples.
+# Harmony measurement methods must not be bool prefixes that can skip originals.
+# Helper methods such as TargetsCandidate / ScannerAccessor.Find may legitimately return false.
 if(-not $c.Contains('if (!__runOriginal)')){ throw 'T33-A __runOriginal live-only guard missing' }
+foreach($patchMethod in @('ValidatorPrefix','CanReservePostfix','CanReachPostfix','PackagePrefix','PackageFinalizer','ValidatorPostfix')){
+  $sig=[regex]::Match($c,'public static\s+([A-Za-z0-9_<>]+)\s+' + [regex]::Escape($patchMethod) + '\s*\(')
+  if(-not $sig.Success){ throw "T33-A Harmony method missing: $patchMethod" }
+  if($patchMethod -ne 'PackageFinalizer' -and $sig.Groups[1].Value -eq 'bool'){
+    throw "T33-A Harmony method may skip original: $patchMethod"
+  }
+}
 
 # Candidate-scoped primitive attribution must require the same pawn/target where applicable.
 foreach($required in @(
