@@ -1,0 +1,37 @@
+name: Build RimMT V0.9.3 A-B2 GenClosest Off
+
+on:
+  push:
+    branches:
+      - rimmt-v0.9.3-ab2-genclosest-off
+  pull_request:
+    branches:
+      - rimmt-v0.9.3-t33b-rejection-family-census
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rimmt-ab2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build A/B2
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTAB2GenClosestOff.ps1
+      - name: Upload production artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-T32C1-AB2-GenClosest-OFF
+          path: build/RimMT_V0.9.3_T32C1_AB2_GenClosest_OFF.zip
+          if-no-files-found: error
