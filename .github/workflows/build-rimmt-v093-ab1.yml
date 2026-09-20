@@ -1,0 +1,37 @@
+name: Build RimMT V0.9.3 A-B1 S4 S5.1 Off
+
+on:
+  push:
+    branches:
+      - rimmt-v0.9.3-ab1-s4-s51-off
+  pull_request:
+    branches:
+      - rimmt-v0.9.3-t33b-rejection-family-census
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rimmt-ab1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build A/B1
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTAB1S4S51Off.ps1
+      - name: Upload production artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-T32C1-AB1-S4-S51-OFF
+          path: build/RimMT_V0.9.3_T32C1_AB1_S4_S51_OFF.zip
+          if-no-files-found: error
