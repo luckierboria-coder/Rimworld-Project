@@ -1,0 +1,40 @@
+name: Build RimMT V0.9.3-T33B Rejection Family Census
+
+on:
+  push:
+    branches:
+      - rimmt-v0.9.3-t33b-rejection-family-census
+  pull_request:
+    branches:
+      - rimmt-v0.9.3-t33a-candidate-rejection-census
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rimmt-t33b-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and verify T33-B
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTT33B.ps1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-T33B-Rejection-Family-Census
+          path: |
+            build/RimMT_V0.9.3_T32C1_Production.zip
+            build/RimMT_Diagnostics_v0.16_T33B.zip
+            build/RimMT_T33B_Family_Census_Bundle.zip
+          if-no-files-found: error
