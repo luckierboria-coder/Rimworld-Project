@@ -150,7 +150,7 @@ namespace MORecycleOnly15
             Thing item = job.GetTarget(TargetIndex.B).Thing;
             if (item == null || item.Destroyed)
             {
-                Log.Error("[MO Recycle Only 1.5 v1.5] Recycle completion had no valid target item.");
+                Log.Error("[MO Recycle Only 1.5 v1.6] Recycle completion had no valid target item.");
                 actor.jobs.EndCurrentJob(JobCondition.Incompletable, true, true);
                 return;
             }
@@ -164,7 +164,7 @@ namespace MORecycleOnly15
             }
             catch (Exception ex)
             {
-                Log.Error("[MO Recycle Only 1.5 v1.5] Failed consuming recycled item " + item.ToStringSafe() + ": " + ex);
+                Log.Error("[MO Recycle Only 1.5 v1.6] Failed consuming recycled item " + item.ToStringSafe() + ": " + ex);
                 actor.jobs.EndCurrentJob(JobCondition.Errored, true, true);
                 return;
             }
@@ -178,7 +178,7 @@ namespace MORecycleOnly15
             }
             catch (Exception ex)
             {
-                Log.Warning("[MO Recycle Only 1.5 v1.5] Bill completion notification warning: " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[MO Recycle Only 1.5 v1.6] Bill completion notification warning: " + ex.GetType().Name + ": " + ex.Message);
             }
 
             foreach (Thing product in products)
@@ -187,7 +187,7 @@ namespace MORecycleOnly15
                     continue;
 
                 if (!GenPlace.TryPlaceThing(product, actor.Position, actor.Map, ThingPlaceMode.Near))
-                    Log.Error("[MO Recycle Only 1.5 v1.5] Could not place recycled product " + product.ToStringSafe() + " near " + actor.Position);
+                    Log.Error("[MO Recycle Only 1.5 v1.6] Could not place recycled product " + product.ToStringSafe() + " near " + actor.Position);
             }
 
             actor.Map?.resourceCounter?.UpdateResourceCounts();
@@ -201,36 +201,111 @@ namespace MORecycleOnly15
         static Bootstrap()
         {
             new Harmony("allen.mo.recycleonly15").PatchAll();
-            Log.Message("[MO Recycle Only 1.5 v1.5] loaded. Recycle completion bypasses MO hpHeal and produces materials.");
+            Log.Message("[MO Recycle Only 1.5 v1.6] loaded. Recycle accepts full-durability items; work = 30 x current HP; completion produces materials.");
         }
     }
 
-    // MO mending initializes:
-    // workLeft = bill.GetWorkAmount(item) * missingHP
-    //
-    // For recycle recipes we make WorkAmountTotal return:
-    // 30 * currentHP / missingHP
-    //
-    // MO then multiplies by missingHP and the final work becomes:
-    // 30 * currentHP
+    // Keep the XML/RecipeDef base identical to MO mending.
+    // Actual recycle workLeft is set directly in the MO work toil below,
+    // so full-durability items do not collapse to zero work when missingHP=0.
     [HarmonyPatch(typeof(RecipeDef), nameof(RecipeDef.WorkAmountTotal))]
     internal static class Patch_RecipeDef_WorkAmountTotal
     {
         private static void Postfix(RecipeDef __instance, Thing thing, ref float __result)
         {
-            if (!RecycleUtility.IsRecycleRecipe(__instance) || thing == null)
+            if (!RecycleUtility.IsRecycleRecipe(__instance))
                 return;
 
-            int currentHp = Math.Max(1, thing.HitPoints);
-            int missingHp = thing.MaxHitPoints - thing.HitPoints;
+            __result = RecycleUtility.WorkPerHp;
+        }
+    }
 
-            if (missingHp <= 0)
+    // MO WorkGiver_DoMending normally rejects anything at full HP:
+    //   ingredient.filter.Allows(t) && t.HitPoints < t.MaxHitPoints
+    //
+    // That rule is correct for mending but wrong for recycling. For recycle
+    // recipes only, preserve all bill/ingredient filters while removing the
+    // damaged-only requirement.
+    [HarmonyPatch]
+    internal static class Patch_MO_WorkGiver_IsUsableIngredient
+    {
+        private static MethodBase TargetMethod()
+        {
+            Type type = AccessTools.TypeByName("MedievalOverhaul.WorkGiver_DoMending");
+            return type == null ? null : AccessTools.Method(type, "IsUsableIngredient");
+        }
+
+        private static bool Prefix(Thing t, Bill bill, ref bool __result)
+        {
+            if (bill == null || !RecycleUtility.IsRecycleRecipe(bill.recipe))
+                return true;
+
+            if (t == null || !bill.IsFixedOrAllowedIngredient(t))
             {
-                __result = RecycleUtility.WorkPerHp;
-                return;
+                __result = false;
+                return false;
             }
 
-            __result = RecycleUtility.WorkPerHp * currentHp / missingHp;
+            foreach (IngredientCount ingredient in bill.recipe.ingredients)
+            {
+                if (ingredient.filter.Allows(t))
+                {
+                    __result = true;
+                    return false;
+                }
+            }
+
+            __result = false;
+            return false;
+        }
+    }
+
+    // MO initializes its work toil with:
+    //   bill.GetWorkAmount(item) * (MaxHP - HitPoints)
+    //
+    // For full-durability recycle targets that becomes zero. Wrap the returned
+    // toil and override workLeft after MO's own init has run:
+    //   recycle workLeft = 30 * current HP
+    //
+    // This is valid for every durability, including 100%.
+    [HarmonyPatch]
+    internal static class Patch_MO_DoRecipeWork_Mend
+    {
+        private static MethodBase TargetMethod()
+        {
+            Type type = AccessTools.TypeByName("MedievalOverhaul.JobDriver_DoMending");
+            return type == null ? null : AccessTools.Method(type, "DoRecipeWork_Mend");
+        }
+
+        private static void Postfix(ref Toil __result)
+        {
+            if (__result == null)
+                return;
+
+            Toil toil = __result;
+            Action originalInit = toil.initAction;
+
+            toil.initAction = delegate
+            {
+                originalInit?.Invoke();
+
+                Pawn actor = toil.actor;
+                Job job = actor?.jobs?.curJob;
+                if (job == null || !RecycleUtility.IsRecycleRecipe(job.RecipeDef))
+                    return;
+
+                Thing item = job.GetTarget(TargetIndex.B).Thing;
+                if (item == null)
+                    return;
+
+                object driver = actor.jobs.curDriver;
+                if (driver == null)
+                    return;
+
+                FieldInfo workLeftField = AccessTools.Field(driver.GetType(), "workLeft");
+                if (workLeftField != null)
+                    workLeftField.SetValue(driver, RecycleUtility.WorkPerHp * Math.Max(1, item.HitPoints));
+            };
         }
     }
 
