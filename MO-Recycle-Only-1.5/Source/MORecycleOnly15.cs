@@ -13,12 +13,14 @@ namespace MORecycleOnly15
         public float maxRecovery = 0.50f;
         public bool durabilityAffectsYield = true;
         public bool recoverIntricateMaterials = false;
+        public float fullDurabilityRecycleWork = 120f;
 
         public override void ExposeData()
         {
             Scribe_Values.Look(ref maxRecovery, "maxRecovery", 0.50f);
             Scribe_Values.Look(ref durabilityAffectsYield, "durabilityAffectsYield", true);
             Scribe_Values.Look(ref recoverIntricateMaterials, "recoverIntricateMaterials", false);
+            Scribe_Values.Look(ref fullDurabilityRecycleWork, "fullDurabilityRecycleWork", 120f);
         }
     }
 
@@ -53,6 +55,10 @@ namespace MORecycleOnly15
                 "Disabled by default to prevent recycling equipment back into components or other intricate manufactured parts.");
 
             listing.Gap();
+            listing.Label("Recycle work at 100% durability: " + Mathf.RoundToInt(s.fullDurabilityRecycleWork));
+            s.fullDurabilityRecycleWork = Mathf.Round(listing.Slider(s.fullDurabilityRecycleWork, 30f, 600f));
+
+            listing.Gap();
             listing.Label("Recycling uses Medieval Overhaul's existing mending bench. Repair tools are consumed by the bench's normal fuel system while the pawn works.");
 
             listing.End();
@@ -61,7 +67,7 @@ namespace MORecycleOnly15
 
     internal static class RecycleUtility
     {
-        internal const float MaxRecycleWork = 600f;
+        internal const float MinimumRecycleWork = 30f;
 
         private static readonly HashSet<string> RecycleRecipes = new HashSet<string>
         {
@@ -82,18 +88,34 @@ namespace MORecycleOnly15
         static Bootstrap()
         {
             new Harmony("allen.mo.recycleonly15").PatchAll();
-            Log.Message("[MO Recycle Only 1.5] loaded. Recycle work = 600 x durability fraction; MO repair system is untouched.");
+            Log.Message("[MO Recycle Only 1.5 v1.3] loaded. Actual Bill.GetWorkAmount is directly overridden for recycle bills; default full-durability work=120.");
         }
     }
 
-    // Medieval Overhaul mending uses 30 work per missing HP. Recycling keeps a
-    // similar practical time scale without depending on absolute MaxHP:
-    //
-    //   recycle work = 600 x current durability fraction
-    //
-    // 100% durability = 600 work, 50% = 300, 10% = 60.
-    // This is roughly the same work as repairing 20 HP at full durability,
-    // and lower-durability items are always faster to dismantle.
+    // Actual workLeft in vanilla JobDriver_DoBill is initialized through
+    // Bill.GetWorkAmount(thing). Patch that exact call path directly.
+    // Default: 100%=120, 50%=60, <=25%=30. Users can tune the 100% value.
+    [HarmonyPatch(typeof(Bill), nameof(Bill.GetWorkAmount))]
+    internal static class Patch_Bill_GetWorkAmount
+    {
+        private static bool Prefix(Bill __instance, Thing thing, ref float __result)
+        {
+            if (__instance == null || !RecycleUtility.IsRecycleRecipe(__instance.recipe) || thing == null)
+                return true;
+
+            float durability = thing.MaxHitPoints > 0
+                ? Mathf.Clamp01((float)thing.HitPoints / thing.MaxHitPoints)
+                : 1f;
+
+            float fullWork = MORecycleMod.Settings?.fullDurabilityRecycleWork ?? 120f;
+            __result = Mathf.Max(RecycleUtility.MinimumRecycleWork, fullWork * durability);
+            return false;
+        }
+    }
+
+    // The progress bar and long-craft checks read RecipeDef.WorkAmountTotal directly,
+    // so mirror the same value there. This does not control actual workLeft; the Bill
+    // patch above does.
     [HarmonyPatch(typeof(RecipeDef), nameof(RecipeDef.WorkAmountTotal))]
     internal static class Patch_RecipeDef_WorkAmountTotal
     {
@@ -105,7 +127,9 @@ namespace MORecycleOnly15
             float durability = thing.MaxHitPoints > 0
                 ? Mathf.Clamp01((float)thing.HitPoints / thing.MaxHitPoints)
                 : 1f;
-            __result = Mathf.Max(30f, RecycleUtility.MaxRecycleWork * durability);
+
+            float fullWork = MORecycleMod.Settings?.fullDurabilityRecycleWork ?? 120f;
+            __result = Mathf.Max(RecycleUtility.MinimumRecycleWork, fullWork * durability);
         }
     }
 
