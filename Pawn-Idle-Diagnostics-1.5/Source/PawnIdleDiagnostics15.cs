@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -10,27 +9,24 @@ using RimWorld;
 using UnityEngine;
 using Verse;
 using Verse.AI;
-using Verse.AI.Group;
 
 namespace PawnIdleDiagnostics15
 {
     public sealed class IdleDiagSettings : ModSettings
     {
-        public bool autoDiagnose = true;
+        public bool autoArmOnRealWander = true;
         public bool addPawnGizmo = true;
         public bool mirrorSummaryToPlayerLog = true;
         public int cooldownTicks = 2500;
-        public int maxCandidatesPerGiver = 200;
-        public int maxTotalCandidates = 3000;
+        public int maxTraceLines = 260;
 
         public override void ExposeData()
         {
-            Scribe_Values.Look(ref autoDiagnose, "autoDiagnose", true);
+            Scribe_Values.Look(ref autoArmOnRealWander, "autoArmOnRealWander", true);
             Scribe_Values.Look(ref addPawnGizmo, "addPawnGizmo", true);
             Scribe_Values.Look(ref mirrorSummaryToPlayerLog, "mirrorSummaryToPlayerLog", true);
             Scribe_Values.Look(ref cooldownTicks, "cooldownTicks", 2500);
-            Scribe_Values.Look(ref maxCandidatesPerGiver, "maxCandidatesPerGiver", 200);
-            Scribe_Values.Look(ref maxTotalCandidates, "maxTotalCandidates", 3000);
+            Scribe_Values.Look(ref maxTraceLines, "maxTraceLines", 260);
         }
     }
 
@@ -43,28 +39,32 @@ namespace PawnIdleDiagnostics15
             Settings = GetSettings<IdleDiagSettings>();
         }
 
-        public override string SettingsCategory() => "Pawn Idle Diagnostics 1.5";
+        public override string SettingsCategory() => "Pawn Idle Diagnostics 1.5 v1.1";
 
         public override void DoSettingsWindowContents(Rect inRect)
         {
             Listing_Standard listing = new Listing_Standard();
             listing.Begin(inRect);
-            listing.CheckboxLabeled("Auto-diagnose player colonists when an idle/wander job starts", ref Settings.autoDiagnose,
-                "Schedules a read-only diagnostic snapshot when a colonist enters an idle-style job.");
-            listing.CheckboxLabeled("Add 'Diagnose work/idle now' gizmo to player pawns", ref Settings.addPawnGizmo,
-                "Lets you manually request a diagnostic for the selected pawn.");
-            listing.CheckboxLabeled("Mirror one-line report summaries to Player.log", ref Settings.mirrorSummaryToPlayerLog,
-                "Full reports are always written to PawnIdleDiagnostics.log.");
+            listing.CheckboxLabeled(
+                "Auto-arm exact trace when a colonist enters Wait_Wander",
+                ref Settings.autoArmOnRealWander,
+                "Only real colony wandering arms a trace. Wait_MaintainPosture and transient waits are ignored.");
+            listing.CheckboxLabeled(
+                "Add 'Arm next work-chain trace' gizmo",
+                ref Settings.addPawnGizmo,
+                "The next normal JobGiver_Work call for this pawn will be traced.");
+            listing.CheckboxLabeled(
+                "Mirror one-line trace result to Player.log",
+                ref Settings.mirrorSummaryToPlayerLog,
+                "Full traces are written to PawnIdleWorkTrace.log.");
 
             listing.GapLine();
             listing.Label("Automatic per-pawn cooldown: " + Settings.cooldownTicks + " ticks");
             Settings.cooldownTicks = (int)listing.Slider(Settings.cooldownTicks, 250f, 15000f);
-            listing.Label("Max candidates per WorkGiver: " + Settings.maxCandidatesPerGiver);
-            Settings.maxCandidatesPerGiver = (int)listing.Slider(Settings.maxCandidatesPerGiver, 25f, 1000f);
-            listing.Label("Max total candidates per pawn report: " + Settings.maxTotalCandidates);
-            Settings.maxTotalCandidates = (int)listing.Slider(Settings.maxTotalCandidates, 500f, 10000f);
+            listing.Label("Maximum detail lines per exact trace: " + Settings.maxTraceLines);
+            Settings.maxTraceLines = (int)listing.Slider(Settings.maxTraceLines, 80f, 1000f);
             listing.Gap();
-            listing.Label("Output: " + IdleDiagLog.LogPath);
+            listing.Label("Output: " + WorkTraceLog.LogPath);
             listing.End();
         }
     }
@@ -76,820 +76,587 @@ namespace PawnIdleDiagnostics15
         {
             Harmony harmony = new Harmony("allen.pawn.idle.diagnostics15");
             harmony.PatchAll();
-            IdleDiagLog.InitializeSession();
-            IdleDiagLog.WritePatchInventory();
-            Log.Message("[IdleDiag] Pawn Idle Diagnostics 1.5 loaded. Read-only diagnostics enabled. Output: " + IdleDiagLog.LogPath);
+            WorkTraceLog.InitializeSession();
+            WorkTraceLog.WritePatchInventory();
+            Log.Message("[IdleDiag v1.1] Exact work-chain tracer loaded. It does not issue jobs or change AI results. Output: " + WorkTraceLog.LogPath);
         }
     }
 
-    public sealed class IdleDiagGameComponent : GameComponent
-    {
-        public IdleDiagGameComponent(Game game) { }
-
-        public override void GameComponentTick()
-        {
-            IdleDiagManager.ProcessQueue();
-        }
-
-        public override void LoadedGame()
-        {
-            IdleDiagManager.ResetRuntime();
-            IdleDiagLog.WriteLine("");
-            IdleDiagLog.WriteLine("=== Loaded game at " + DateTime.Now.ToString("s") + " ===");
-        }
-
-        public override void StartedNewGame()
-        {
-            IdleDiagManager.ResetRuntime();
-            IdleDiagLog.WriteLine("");
-            IdleDiagLog.WriteLine("=== Started new game at " + DateTime.Now.ToString("s") + " ===");
-        }
-    }
-
-    internal sealed class PendingDiag
+    internal sealed class WorkTraceState
     {
         public Pawn pawn;
-        public int scheduledTick;
-        public bool manual;
-        public string trigger;
-        public string previousJob;
-        public string idleJob;
-        public string sourceNode;
-        public string thinkTree;
-        public string lastEndCondition;
-    }
-
-    internal sealed class WorkNodeTrace
-    {
         public int tick;
-        public bool emergency;
-        public bool resultValid;
-        public string resultJob;
-        public string exception;
+        public string trigger;
+        public string entryJob;
+        public string beforeNearby;
+        public string afterNearby;
+        public Exception exception;
+        public readonly List<string> lines = new List<string>();
+        public bool truncated;
+
+        public void Add(string line)
+        {
+            int cap = Math.Max(80, IdleDiagMod.Settings?.maxTraceLines ?? 260);
+            if (lines.Count < cap)
+            {
+                lines.Add(line);
+            }
+            else if (!truncated)
+            {
+                truncated = true;
+                lines.Add("... TRACE TRUNCATED ...");
+            }
+        }
     }
 
-    internal static class IdleDiagManager
+    internal static class WorkTraceManager
     {
-        private static readonly Queue<PendingDiag> queue = new Queue<PendingDiag>();
-        private static readonly HashSet<int> queuedPawnIds = new HashSet<int>();
-        private static readonly Dictionary<int, int> lastAutoDiagTick = new Dictionary<int, int>();
-        private static readonly Dictionary<int, WorkNodeTrace> normalWorkTrace = new Dictionary<int, WorkNodeTrace>();
-        private static readonly Dictionary<int, WorkNodeTrace> emergencyWorkTrace = new Dictionary<int, WorkNodeTrace>();
-        private static int lastProcessTick = -99999;
-
-        internal static void ResetRuntime()
-        {
-            queue.Clear();
-            queuedPawnIds.Clear();
-            lastAutoDiagTick.Clear();
-            normalWorkTrace.Clear();
-            emergencyWorkTrace.Clear();
-            lastProcessTick = -99999;
-        }
+        private static readonly Dictionary<int, string> armed = new Dictionary<int, string>();
+        private static readonly Dictionary<int, int> lastAutoArmTick = new Dictionary<int, int>();
+        private static readonly Dictionary<int, WorkTraceState> active = new Dictionary<int, WorkTraceState>();
 
         internal static bool Eligible(Pawn pawn)
         {
             return pawn != null &&
                    !pawn.Destroyed &&
+                   pawn.Spawned &&
                    pawn.RaceProps != null &&
                    pawn.RaceProps.Humanlike &&
-                   pawn.Faction == Faction.OfPlayer &&
-                   pawn.Spawned;
+                   pawn.Faction == Faction.OfPlayer;
         }
 
-        internal static void RecordWorkNodeBegin(Pawn pawn, bool emergency)
-        {
-            if (!Eligible(pawn)) return;
-            WorkNodeTrace trace = new WorkNodeTrace
-            {
-                tick = Find.TickManager?.TicksGame ?? -1,
-                emergency = emergency,
-                resultValid = false,
-                resultJob = null,
-                exception = null
-            };
-            if (emergency) emergencyWorkTrace[pawn.thingIDNumber] = trace;
-            else normalWorkTrace[pawn.thingIDNumber] = trace;
-        }
-
-        internal static void RecordWorkNodeEnd(Pawn pawn, bool emergency, ThinkResult result)
-        {
-            if (!Eligible(pawn)) return;
-            Dictionary<int, WorkNodeTrace> dict = emergency ? emergencyWorkTrace : normalWorkTrace;
-            if (!dict.TryGetValue(pawn.thingIDNumber, out WorkNodeTrace trace))
-            {
-                trace = new WorkNodeTrace { emergency = emergency };
-                dict[pawn.thingIDNumber] = trace;
-            }
-            trace.tick = Find.TickManager?.TicksGame ?? -1;
-            trace.resultValid = result.IsValid;
-            trace.resultJob = result.Job?.def?.defName;
-        }
-
-        internal static void RecordWorkNodeException(Pawn pawn, bool emergency, Exception ex)
-        {
-            if (!Eligible(pawn) || ex == null) return;
-            Dictionary<int, WorkNodeTrace> dict = emergency ? emergencyWorkTrace : normalWorkTrace;
-            if (!dict.TryGetValue(pawn.thingIDNumber, out WorkNodeTrace trace))
-            {
-                trace = new WorkNodeTrace { emergency = emergency };
-                dict[pawn.thingIDNumber] = trace;
-            }
-            trace.tick = Find.TickManager?.TicksGame ?? -1;
-            trace.exception = ex.GetType().FullName + ": " + ex.Message;
-        }
-
-        internal static WorkNodeTrace GetNormalTrace(Pawn pawn)
-        {
-            if (pawn == null) return null;
-            normalWorkTrace.TryGetValue(pawn.thingIDNumber, out WorkNodeTrace trace);
-            return trace;
-        }
-
-        internal static WorkNodeTrace GetEmergencyTrace(Pawn pawn)
-        {
-            if (pawn == null) return null;
-            emergencyWorkTrace.TryGetValue(pawn.thingIDNumber, out WorkNodeTrace trace);
-            return trace;
-        }
-
-        internal static void Schedule(Pawn pawn, bool manual, string trigger,
-            string previousJob = null, string idleJob = null, string sourceNode = null,
-            string thinkTree = null, string lastEndCondition = null)
+        internal static void Arm(Pawn pawn, string trigger, bool manual)
         {
             if (!Eligible(pawn)) return;
 
             int tick = Find.TickManager?.TicksGame ?? 0;
-            IdleDiagSettings settings = IdleDiagMod.Settings ?? new IdleDiagSettings();
-
             if (!manual)
             {
-                if (!settings.autoDiagnose) return;
-                if (lastAutoDiagTick.TryGetValue(pawn.thingIDNumber, out int last) &&
+                IdleDiagSettings settings = IdleDiagMod.Settings ?? new IdleDiagSettings();
+                if (!settings.autoArmOnRealWander) return;
+                if (lastAutoArmTick.TryGetValue(pawn.thingIDNumber, out int last) &&
                     tick - last < settings.cooldownTicks)
                     return;
-                lastAutoDiagTick[pawn.thingIDNumber] = tick;
+                lastAutoArmTick[pawn.thingIDNumber] = tick;
             }
 
-            if (queuedPawnIds.Contains(pawn.thingIDNumber)) return;
+            armed[pawn.thingIDNumber] = trigger;
+            if (manual)
+                Messages.Message("Exact work-chain trace armed for " + pawn.LabelShortCap + ".", MessageTypeDefOf.NeutralEvent, false);
+        }
 
-            queue.Enqueue(new PendingDiag
+        internal static WorkTraceState Begin(JobGiver_Work giver, Pawn pawn)
+        {
+            if (giver == null || giver.emergency || !Eligible(pawn))
+                return null;
+
+            if (!armed.TryGetValue(pawn.thingIDNumber, out string trigger))
+                return null;
+
+            armed.Remove(pawn.thingIDNumber);
+
+            WorkTraceState state = new WorkTraceState
             {
                 pawn = pawn,
-                scheduledTick = tick,
-                manual = manual,
+                tick = Find.TickManager?.TicksGame ?? -1,
                 trigger = trigger,
-                previousJob = previousJob,
-                idleJob = idleJob,
-                sourceNode = sourceNode,
-                thinkTree = thinkTree,
-                lastEndCondition = lastEndCondition
-            });
-            queuedPawnIds.Add(pawn.thingIDNumber);
+                entryJob = pawn.CurJob?.def?.defName
+            };
+            active[pawn.thingIDNumber] = state;
 
-            if (manual)
-                Messages.Message("Idle diagnostic queued for " + pawn.LabelShortCap + ".", MessageTypeDefOf.NeutralEvent, false);
+            state.Add("TRACE-BEGIN pawn=" + pawn.LabelShortCap +
+                      " tick=" + state.tick +
+                      " trigger=" + trigger +
+                      " pos=" + pawn.Position +
+                      " timetable=" + (pawn.timetable?.CurrentAssignment?.defName ?? "<none>") +
+                      " entryJob=" + (state.entryJob ?? "<none>"));
+            state.Add("area=" + DescribeArea(pawn.playerSettings?.EffectiveAreaRestrictionInPawnCurrentMap, pawn) +
+                      " forbiddenHere=" + SafeBool(() => pawn.Position.IsForbidden(pawn)) +
+                      " mindIdle=" + (pawn.mindState?.IsIdle.ToString() ?? "<none>"));
+            return state;
         }
 
-        internal static void ProcessQueue()
+        internal static WorkTraceState Get(Pawn pawn)
         {
-            if (queue.Count == 0 || Find.TickManager == null) return;
-            int tick = Find.TickManager.TicksGame;
-            if (tick == lastProcessTick || tick % 30 != 0) return;
-            lastProcessTick = tick;
+            if (pawn == null) return null;
+            active.TryGetValue(pawn.thingIDNumber, out WorkTraceState state);
+            return state;
+        }
 
-            PendingDiag pending = queue.Dequeue();
-            if (pending.pawn != null)
-                queuedPawnIds.Remove(pending.pawn.thingIDNumber);
+        internal static void CaptureStage(Pawn pawn, string stage, ThinkResult result)
+        {
+            WorkTraceState state = Get(pawn);
+            if (state == null) return;
 
-            if (!Eligible(pending.pawn)) return;
+            string text = DescribeResult(result);
+            if (stage == "before-nearby") state.beforeNearby = text;
+            if (stage == "after-nearby") state.afterNearby = text;
+            state.Add("RESULT-STAGE " + stage + " => " + text);
+        }
+
+        internal static void CaptureException(Pawn pawn, Exception ex)
+        {
+            WorkTraceState state = Get(pawn);
+            if (state == null || ex == null) return;
+            state.exception = ex;
+            state.Add("ACTUAL-EXCEPTION " + ex.GetType().FullName + ": " + ex.Message);
+        }
+
+        internal static void Finish(JobGiver_Work giver, Pawn pawn, ThinkResult finalResult)
+        {
+            WorkTraceState state = Get(pawn);
+            if (state == null) return;
 
             try
             {
-                string report = IdleDiagnostic.BuildReport(pending);
-                IdleDiagLog.WriteLine(report);
-                IdleDiagLog.WriteLine("");
+                string finalText = DescribeResult(finalResult);
+                state.Add("ACTUAL-FINAL => " + finalText);
 
-                IdleDiagSettings settings = IdleDiagMod.Settings ?? new IdleDiagSettings();
-                if (settings.mirrorSummaryToPlayerLog)
-                    Log.Message("[IdleDiag] report written for " + pending.pawn.LabelShortCap +
-                                " (trigger=" + pending.trigger + "). File: " + IdleDiagLog.LogPath);
-                if (pending.manual)
-                    Messages.Message("Idle diagnostic written for " + pending.pawn.LabelShortCap + ".", MessageTypeDefOf.NeutralEvent, false);
-            }
-            catch (Exception ex)
-            {
-                string msg = "[IdleDiag] diagnostic failed for " + pending.pawn.ToStringSafe() + ": " + ex;
-                IdleDiagLog.WriteLine(msg);
-                Log.Error(msg);
-            }
-        }
-    }
-
-    internal static class IdleDiagnostic
-    {
-        private sealed class ScanStats
-        {
-            public string giver;
-            public string workType;
-            public int priority;
-            public string gate;
-            public int candidates;
-            public int forbidden;
-            public int noHasJob;
-            public int hasJob;
-            public int unreachable;
-            public int reachable;
-            public int invalid;
-            public int exceptions;
-            public bool truncated;
-            public string exampleReachable;
-            public string exampleUnreachable;
-            public string firstException;
-        }
-
-        internal static string BuildReport(PendingDiag pending)
-        {
-            Pawn pawn = pending.pawn;
-            StringBuilder sb = new StringBuilder(16384);
-            int tick = Find.TickManager?.TicksGame ?? -1;
-
-            sb.AppendLine("================================================================================");
-            sb.AppendLine("PAWN IDLE DIAGNOSTIC");
-            sb.AppendLine("timestamp=" + DateTime.Now.ToString("s") + " tick=" + tick);
-            sb.AppendLine("pawn=" + pawn.LabelShortCap + " thingID=" + pawn.thingIDNumber +
-                          " kind=" + pawn.kindDef?.defName + " map=" + pawn.Map?.uniqueID +
-                          " pos=" + pawn.Position);
-            sb.AppendLine("trigger=" + pending.trigger + " manual=" + pending.manual +
-                          " scheduledTick=" + pending.scheduledTick);
-            sb.AppendLine("idleJob=" + Safe(pending.idleJob) +
-                          " previousJob=" + Safe(pending.previousJob) +
-                          " sourceNode=" + Safe(pending.sourceNode) +
-                          " thinkTree=" + Safe(pending.thinkTree) +
-                          " lastEndCondition=" + Safe(pending.lastEndCondition));
-
-            AppendPawnState(sb, pawn);
-            AppendWorkNodeTrace(sb, pawn, tick);
-            AppendAreaState(sb, pawn);
-            AppendWorkPriorities(sb, pawn);
-            AppendNeeds(sb, pawn);
-
-            int totalCandidates = 0;
-            int passGivers = 0;
-            int blockedGivers = 0;
-            int reachableCandidates = 0;
-            int unreachableCandidates = 0;
-            int exceptionCount = 0;
-            List<ScanStats> stats = DeepScanWorkGivers(pawn, ref totalCandidates);
-
-            sb.AppendLine("--- WorkGiver deep scan (read-only; no JobOnThing/JobOnCell calls) ---");
-            foreach (ScanStats st in stats)
-            {
-                if (st.gate == "PASS") passGivers++;
-                else blockedGivers++;
-                reachableCandidates += st.reachable;
-                unreachableCandidates += st.unreachable;
-                exceptionCount += st.exceptions;
-
-                sb.Append(st.giver)
-                  .Append(" workType=").Append(Safe(st.workType))
-                  .Append(" prio=").Append(st.priority)
-                  .Append(" gate=").Append(st.gate);
-
-                if (st.gate == "PASS")
+                if (!finalResult.IsValid)
                 {
-                    sb.Append(" candidates=").Append(st.candidates)
-                      .Append(" forbidden=").Append(st.forbidden)
-                      .Append(" noHasJob=").Append(st.noHasJob)
-                      .Append(" hasJob=").Append(st.hasJob)
-                      .Append(" reachable=").Append(st.reachable)
-                      .Append(" unreachable=").Append(st.unreachable)
-                      .Append(" invalid=").Append(st.invalid)
-                      .Append(" exceptions=").Append(st.exceptions);
-                    if (st.truncated) sb.Append(" TRUNCATED");
-                    if (!string.IsNullOrEmpty(st.exampleReachable))
-                        sb.Append(" exampleReachable=").Append(st.exampleReachable);
-                    if (!string.IsNullOrEmpty(st.exampleUnreachable))
-                        sb.Append(" exampleUnreachable=").Append(st.exampleUnreachable);
-                    if (!string.IsNullOrEmpty(st.firstException))
-                        sb.Append(" firstException=").Append(st.firstException);
+                    state.Add("--- MIRROR OF VANILLA 1.5 WORK SELECTION (same tick, diagnostic rerun) ---");
+                    Rand.PushState();
+                    try
+                    {
+                        MirrorVanillaWorkSelection.Run(giver, pawn, state);
+                    }
+                    finally
+                    {
+                        Rand.PopState();
+                    }
                 }
-                sb.AppendLine();
-            }
+                else
+                {
+                    state.Add("Mirror skipped because actual final result is already a valid work job.");
+                }
 
-            sb.AppendLine("--- Diagnostic synthesis ---");
-            WorkNodeTrace normalTrace = IdleDiagManager.GetNormalTrace(pawn);
-            bool recentWorkNode = normalTrace != null && tick - normalTrace.tick >= 0 && tick - normalTrace.tick <= 120;
-
-            if (!recentWorkNode)
-                sb.AppendLine("FINDING: Normal JobGiver_Work was not observed within the last 120 ticks. The ThinkTree may have selected a higher-priority branch before normal work was evaluated (timetable, Lord duty, needs, another modded ThinkNode, etc.).");
-            else if (!normalTrace.resultValid)
-                sb.AppendLine("FINDING: Normal JobGiver_Work was evaluated recently and returned NoJob.");
-            else
-                sb.AppendLine("FINDING: Normal JobGiver_Work recently returned a valid job (" + Safe(normalTrace.resultJob) + "); later interruption/override should be investigated.");
-
-            if (reachableCandidates > 0 && recentWorkNode && !normalTrace.resultValid)
-                sb.AppendLine("STRONG SIGNAL: Deep scan found " + reachableCandidates + " reachable HasJob candidates even though vanilla JobGiver_Work returned NoJob. Suspect a patched JobGiver_Work search path, JobOnThing/JobOnCell returning null, priority-group interaction, or state changing between the real scan and this snapshot.");
-
-            if (unreachableCandidates > 0 && reachableCandidates == 0)
-                sb.AppendLine("STRONG SIGNAL: WorkGivers report HasJob candidates, but none of the sampled candidates are reachable. Pathing/area/door/danger restrictions are prime suspects.");
-
-            Area area = pawn.playerSettings?.EffectiveAreaRestrictionInPawnCurrentMap;
-            if (area != null)
-            {
-                bool pawnInside = false;
-                try { pawnInside = pawn.Position.InBounds(pawn.Map) && area[pawn.Position]; } catch { }
-                if (!pawnInside)
-                    sb.AppendLine("STRONG SIGNAL: Pawn current position is outside its effective allowed area or the area lookup failed.");
-                if (area.TrueCount == 0)
-                    sb.AppendLine("STRONG SIGNAL: Effective allowed area has zero allowed cells.");
-            }
-
-            if (pawn.workSettings == null || !pawn.workSettings.EverWork)
-                sb.AppendLine("STRONG SIGNAL: pawn.workSettings is null or EverWork=false; normal work priority is effectively zero.");
-
-            if (exceptionCount > 0)
-                sb.AppendLine("STRONG SIGNAL: " + exceptionCount + " WorkGiver diagnostic calls threw exceptions. See per-giver firstException fields; a broken WorkGiver/mod can make automatic work disappear.");
-
-            sb.AppendLine("summary: passGivers=" + passGivers +
-                          " blockedGivers=" + blockedGivers +
-                          " totalCandidatesSampled=" + totalCandidates +
-                          " reachableHasJob=" + reachableCandidates +
-                          " unreachableHasJob=" + unreachableCandidates +
-                          " exceptions=" + exceptionCount);
-            sb.AppendLine("================================================================================");
-            return sb.ToString();
-        }
-
-        private static void AppendPawnState(StringBuilder sb, Pawn pawn)
-        {
-            sb.AppendLine("--- Pawn state ---");
-            sb.AppendLine("spawned=" + pawn.Spawned +
-                          " drafted=" + pawn.Drafted +
-                          " downed=" + pawn.Downed +
-                          " dead=" + pawn.Dead +
-                          " mentalState=" + (pawn.InMentalState ? pawn.MentalStateDef?.defName : "none") +
-                          " burning=" + pawn.IsBurning());
-
-            string assignment = pawn.timetable?.CurrentAssignment?.defName ?? "no timetable";
-            sb.AppendLine("timetable=" + assignment +
-                          " workSettings=" + (pawn.workSettings == null ? "null" : "present") +
-                          " everWork=" + (pawn.workSettings?.EverWork.ToString() ?? "n/a"));
-
-            Lord lord = null;
-            try { lord = pawn.GetLord(); } catch { }
-            sb.AppendLine("lord=" + (lord?.LordJob?.GetType().FullName ?? "none") +
-                          " duty=" + (pawn.mindState?.duty?.def?.defName ?? "none") +
-                          " mindIdle=" + (pawn.mindState?.IsIdle.ToString() ?? "n/a") +
-                          " currentJob=" + (pawn.CurJob?.def?.defName ?? "none") +
-                          " currentJobGiver=" + (pawn.CurJob?.jobGiver?.GetType().FullName ?? "none") +
-                          " currentWorkGiver=" + (pawn.CurJob?.workGiverDef?.defName ?? "none"));
-        }
-
-        private static void AppendWorkNodeTrace(StringBuilder sb, Pawn pawn, int tick)
-        {
-            sb.AppendLine("--- Observed vanilla work-node trace ---");
-            WorkNodeTrace normal = IdleDiagManager.GetNormalTrace(pawn);
-            WorkNodeTrace emergency = IdleDiagManager.GetEmergencyTrace(pawn);
-            sb.AppendLine("normal=" + FormatTrace(normal, tick));
-            sb.AppendLine("emergency=" + FormatTrace(emergency, tick));
-        }
-
-        private static string FormatTrace(WorkNodeTrace trace, int now)
-        {
-            if (trace == null) return "not observed";
-            return "tick=" + trace.tick +
-                   " ageTicks=" + (now - trace.tick) +
-                   " resultValid=" + trace.resultValid +
-                   " resultJob=" + Safe(trace.resultJob) +
-                   " exception=" + Safe(trace.exception);
-        }
-
-        private static void AppendAreaState(StringBuilder sb, Pawn pawn)
-        {
-            sb.AppendLine("--- Area / forbid / reachability state ---");
-            try
-            {
-                Area raw = pawn.playerSettings?.AreaRestrictionInPawnCurrentMap;
-                Area effective = pawn.playerSettings?.EffectiveAreaRestrictionInPawnCurrentMap;
-                sb.AppendLine("rawArea=" + DescribeArea(raw, pawn) +
-                              " effectiveArea=" + DescribeArea(effective, pawn));
-                bool posForbidden = pawn.Position.IsForbidden(pawn);
-                bool canReachSelf = pawn.CanReach(pawn.Position, PathEndMode.OnCell, Danger.Some);
-                sb.AppendLine("positionForbidden=" + posForbidden + " canReachOwnCell=" + canReachSelf);
+                WriteState(state, finalResult);
             }
             catch (Exception ex)
             {
-                sb.AppendLine("AREA CHECK EXCEPTION: " + ex.GetType().FullName + ": " + ex.Message);
+                state.Add("TRACE-FINISH-EXCEPTION " + ex.GetType().FullName + ": " + ex.Message);
+                WriteState(state, finalResult);
             }
+            finally
+            {
+                active.Remove(pawn.thingIDNumber);
+            }
+        }
+
+        private static void WriteState(WorkTraceState state, ThinkResult finalResult)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("================================================================================");
+            sb.AppendLine("EXACT WORK-CHAIN TRACE");
+            sb.AppendLine("timestamp=" + DateTime.Now.ToString("s") +
+                          " tick=" + state.tick +
+                          " pawn=" + state.pawn.LabelShortCap +
+                          " thingID=" + state.pawn.thingIDNumber);
+            sb.AppendLine("trigger=" + state.trigger);
+            sb.AppendLine("beforeNearby=" + (state.beforeNearby ?? "<not captured>"));
+            sb.AppendLine("afterNearby=" + (state.afterNearby ?? "<not captured>"));
+            if (state.exception != null)
+                sb.AppendLine("actualException=" + state.exception.GetType().FullName + ": " + state.exception.Message);
+            foreach (string line in state.lines)
+                sb.AppendLine(line);
+            sb.AppendLine("================================================================================");
+            WorkTraceLog.WriteLine(sb.ToString());
+
+            if (IdleDiagMod.Settings?.mirrorSummaryToPlayerLog ?? true)
+            {
+                Log.Message("[IdleDiag v1.1] exact trace for " + state.pawn.LabelShortCap +
+                            ": final=" + DescribeResult(finalResult) +
+                            ", beforeNearby=" + (state.beforeNearby ?? "<not captured>") +
+                            ", file=" + WorkTraceLog.LogPath);
+            }
+        }
+
+        internal static string DescribeResult(ThinkResult result)
+        {
+            if (!result.IsValid) return "NoJob";
+            Job job = result.Job;
+            return "Job=" + (job?.def?.defName ?? "<null>") +
+                   " workGiver=" + (job?.workGiverDef?.defName ?? "<none>");
         }
 
         private static string DescribeArea(Area area, Pawn pawn)
         {
             if (area == null) return "Unrestricted";
-            string mapText = "unknown";
-            bool registered = false;
-            bool posInside = false;
             try
             {
-                mapText = area.Map?.uniqueID.ToString() ?? "null";
-                registered = pawn.Map?.areaManager?.AllAreas?.Contains(area) == true;
-                if (pawn.Map != null && pawn.Position.InBounds(pawn.Map) && area.Map == pawn.Map)
-                    posInside = area[pawn.Position];
+                return area.Label + "#" + area.ID +
+                       " map=" + (area.Map?.uniqueID.ToString() ?? "null") +
+                       " trueCells=" + area.TrueCount +
+                       " pawnInside=" + (pawn.Map == area.Map && pawn.Position.InBounds(pawn.Map) && area[pawn.Position]);
             }
-            catch { }
-            return area.Label + "#" + area.ID +
-                   "(map=" + mapText +
-                   ", trueCells=" + area.TrueCount +
-                   ", registered=" + registered +
-                   ", pawnInside=" + posInside + ")";
+            catch (Exception ex)
+            {
+                return "AREA-EX:" + ex.GetType().Name;
+            }
         }
 
-        private static void AppendWorkPriorities(StringBuilder sb, Pawn pawn)
+        private static string SafeBool(Func<bool> fn)
         {
-            sb.AppendLine("--- Work priorities ---");
-            if (pawn.workSettings == null)
+            try { return fn().ToString(); }
+            catch (Exception ex) { return "EX:" + ex.GetType().Name; }
+        }
+    }
+
+    internal static class MirrorVanillaWorkSelection
+    {
+        private static readonly MethodInfo PawnCanUseWorkGiverMethod =
+            AccessTools.Method(typeof(JobGiver_Work), "PawnCanUseWorkGiver");
+
+        internal static void Run(JobGiver_Work instance, Pawn pawn, WorkTraceState trace)
+        {
+            if (pawn == null || pawn.workSettings == null || pawn.Map == null)
             {
-                sb.AppendLine("workSettings=null");
+                trace.Add("MIRROR abort: pawn/workSettings/map missing.");
                 return;
             }
 
-            List<string> enabled = new List<string>();
-            List<string> disabled = new List<string>();
-            foreach (WorkTypeDef wt in DefDatabase<WorkTypeDef>.AllDefsListForReading)
+            List<WorkGiver> list;
+            try
             {
+                list = pawn.workSettings.WorkGiversInOrderNormal;
+            }
+            catch (Exception ex)
+            {
+                trace.Add("MIRROR WorkGiversInOrderNormal EX: " + ex.GetType().Name + ": " + ex.Message);
+                return;
+            }
+
+            int previousPriorityInType = -999;
+            TargetInfo bestTarget = TargetInfo.Invalid;
+            WorkGiver_Scanner scannerWhoProvidedTarget = null;
+            int passedGivers = 0;
+            int skippedGivers = 0;
+
+            for (int j = 0; j < list.Count; j++)
+            {
+                WorkGiver workGiver = list[j];
+                if (workGiver == null || workGiver.def == null)
+                    continue;
+
+                if (workGiver.def.priorityInType != previousPriorityInType && bestTarget.IsValid)
+                {
+                    trace.Add("!!! POISONED-PRIORITY BREAK at index=" + j +
+                              " nextGiver=" + workGiver.def.defName +
+                              " nextPriorityInType=" + workGiver.def.priorityInType +
+                              " previousPriorityInType=" + previousPriorityInType +
+                              " staleTarget=" + TargetText(bestTarget) +
+                              " staleProvider=" + GiverText(scannerWhoProvidedTarget) +
+                              ". Lower work givers are NOT scanned by vanilla after this break.");
+                    trace.Add("MIRROR-FINAL => NoJob due to retained target after JobOnX returned null.");
+                    return;
+                }
+
+                bool canUse;
                 try
                 {
-                    bool hardDisabled = pawn.WorkTypeIsDisabled(wt);
-                    int prio = pawn.workSettings.GetPriority(wt);
-                    string item = wt.defName + "=" + prio + (hardDisabled ? "(disabled)" : "");
-                    if (!hardDisabled && prio > 0) enabled.Add(item);
-                    else disabled.Add(item);
+                    canUse = PawnCanUse(instance, pawn, workGiver);
                 }
                 catch (Exception ex)
                 {
-                    disabled.Add(wt.defName + "=EX:" + ex.GetType().Name);
+                    trace.Add("GATE-EX giver=" + GiverText(workGiver) + " => " + ex.GetType().Name + ": " + ex.Message);
+                    skippedGivers++;
+                    continue;
                 }
+
+                if (!canUse)
+                {
+                    skippedGivers++;
+                    continue;
+                }
+
+                passedGivers++;
+                trace.Add("GIVER index=" + j +
+                          " def=" + workGiver.def.defName +
+                          " type=" + workGiver.GetType().FullName +
+                          " asm=" + workGiver.GetType().Assembly.GetName().Name +
+                          " workType=" + (workGiver.def.workType?.defName ?? "<none>") +
+                          " pawnPrio=" + (workGiver.def.workType != null ? pawn.workSettings.GetPriority(workGiver.def.workType).ToString() : "<none>") +
+                          " priorityInType=" + workGiver.def.priorityInType);
+
+                try
+                {
+                    Job nonScan = workGiver.NonScanJob(pawn);
+                    if (nonScan != null)
+                    {
+                        trace.Add("  NONSCAN => " + nonScan.def?.defName + " ; MIRROR would return valid job here.");
+                        trace.Add("MIRROR-FINAL => Job=" + nonScan.def?.defName + " provider=" + workGiver.def.defName);
+                        return;
+                    }
+
+                    WorkGiver_Scanner scanner = workGiver as WorkGiver_Scanner;
+                    if (scanner != null)
+                    {
+                        ScanOneGiverLikeVanilla(pawn, scanner, ref bestTarget, ref scannerWhoProvidedTarget, trace);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    trace.Add("  SCAN-EX " + ex.GetType().Name + ": " + ex.Message);
+                }
+
+                if (bestTarget.IsValid)
+                {
+                    Job job = null;
+                    try
+                    {
+                        job = !bestTarget.HasThing
+                            ? scannerWhoProvidedTarget.JobOnCell(pawn, bestTarget.Cell)
+                            : scannerWhoProvidedTarget.JobOnThing(pawn, bestTarget.Thing);
+                    }
+                    catch (Exception ex)
+                    {
+                        trace.Add("  JOB-ON-X EX provider=" + GiverText(scannerWhoProvidedTarget) +
+                                  " target=" + TargetText(bestTarget) +
+                                  " => " + ex.GetType().Name + ": " + ex.Message);
+                    }
+
+                    if (job != null)
+                    {
+                        trace.Add("  JOB-ON-X => Job=" + job.def?.defName +
+                                  " provider=" + GiverText(scannerWhoProvidedTarget) +
+                                  " target=" + TargetText(bestTarget) +
+                                  " ; MIRROR would return valid job here.");
+                        trace.Add("MIRROR-FINAL => Job=" + job.def?.defName +
+                                  " provider=" + scannerWhoProvidedTarget.def?.defName);
+                        return;
+                    }
+
+                    trace.Add("  !!! JOB-ON-X RETURNED NULL provider=" + GiverText(scannerWhoProvidedTarget) +
+                              " target=" + TargetText(bestTarget) +
+                              ". bestTarget remains valid, so a priorityInType change on the next usable loop iteration can terminate the entire work scan.");
+                }
+
+                previousPriorityInType = workGiver.def.priorityInType;
             }
-            sb.AppendLine("enabled=" + (enabled.Count == 0 ? "<none>" : string.Join(", ", enabled)));
-            sb.AppendLine("disabledOrPriority0=" + (disabled.Count == 0 ? "<none>" : string.Join(", ", disabled)));
+
+            trace.Add("MIRROR-FINAL => NoJob after full loop. passedGivers=" + passedGivers +
+                      " skippedGivers=" + skippedGivers +
+                      " retainedTarget=" + (bestTarget.IsValid ? TargetText(bestTarget) : "<none>") +
+                      " retainedProvider=" + GiverText(scannerWhoProvidedTarget));
         }
 
-        private static void AppendNeeds(StringBuilder sb, Pawn pawn)
+        private static bool PawnCanUse(JobGiver_Work instance, Pawn pawn, WorkGiver giver)
         {
-            sb.AppendLine("--- Needs / capacities ---");
+            if (PawnCanUseWorkGiverMethod == null)
+                return FallbackPawnCanUse(pawn, giver);
+
             try
             {
-                if (pawn.needs?.AllNeeds != null)
+                return (bool)PawnCanUseWorkGiverMethod.Invoke(instance, new object[] { pawn, giver });
+            }
+            catch (TargetInvocationException tie)
+            {
+                throw tie.InnerException ?? tie;
+            }
+        }
+
+        private static bool FallbackPawnCanUse(Pawn pawn, WorkGiver giver)
+        {
+            if (!giver.def.nonColonistsCanDo && !pawn.IsColonist && !pawn.IsColonyMech)
+                return false;
+            if (pawn.WorkTagIsDisabled(giver.def.workTags))
+                return false;
+            if (giver.def.workType != null && pawn.WorkTypeIsDisabled(giver.def.workType))
+                return false;
+            if (giver.ShouldSkip(pawn))
+                return false;
+            if (giver.MissingRequiredCapacity(pawn) != null)
+                return false;
+            if (pawn.RaceProps.IsMechanoid && !giver.def.canBeDoneByMechs)
+                return false;
+            return true;
+        }
+
+        private static void ScanOneGiverLikeVanilla(
+            Pawn pawn,
+            WorkGiver_Scanner scanner,
+            ref TargetInfo bestTarget,
+            ref WorkGiver_Scanner scannerWhoProvidedTarget,
+            WorkTraceState trace)
+        {
+            if (scanner.def.scanThings)
+            {
+                IEnumerable<Thing> enumerable = scanner.PotentialWorkThingsGlobal(pawn);
+                bool carriedCandidate = pawn.carryTracker?.CarriedThing != null &&
+                                        scanner.PotentialWorkThingRequest.Accepts(pawn.carryTracker.CarriedThing) &&
+                                        Validator(scanner, pawn, pawn.carryTracker.CarriedThing);
+
+                Thing thing;
+                if (scanner.Prioritized)
                 {
-                    List<string> needs = new List<string>();
-                    foreach (Need need in pawn.needs.AllNeeds)
-                        needs.Add(need.def.defName + "=" + need.CurLevelPercentage.ToString("0.000"));
-                    sb.AppendLine("needs=" + string.Join(", ", needs));
+                    IEnumerable<Thing> searchSet = enumerable ?? pawn.Map.listerThings.ThingsMatching(scanner.PotentialWorkThingRequest);
+                    thing = !scanner.AllowUnreachable
+                        ? GenClosest.ClosestThing_Global_Reachable(
+                            pawn.Position,
+                            pawn.Map,
+                            searchSet,
+                            scanner.PathEndMode,
+                            TraverseParms.For(pawn, scanner.MaxPathDanger(pawn)),
+                            9999f,
+                            t => Validator(scanner, pawn, t),
+                            x => scanner.GetPriority(pawn, x))
+                        : GenClosest.ClosestThing_Global(
+                            pawn.Position,
+                            searchSet,
+                            99999f,
+                            t => Validator(scanner, pawn, t),
+                            x => scanner.GetPriority(pawn, x));
+
+                    if (carriedCandidate)
+                    {
+                        if (thing != null)
+                        {
+                            float carriedPriority = scanner.GetPriority(pawn, pawn.carryTracker.CarriedThing);
+                            float foundPriority = scanner.GetPriority(pawn, thing);
+                            if (carriedPriority >= foundPriority)
+                                thing = pawn.carryTracker.CarriedThing;
+                        }
+                        else
+                        {
+                            thing = pawn.carryTracker.CarriedThing;
+                        }
+                    }
+                }
+                else if (carriedCandidate)
+                {
+                    thing = pawn.carryTracker.CarriedThing;
+                }
+                else if (scanner.AllowUnreachable)
+                {
+                    IEnumerable<Thing> searchSet = enumerable ?? pawn.Map.listerThings.ThingsMatching(scanner.PotentialWorkThingRequest);
+                    thing = GenClosest.ClosestThing_Global(
+                        pawn.Position,
+                        searchSet,
+                        99999f,
+                        t => Validator(scanner, pawn, t));
                 }
                 else
                 {
-                    sb.AppendLine("needs=<none>");
-                }
-            }
-            catch (Exception ex)
-            {
-                sb.AppendLine("needs=EX:" + ex.GetType().Name + ":" + ex.Message);
-            }
-
-            try
-            {
-                sb.AppendLine("Moving=" + pawn.health.capacities.GetLevel(PawnCapacityDefOf.Moving).ToString("0.000") +
-                              " Manipulation=" + pawn.health.capacities.GetLevel(PawnCapacityDefOf.Manipulation).ToString("0.000") +
-                              " Consciousness=" + pawn.health.capacities.GetLevel(PawnCapacityDefOf.Consciousness).ToString("0.000"));
-            }
-            catch (Exception ex)
-            {
-                sb.AppendLine("capacities=EX:" + ex.GetType().Name + ":" + ex.Message);
-            }
-        }
-
-        private static List<ScanStats> DeepScanWorkGivers(Pawn pawn, ref int totalCandidates)
-        {
-            List<ScanStats> output = new List<ScanStats>();
-            if (pawn.workSettings == null || pawn.Map == null)
-                return output;
-
-            List<WorkGiver> givers;
-            try
-            {
-                givers = pawn.workSettings.WorkGiversInOrderNormal;
-            }
-            catch (Exception ex)
-            {
-                output.Add(new ScanStats
-                {
-                    giver = "<WorkGiversInOrderNormal>",
-                    gate = "EX:" + ex.GetType().Name + ":" + ex.Message
-                });
-                return output;
-            }
-
-            IdleDiagSettings settings = IdleDiagMod.Settings ?? new IdleDiagSettings();
-            int totalCap = Math.Max(100, settings.maxTotalCandidates);
-            int perGiverCap = Math.Max(10, settings.maxCandidatesPerGiver);
-
-            foreach (WorkGiver giver in givers)
-            {
-                if (giver == null || giver.def == null) continue;
-                ScanStats st = new ScanStats
-                {
-                    giver = giver.def.defName + "[" + giver.GetType().FullName + "]",
-                    workType = giver.def.workType?.defName,
-                    priority = giver.def.workType != null ? pawn.workSettings.GetPriority(giver.def.workType) : -1,
-                    gate = ExplainGate(pawn, giver)
-                };
-                output.Add(st);
-
-                if (st.gate != "PASS") continue;
-                WorkGiver_Scanner scanner = giver as WorkGiver_Scanner;
-                if (scanner == null)
-                {
-                    st.gate = "PASS-NONSCAN(not re-invoked for side-effect safety)";
-                    continue;
+                    thing = GenClosest.ClosestThingReachable(
+                        pawn.Position,
+                        pawn.Map,
+                        scanner.PotentialWorkThingRequest,
+                        scanner.PathEndMode,
+                        TraverseParms.For(pawn, scanner.MaxPathDanger(pawn)),
+                        9999f,
+                        t => Validator(scanner, pawn, t),
+                        enumerable,
+                        0,
+                        scanner.MaxRegionsToScanBeforeGlobalSearch,
+                        enumerable != null);
                 }
 
-                if (totalCandidates >= totalCap)
+                if (thing != null)
                 {
-                    st.truncated = true;
-                    continue;
+                    bestTarget = thing;
+                    scannerWhoProvidedTarget = scanner;
+                    trace.Add("  TARGET-THING => " + TargetText(bestTarget));
                 }
-
-                if (scanner.def.scanThings)
-                    ScanThings(pawn, scanner, st, perGiverCap, totalCap, ref totalCandidates);
-
-                if (scanner.def.scanCells && totalCandidates < totalCap)
-                    ScanCells(pawn, scanner, st, perGiverCap, totalCap, ref totalCandidates);
             }
 
-            return output;
-        }
+            if (scanner.def.scanCells)
+            {
+                IntVec3 pawnPosition = pawn.Position;
+                float closestDistSquared = 99999f;
+                float bestPriority = float.MinValue;
+                bool prioritized = scanner.Prioritized;
+                bool allowUnreachable = scanner.AllowUnreachable;
+                Danger maxPathDanger = scanner.MaxPathDanger(pawn);
+                IEnumerable<IntVec3> cells = scanner.PotentialWorkCellsGlobal(pawn);
 
-        private static string ExplainGate(Pawn pawn, WorkGiver giver)
-        {
-            try
-            {
-                if (!(giver.def.nonColonistsCanDo || pawn.IsColonist || pawn.IsColonyMech || pawn.IsMutant))
-                    return "BLOCK:notColonist";
-                if (pawn.WorkTagIsDisabled(giver.def.workTags))
-                    return "BLOCK:workTagsDisabled(" + giver.def.workTags + ")";
-                if (giver.def.workType != null && pawn.WorkTypeIsDisabled(giver.def.workType))
-                    return "BLOCK:workTypeDisabled(" + giver.def.workType.defName + ")";
-                if (giver.ShouldSkip(pawn))
-                    return "BLOCK:ShouldSkip";
-                PawnCapacityDef missing = giver.MissingRequiredCapacity(pawn);
-                if (missing != null)
-                    return "BLOCK:missingCapacity(" + missing.defName + ")";
-                if (pawn.RaceProps.IsMechanoid && !giver.def.canBeDoneByMechs)
-                    return "BLOCK:notForMechs";
-                if (pawn.IsMutant && !giver.def.canBeDoneByMutants)
-                    return "BLOCK:notForMutants";
-                return "PASS";
-            }
-            catch (Exception ex)
-            {
-                return "GATE-EX:" + ex.GetType().Name + ":" + ex.Message;
-            }
-        }
-
-        private static void ScanThings(Pawn pawn, WorkGiver_Scanner scanner, ScanStats st,
-            int perGiverCap, int totalCap, ref int totalCandidates)
-        {
-            IEnumerable<Thing> source = null;
-            try
-            {
-                source = scanner.PotentialWorkThingsGlobal(pawn);
-                if (source == null)
-                    source = pawn.Map.listerThings.ThingsMatching(scanner.PotentialWorkThingRequest);
-            }
-            catch (Exception ex)
-            {
-                AddException(st, "PotentialWorkThingsGlobal", ex);
-                return;
-            }
-
-            int local = 0;
-            IEnumerator<Thing> e = null;
-            try
-            {
-                e = source.GetEnumerator();
-                while (local < perGiverCap && totalCandidates < totalCap && e.MoveNext())
+                foreach (IntVec3 c in cells)
                 {
-                    Thing t = e.Current;
-                    local++;
-                    totalCandidates++;
-                    st.candidates++;
+                    bool choose = false;
+                    float distSquared = (c - pawnPosition).LengthHorizontalSquared;
+                    float priority = 0f;
 
-                    if (t == null || t.Destroyed || !t.Spawned || t.Map != pawn.Map)
+                    if (prioritized)
                     {
-                        st.invalid++;
-                        continue;
-                    }
-
-                    bool forbidden;
-                    try { forbidden = t.IsForbidden(pawn); }
-                    catch (Exception ex)
-                    {
-                        AddException(st, "IsForbidden(" + t.ToStringSafe() + ")", ex);
-                        continue;
-                    }
-                    if (forbidden)
-                    {
-                        st.forbidden++;
-                        continue;
-                    }
-
-                    bool has;
-                    try { has = scanner.HasJobOnThing(pawn, t); }
-                    catch (Exception ex)
-                    {
-                        AddException(st, "HasJobOnThing(" + t.ToStringSafe() + ")", ex);
-                        continue;
-                    }
-                    if (!has)
-                    {
-                        st.noHasJob++;
-                        continue;
-                    }
-
-                    st.hasJob++;
-                    bool reachable = true;
-                    if (!scanner.AllowUnreachable)
-                    {
-                        try
+                        if (!c.IsForbidden(pawn) && scanner.HasJobOnCell(pawn, c))
                         {
-                            reachable = pawn.CanReach(t, scanner.PathEndMode, scanner.MaxPathDanger(pawn));
-                        }
-                        catch (Exception ex)
-                        {
-                            AddException(st, "CanReach(" + t.ToStringSafe() + ")", ex);
-                            reachable = false;
+                            if (!allowUnreachable && !pawn.CanReach(c, scanner.PathEndMode, maxPathDanger))
+                                continue;
+                            priority = scanner.GetPriority(pawn, c);
+                            if (priority > bestPriority || (priority == bestPriority && distSquared < closestDistSquared))
+                                choose = true;
                         }
                     }
-
-                    if (reachable)
+                    else if (distSquared < closestDistSquared &&
+                             !c.IsForbidden(pawn) &&
+                             scanner.HasJobOnCell(pawn, c))
                     {
-                        st.reachable++;
-                        if (st.exampleReachable == null)
-                            st.exampleReachable = t.ToStringSafe() + "@" + t.Position;
-                    }
-                    else
-                    {
-                        st.unreachable++;
-                        if (st.exampleUnreachable == null)
-                            st.exampleUnreachable = t.ToStringSafe() + "@" + t.Position;
-                    }
-                }
-
-                if (local >= perGiverCap || totalCandidates >= totalCap)
-                    st.truncated = true;
-            }
-            catch (Exception ex)
-            {
-                AddException(st, "enumerateThings", ex);
-            }
-            finally
-            {
-                (e as IDisposable)?.Dispose();
-            }
-        }
-
-        private static void ScanCells(Pawn pawn, WorkGiver_Scanner scanner, ScanStats st,
-            int perGiverCap, int totalCap, ref int totalCandidates)
-        {
-            IEnumerable<IntVec3> source;
-            try
-            {
-                source = scanner.PotentialWorkCellsGlobal(pawn);
-                if (source == null) return;
-            }
-            catch (Exception ex)
-            {
-                AddException(st, "PotentialWorkCellsGlobal", ex);
-                return;
-            }
-
-            int local = 0;
-            IEnumerator<IntVec3> e = null;
-            try
-            {
-                e = source.GetEnumerator();
-                while (local < perGiverCap && totalCandidates < totalCap && e.MoveNext())
-                {
-                    IntVec3 c = e.Current;
-                    local++;
-                    totalCandidates++;
-                    st.candidates++;
-
-                    if (!c.IsValid || !c.InBounds(pawn.Map))
-                    {
-                        st.invalid++;
-                        continue;
+                        if (!allowUnreachable && !pawn.CanReach(c, scanner.PathEndMode, maxPathDanger))
+                            continue;
+                        choose = true;
                     }
 
-                    bool forbidden;
-                    try { forbidden = c.IsForbidden(pawn); }
-                    catch (Exception ex)
+                    if (choose)
                     {
-                        AddException(st, "Cell.IsForbidden(" + c + ")", ex);
-                        continue;
-                    }
-                    if (forbidden)
-                    {
-                        st.forbidden++;
-                        continue;
-                    }
-
-                    bool has;
-                    try { has = scanner.HasJobOnCell(pawn, c); }
-                    catch (Exception ex)
-                    {
-                        AddException(st, "HasJobOnCell(" + c + ")", ex);
-                        continue;
-                    }
-                    if (!has)
-                    {
-                        st.noHasJob++;
-                        continue;
-                    }
-
-                    st.hasJob++;
-                    bool reachable = true;
-                    if (!scanner.AllowUnreachable)
-                    {
-                        try
-                        {
-                            reachable = pawn.CanReach(c, scanner.PathEndMode, scanner.MaxPathDanger(pawn));
-                        }
-                        catch (Exception ex)
-                        {
-                            AddException(st, "CanReachCell(" + c + ")", ex);
-                            reachable = false;
-                        }
-                    }
-
-                    if (reachable)
-                    {
-                        st.reachable++;
-                        if (st.exampleReachable == null) st.exampleReachable = "cell@" + c;
-                    }
-                    else
-                    {
-                        st.unreachable++;
-                        if (st.exampleUnreachable == null) st.exampleUnreachable = "cell@" + c;
+                        bestTarget = new TargetInfo(c, pawn.Map);
+                        scannerWhoProvidedTarget = scanner;
+                        closestDistSquared = distSquared;
+                        bestPriority = priority;
                     }
                 }
 
-                if (local >= perGiverCap || totalCandidates >= totalCap)
-                    st.truncated = true;
-            }
-            catch (Exception ex)
-            {
-                AddException(st, "enumerateCells", ex);
-            }
-            finally
-            {
-                (e as IDisposable)?.Dispose();
+                if (bestTarget.IsValid && scannerWhoProvidedTarget == scanner)
+                    trace.Add("  TARGET-CELL => " + TargetText(bestTarget));
             }
         }
 
-        private static void AddException(ScanStats st, string where, Exception ex)
+        private static bool Validator(WorkGiver_Scanner scanner, Pawn pawn, Thing thing)
         {
-            st.exceptions++;
-            if (st.firstException == null)
-                st.firstException = where + ":" + ex.GetType().Name + ":" + ex.Message;
+            return thing != null && !thing.IsForbidden(pawn) && scanner.HasJobOnThing(pawn, thing);
         }
 
-        private static string Safe(string s) => string.IsNullOrEmpty(s) ? "<none>" : s;
+        private static string GiverText(WorkGiver giver)
+        {
+            if (giver == null) return "<none>";
+            return (giver.def?.defName ?? "<no-def>") +
+                   "[" + giver.GetType().FullName + "|" + giver.GetType().Assembly.GetName().Name + "]";
+        }
+
+        private static string TargetText(TargetInfo target)
+        {
+            if (!target.IsValid) return "<invalid>";
+            if (target.HasThing)
+            {
+                Thing t = target.Thing;
+                return (t?.ToStringSafe() ?? "<null-thing>") +
+                       "@(" + (t?.Position.ToString() ?? "?") + ")";
+            }
+            return "cell@" + target.Cell;
+        }
     }
 
-    internal static class IdleDiagLog
+    internal static class WorkTraceLog
     {
-        internal static string LogPath => Path.Combine(GenFilePaths.SaveDataFolderPath, "PawnIdleDiagnostics.log");
+        internal static string LogPath => Path.Combine(GenFilePaths.SaveDataFolderPath, "PawnIdleWorkTrace.log");
 
         internal static void InitializeSession()
         {
             try
             {
-                if (File.Exists(LogPath) && new FileInfo(LogPath).Length > 5 * 1024 * 1024)
+                if (File.Exists(LogPath) && new FileInfo(LogPath).Length > 4 * 1024 * 1024)
                 {
                     string old = LogPath + ".old";
                     if (File.Exists(old)) File.Delete(old);
                     File.Move(LogPath, old);
                 }
+
                 WriteLine("");
                 WriteLine("################################################################################");
-                WriteLine("Pawn Idle Diagnostics 1.5 session " + DateTime.Now.ToString("s"));
+                WriteLine("Pawn Idle Diagnostics 1.5 v1.1 exact work-chain session " + DateTime.Now.ToString("s"));
                 WriteLine("################################################################################");
             }
             catch (Exception ex)
             {
-                Log.Warning("[IdleDiag] Could not initialize separate log file: " + ex.Message);
+                Log.Warning("[IdleDiag v1.1] Could not initialize trace file: " + ex.Message);
             }
         }
 
@@ -901,130 +668,121 @@ namespace PawnIdleDiagnostics15
             }
             catch (Exception ex)
             {
-                Log.Warning("[IdleDiag] Could not write diagnostic file: " + ex.Message);
+                Log.Warning("[IdleDiag v1.1] Could not write trace file: " + ex.Message);
             }
         }
 
         internal static void WritePatchInventory()
         {
+            MethodBase target = AccessTools.Method(typeof(JobGiver_Work), nameof(JobGiver_Work.TryIssueJobPackage));
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("--- Harmony patch inventory on critical AI methods ---");
-            AppendPatchOwners(sb, AccessTools.Method(typeof(JobGiver_Work), nameof(JobGiver_Work.TryIssueJobPackage)), "JobGiver_Work.TryIssueJobPackage");
-            AppendPatchOwners(sb, AccessTools.Method(typeof(Pawn_JobTracker), nameof(Pawn_JobTracker.StartJob)), "Pawn_JobTracker.StartJob");
-            AppendPatchOwners(sb, AccessTools.Method(typeof(Pawn_JobTracker), "DetermineNextJob"), "Pawn_JobTracker.DetermineNextJob");
-            AppendPatchOwners(sb, AccessTools.Method(typeof(ThinkNode_PrioritySorter), nameof(ThinkNode_PrioritySorter.TryIssueJobPackage)), "ThinkNode_PrioritySorter.TryIssueJobPackage");
-            AppendPatchOwners(sb, AccessTools.PropertyGetter(typeof(Pawn_PlayerSettings), nameof(Pawn_PlayerSettings.AreaRestrictionInPawnCurrentMap)), "AreaRestrictionInPawnCurrentMap.get");
-            AppendPatchOwners(sb, AccessTools.PropertySetter(typeof(Pawn_PlayerSettings), nameof(Pawn_PlayerSettings.AreaRestrictionInPawnCurrentMap)), "AreaRestrictionInPawnCurrentMap.set");
+            sb.AppendLine("--- Harmony patch inventory: JobGiver_Work.TryIssueJobPackage ---");
+            Patches info = Harmony.GetPatchInfo(target);
+            if (info == null)
+            {
+                sb.AppendLine("none");
+            }
+            else
+            {
+                AppendPatches(sb, "PREFIX", info.Prefixes);
+                AppendPatches(sb, "POSTFIX", info.Postfixes);
+                AppendPatches(sb, "TRANSPILER", info.Transpilers);
+                AppendPatches(sb, "FINALIZER", info.Finalizers);
+            }
             WriteLine(sb.ToString());
         }
 
-        private static void AppendPatchOwners(StringBuilder sb, MethodBase method, string label)
+        private static void AppendPatches(StringBuilder sb, string kind, IEnumerable<Patch> patches)
         {
-            if (method == null)
+            foreach (Patch p in patches)
             {
-                sb.AppendLine(label + ": METHOD-NOT-FOUND");
-                return;
+                sb.AppendLine(kind +
+                              " owner=" + p.owner +
+                              " priority=" + p.priority +
+                              " index=" + p.index +
+                              " method=" + p.PatchMethod?.DeclaringType?.FullName + "." + p.PatchMethod?.Name +
+                              " before=[" + string.Join(",", p.before ?? Array.Empty<string>()) + "]" +
+                              " after=[" + string.Join(",", p.after ?? Array.Empty<string>()) + "]");
             }
-
-            Patches info = Harmony.GetPatchInfo(method);
-            if (info == null)
-            {
-                sb.AppendLine(label + ": none");
-                return;
-            }
-
-            List<string> owners = new List<string>();
-            owners.AddRange(info.Prefixes.Select(p => "pre:" + p.owner));
-            owners.AddRange(info.Postfixes.Select(p => "post:" + p.owner));
-            owners.AddRange(info.Transpilers.Select(p => "trans:" + p.owner));
-            owners.AddRange(info.Finalizers.Select(p => "final:" + p.owner));
-            sb.AppendLine(label + ": " + (owners.Count == 0 ? "none" : string.Join(", ", owners.Distinct())));
-        }
-    }
-
-    [HarmonyPatch(typeof(JobGiver_Work), nameof(JobGiver_Work.TryIssueJobPackage))]
-    internal static class Patch_JobGiver_Work_Trace
-    {
-        private static void Prefix(JobGiver_Work __instance, Pawn pawn)
-        {
-            IdleDiagManager.RecordWorkNodeBegin(pawn, __instance.emergency);
-        }
-
-        private static void Postfix(JobGiver_Work __instance, Pawn pawn, ThinkResult __result)
-        {
-            IdleDiagManager.RecordWorkNodeEnd(pawn, __instance.emergency, __result);
-        }
-
-        private static Exception Finalizer(JobGiver_Work __instance, Pawn pawn, Exception __exception)
-        {
-            if (__exception != null)
-                IdleDiagManager.RecordWorkNodeException(pawn, __instance.emergency, __exception);
-            return __exception;
         }
     }
 
     [HarmonyPatch(typeof(Pawn_JobTracker), nameof(Pawn_JobTracker.StartJob))]
-    internal static class Patch_PawnJobTracker_StartJob_IdleTrigger
+    internal static class Patch_StartJob_ArmRealWander
     {
-        private static void Prefix(
-            Pawn_JobTracker __instance,
-            Job newJob,
-            JobCondition lastJobEndCondition,
-            ThinkNode jobGiver,
-            ThinkTreeDef thinkTree,
-            Pawn ___pawn)
+        private static void Prefix(Job newJob, ThinkNode jobGiver, Pawn ___pawn)
         {
-            if (!IdleDiagManager.Eligible(___pawn) || newJob?.def == null)
+            if (!WorkTraceManager.Eligible(___pawn) || newJob?.def == null)
                 return;
 
             string defName = newJob.def.defName ?? "";
-            bool looksIdle = newJob.def.isIdle ||
-                             defName.IndexOf("Wander", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                             defName.Equals("Wait", StringComparison.OrdinalIgnoreCase) ||
-                             defName.StartsWith("Wait_", StringComparison.OrdinalIgnoreCase);
+            string giverName = jobGiver?.GetType().FullName ?? "";
+            bool realWander =
+                defName.Equals("Wait_Wander", StringComparison.OrdinalIgnoreCase) ||
+                giverName.IndexOf("JobGiver_Wander", StringComparison.OrdinalIgnoreCase) >= 0;
 
-            if (!looksIdle)
-                return;
+            if (realWander)
+                WorkTraceManager.Arm(___pawn, "entered " + defName + " via " + giverName, false);
+        }
+    }
 
-            IdleDiagManager.Schedule(
-                ___pawn,
-                false,
-                "StartJob:" + defName,
-                __instance.curJob?.def?.defName,
-                defName,
-                jobGiver?.GetType().FullName,
-                thinkTree?.defName,
-                lastJobEndCondition.ToString());
+    [HarmonyPatch(typeof(JobGiver_Work), nameof(JobGiver_Work.TryIssueJobPackage))]
+    internal static class Patch_WorkTrace_Begin
+    {
+        private static void Prefix(JobGiver_Work __instance, Pawn pawn, ref WorkTraceState __state)
+        {
+            __state = WorkTraceManager.Begin(__instance, pawn);
+        }
+
+        private static Exception Finalizer(Pawn pawn, Exception __exception)
+        {
+            if (__exception != null)
+                WorkTraceManager.CaptureException(pawn, __exception);
+            return __exception;
+        }
+    }
+
+    [HarmonyPatch(typeof(JobGiver_Work), nameof(JobGiver_Work.TryIssueJobPackage))]
+    [HarmonyBefore("PureMJ.MjRimMods.WhileYouAreNearby")]
+    [HarmonyPriority(Priority.First)]
+    internal static class Patch_WorkTrace_BeforeNearby
+    {
+        private static void Postfix(Pawn pawn, ThinkResult __result)
+        {
+            WorkTraceManager.CaptureStage(pawn, "before-nearby", __result);
+        }
+    }
+
+    [HarmonyPatch(typeof(JobGiver_Work), nameof(JobGiver_Work.TryIssueJobPackage))]
+    [HarmonyAfter("PureMJ.MjRimMods.WhileYouAreNearby")]
+    [HarmonyPriority(Priority.Last)]
+    internal static class Patch_WorkTrace_AfterNearby
+    {
+        private static void Postfix(JobGiver_Work __instance, Pawn pawn, ThinkResult __result)
+        {
+            WorkTraceManager.CaptureStage(pawn, "after-nearby", __result);
+            WorkTraceManager.Finish(__instance, pawn, __result);
         }
     }
 
     [HarmonyPatch(typeof(Pawn), nameof(Pawn.GetGizmos))]
-    internal static class Patch_Pawn_GetGizmos_IdleDiag
+    internal static class Patch_Pawn_GetGizmos_WorkTrace
     {
         private static IEnumerable<Gizmo> Postfix(IEnumerable<Gizmo> __result, Pawn __instance)
         {
             foreach (Gizmo gizmo in __result)
                 yield return gizmo;
 
-            IdleDiagSettings settings = IdleDiagMod.Settings ?? new IdleDiagSettings();
-            if (!settings.addPawnGizmo || !IdleDiagManager.Eligible(__instance))
+            if (!(IdleDiagMod.Settings?.addPawnGizmo ?? true) || !WorkTraceManager.Eligible(__instance))
                 yield break;
 
             yield return new Command_Action
             {
-                defaultLabel = "Diagnose work/idle now",
-                defaultDesc = "Write a read-only diagnostic report explaining why this pawn may be idle or wandering. Full report goes to PawnIdleDiagnostics.log.",
+                defaultLabel = "Arm next work-chain trace",
+                defaultDesc = "Trace the next normal JobGiver_Work pass for this pawn, including the exact vanilla priority-group behavior and result stages around While You Are Nearby.",
                 action = delegate
                 {
-                    IdleDiagManager.Schedule(
-                        __instance,
-                        true,
-                        "manual gizmo",
-                        __instance.CurJob?.def?.defName,
-                        __instance.CurJob?.def?.defName,
-                        __instance.CurJob?.jobGiver?.GetType().FullName,
-                        __instance.CurJob?.jobGiverThinkTree?.defName,
-                        "manual");
+                    WorkTraceManager.Arm(__instance, "manual gizmo", true);
                 }
             };
         }

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Pawn Idle Diagnostics 1.5</name>
+  <name>Pawn Idle Diagnostics 1.5 v1.1</name>
   <author>Allen / OpenAI</author>
   <packageId>allen.pawn.idle.diagnostics15</packageId>
   <supportedVersions>
@@ -14,6 +14,6 @@
     </li>
   </modDependencies>
   <description>
-Read-only diagnostics for player pawns that enter idle/wander jobs. Records ThinkTree/job source, recent JobGiver_Work result, work priorities, allowed-area state, needs/capacities, Harmony patch owners, and a rate-limited WorkGiver candidate scan. Does not alter AI decisions or issue jobs.
+Exact work-chain diagnostic tracer for RimWorld 1.5. Arms only on real Wait_Wander (or manually), traces the next normal JobGiver_Work pass, records result stages around While You Are Nearby, and mirrors the vanilla 1.5 priority-group selection path only when the actual result is NoJob. Specifically detects the poisoned-target case where HasJob selects a target but JobOnThing/JobOnCell returns null and the next priorityInType transition terminates all lower work scanning. Does not issue jobs or modify AI results.
   </description>
 </ModMetaData>
