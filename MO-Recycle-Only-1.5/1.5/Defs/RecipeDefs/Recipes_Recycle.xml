@@ -6,11 +6,10 @@
     <label>recycle apparel</label>
     <description>Carefully dismantle unwanted clothing and recover part of its original materials.</description>
     <jobString>Recycling apparel.</jobString>
-    <workAmount>120</workAmount><!-- Fallback only. Actual work is overridden in Bill.GetWorkAmount: default 100%=120, 50%=60, <=25%=30 -->
     <workSkill>Crafting</workSkill>
-    <workSkillLearnFactor>1</workSkillLearnFactor>
     <effectWorking>Tailor</effectWorking>
     <soundWorking>Recipe_Tailor</soundWorking>
+    <workAmount>30</workAmount><!-- Same base as MO mending: work per HP -->
     <ingredients>
       <li>
         <filter>
@@ -40,7 +39,6 @@
         <li>ApparelArmor</li>
       </disallowedCategories>
     </defaultIngredientFilter>
-    <requiredGiverWorkType>Smithing</requiredGiverWorkType>
     <recipeUsers>
       <li>DankPyon_MendingBench</li>
     </recipeUsers>
@@ -50,54 +48,14 @@
   </RecipeDef>
 
   <RecipeDef>
-    <defName>Allen_MO_RecycleArmor</defName>
-    <label>recycle armor</label>
-    <description>Carefully dismantle unwanted armor and recover part of its original materials.</description>
-    <jobString>Recycling armor.</jobString>
-    <workAmount>120</workAmount><!-- Fallback only. Actual work is overridden in Bill.GetWorkAmount: default 100%=120, 50%=60, <=25%=30 -->
-    <workSkill>Crafting</workSkill>
-    <workSkillLearnFactor>1</workSkillLearnFactor>
-    <effectWorking>Smith</effectWorking>
-    <soundWorking>Recipe_Smith</soundWorking>
-    <ingredients>
-      <li>
-        <filter>
-          <categories>
-            <li>ApparelArmor</li>
-          </categories>
-        </filter>
-        <count>1</count>
-      </li>
-    </ingredients>
-    <fixedIngredientFilter>
-      <categories>
-        <li>ApparelArmor</li>
-      </categories>
-    </fixedIngredientFilter>
-    <defaultIngredientFilter>
-      <categories>
-        <li>ApparelArmor</li>
-      </categories>
-    </defaultIngredientFilter>
-    <requiredGiverWorkType>Smithing</requiredGiverWorkType>
-    <recipeUsers>
-      <li>DankPyon_MendingBench</li>
-    </recipeUsers>
-    <researchPrerequisites>
-      <li>Smithing</li>
-    </researchPrerequisites>
-  </RecipeDef>
-
-  <RecipeDef>
     <defName>Allen_MO_RecycleWeapon</defName>
     <label>recycle weapon</label>
     <description>Carefully dismantle an unwanted weapon and recover part of its original materials.</description>
     <jobString>Recycling weapon.</jobString>
-    <workAmount>120</workAmount><!-- Fallback only. Actual work is overridden in Bill.GetWorkAmount: default 100%=120, 50%=60, <=25%=30 -->
     <workSkill>Crafting</workSkill>
-    <workSkillLearnFactor>1</workSkillLearnFactor>
     <effectWorking>Smith</effectWorking>
     <soundWorking>Recipe_Smith</soundWorking>
+    <workAmount>30</workAmount><!-- Same base as MO mending: work per HP -->
     <ingredients>
       <li>
         <filter>
@@ -118,7 +76,43 @@
         <li>Weapons</li>
       </categories>
     </defaultIngredientFilter>
-    <requiredGiverWorkType>Smithing</requiredGiverWorkType>
+    <recipeUsers>
+      <li>DankPyon_MendingBench</li>
+    </recipeUsers>
+    <researchPrerequisites>
+      <li>Smithing</li>
+    </researchPrerequisites>
+  </RecipeDef>
+
+  <RecipeDef>
+    <defName>Allen_MO_RecycleArmor</defName>
+    <label>recycle armor</label>
+    <description>Carefully dismantle unwanted armor and recover part of its original materials.</description>
+    <jobString>Recycling armor.</jobString>
+    <workSkill>Crafting</workSkill>
+    <effectWorking>Smith</effectWorking>
+    <soundWorking>Recipe_Smith</soundWorking>
+    <workAmount>30</workAmount><!-- Same base as MO mending: work per HP -->
+    <ingredients>
+      <li>
+        <filter>
+          <categories>
+            <li>ApparelArmor</li>
+          </categories>
+        </filter>
+        <count>1</count>
+      </li>
+    </ingredients>
+    <fixedIngredientFilter>
+      <categories>
+        <li>ApparelArmor</li>
+      </categories>
+    </fixedIngredientFilter>
+    <defaultIngredientFilter>
+      <categories>
+        <li>ApparelArmor</li>
+      </categories>
+    </defaultIngredientFilter>
     <recipeUsers>
       <li>DankPyon_MendingBench</li>
     </recipeUsers>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Medieval Overhaul - Recycle Only 1.5 v1.3</name>
+  <name>Medieval Overhaul - Recycle Only 1.5 v1.4</name>
   <author>Allen / OpenAI</author>
   <packageId>allen.mo.recycleonly15</packageId>
   <supportedVersions>
@@ -24,6 +24,6 @@
     <li>DankPyon.Medieval.Overhaul</li>
   </loadAfter>
   <description>
-Adds recycling only to Medieval Overhaul's existing mending bench. Does not add or replace any mending system. Recycle apparel, armor, and weapons into a durability-scaled fraction of their original materials while consuming Medieval Overhaul repair tools through the bench's native fuel system.
+Adds recycling only to Medieval Overhaul's existing mending bench. Reuses MO's own mending WorkGiver, JobDriver, effects and repair-tool fuel path. Base workAmount is exactly 30 like MO mending. Actual recycle work mirrors mending in reverse: 30 work per remaining HP.
   </description>
 </ModMetaData>

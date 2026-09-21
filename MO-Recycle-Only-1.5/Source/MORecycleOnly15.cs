@@ -13,14 +13,12 @@ namespace MORecycleOnly15
         public float maxRecovery = 0.50f;
         public bool durabilityAffectsYield = true;
         public bool recoverIntricateMaterials = false;
-        public float fullDurabilityRecycleWork = 120f;
 
         public override void ExposeData()
         {
             Scribe_Values.Look(ref maxRecovery, "maxRecovery", 0.50f);
             Scribe_Values.Look(ref durabilityAffectsYield, "durabilityAffectsYield", true);
             Scribe_Values.Look(ref recoverIntricateMaterials, "recoverIntricateMaterials", false);
-            Scribe_Values.Look(ref fullDurabilityRecycleWork, "fullDurabilityRecycleWork", 120f);
         }
     }
 
@@ -55,11 +53,7 @@ namespace MORecycleOnly15
                 "Disabled by default to prevent recycling equipment back into components or other intricate manufactured parts.");
 
             listing.Gap();
-            listing.Label("Recycle work at 100% durability: " + Mathf.RoundToInt(s.fullDurabilityRecycleWork));
-            s.fullDurabilityRecycleWork = Mathf.Round(listing.Slider(s.fullDurabilityRecycleWork, 30f, 600f));
-
-            listing.Gap();
-            listing.Label("Recycling uses Medieval Overhaul's existing mending bench. Repair tools are consumed by the bench's normal fuel system while the pawn works.");
+            listing.Label("Recycle work uses Medieval Overhaul's own mending work path: 30 work per remaining HP. Repair tools are consumed by the mending bench's native fuel system.");
 
             listing.End();
         }
@@ -67,7 +61,7 @@ namespace MORecycleOnly15
 
     internal static class RecycleUtility
     {
-        internal const float MinimumRecycleWork = 30f;
+        internal const float WorkPerHp = 30f;
 
         private static readonly HashSet<string> RecycleRecipes = new HashSet<string>
         {
@@ -88,34 +82,27 @@ namespace MORecycleOnly15
         static Bootstrap()
         {
             new Harmony("allen.mo.recycleonly15").PatchAll();
-            Log.Message("[MO Recycle Only 1.5 v1.3] loaded. Actual Bill.GetWorkAmount is directly overridden for recycle bills; default full-durability work=120.");
+            Log.Message("[MO Recycle Only 1.5 v1.4] loaded. MO mending path retained; recycle actual work = 30 x current HP.");
         }
     }
 
-    // Actual workLeft in vanilla JobDriver_DoBill is initialized through
-    // Bill.GetWorkAmount(thing). Patch that exact call path directly.
-    // Default: 100%=120, 50%=60, <=25%=30. Users can tune the 100% value.
-    [HarmonyPatch(typeof(Bill), nameof(Bill.GetWorkAmount))]
-    internal static class Patch_Bill_GetWorkAmount
-    {
-        private static bool Prefix(Bill __instance, Thing thing, ref float __result)
-        {
-            if (__instance == null || !RecycleUtility.IsRecycleRecipe(__instance.recipe) || thing == null)
-                return true;
-
-            float durability = thing.MaxHitPoints > 0
-                ? Mathf.Clamp01((float)thing.HitPoints / thing.MaxHitPoints)
-                : 1f;
-
-            float fullWork = MORecycleMod.Settings?.fullDurabilityRecycleWork ?? 120f;
-            __result = Mathf.Max(RecycleUtility.MinimumRecycleWork, fullWork * durability);
-            return false;
-        }
-    }
-
-    // The progress bar and long-craft checks read RecipeDef.WorkAmountTotal directly,
-    // so mirror the same value there. This does not control actual workLeft; the Bill
-    // patch above does.
+    // Medieval Overhaul's JobDriver_DoMending initializes workLeft as:
+    //
+    //   bill.GetWorkAmount(item) * (MaxHP - HitPoints)
+    //
+    // and Bill.GetWorkAmount delegates to RecipeDef.WorkAmountTotal(item).
+    //
+    // For the original mending recipes WorkAmountTotal is simply 30, yielding:
+    //   30 * missingHP
+    //
+    // Recycling should use the exact same 30-work-per-HP scale in reverse:
+    //   30 * currentHP
+    //
+    // Therefore for recycle recipes we return:
+    //   30 * currentHP / missingHP
+    //
+    // MO then multiplies by missingHP, producing exactly 30 * currentHP.
+    // This also keeps MO's own progress-bar denominator consistent with workLeft.
     [HarmonyPatch(typeof(RecipeDef), nameof(RecipeDef.WorkAmountTotal))]
     internal static class Patch_RecipeDef_WorkAmountTotal
     {
@@ -124,12 +111,19 @@ namespace MORecycleOnly15
             if (!RecycleUtility.IsRecycleRecipe(__instance) || thing == null)
                 return;
 
-            float durability = thing.MaxHitPoints > 0
-                ? Mathf.Clamp01((float)thing.HitPoints / thing.MaxHitPoints)
-                : 1f;
+            int currentHp = Math.Max(1, thing.HitPoints);
+            int missingHp = thing.MaxHitPoints - thing.HitPoints;
 
-            float fullWork = MORecycleMod.Settings?.fullDurabilityRecycleWork ?? 120f;
-            __result = Mathf.Max(RecycleUtility.MinimumRecycleWork, fullWork * durability);
+            // MO's WorkGiver_DoMending intentionally selects damaged items only,
+            // so missingHp should normally be > 0. Keep the XML base value as a
+            // safe fallback if another mod force-runs a full-durability item.
+            if (missingHp <= 0)
+            {
+                __result = RecycleUtility.WorkPerHp;
+                return;
+            }
+
+            __result = RecycleUtility.WorkPerHp * currentHp / missingHp;
         }
     }
 
