@@ -13,14 +13,10 @@ $boot=Get-Content $bootPath -Raw
 $boot=Replace-OrThrow $boot 'internal const string Version = "0.9.3-t32c1-positive-canreserve-replay";' 'internal const string Version = "0.9.3-t34a-async-candidate-fabric";' 'bootstrap version'
 
 if(-not $boot.Contains('CandidateFabric093T34A.Apply(harmony);')){
-  $boot=Replace-OrThrow $boot @'
-                JobSearchPackageContext093T28.Apply(harmony);
-                BroadGenClosestOrder0418.Apply(harmony);
-'@ @'
-                JobSearchPackageContext093T28.Apply(harmony);
-                CandidateFabric093T34A.Apply(harmony);
-                BroadGenClosestOrder0418.Apply(harmony);
-'@ 'candidate fabric bootstrap'
+  $candidateAnchor='                JobSearchPackageContext093T28.Apply(harmony);'
+  if(-not $boot.Contains($candidateAnchor)){ throw 'T34-A anchor missing: candidate fabric bootstrap' }
+  $boot=$boot.Replace($candidateAnchor,
+    $candidateAnchor + [Environment]::NewLine + '                CandidateFabric093T34A.Apply(harmony);')
 }
 
 $boot=[regex]::Replace($boot,'(?m)^\s*DoBillTailFabric092\.Apply\(harmony\);\r?\n','')
