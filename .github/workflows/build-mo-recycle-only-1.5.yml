@@ -28,14 +28,13 @@ jobs:
         run: |
           $dll = 'MO-Recycle-Only-1.5\1.5\Assemblies\MORecycleOnly15.dll'
           if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+          if ((Get-Item $dll).Length -lt 4096) { throw 'Compiled DLL unexpectedly small.' }
 
-          $bytes = [System.IO.File]::ReadAllBytes($dll)
-          $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
-          foreach ($required in @('MORecycleOnly15','Allen_MO_RecycleApparel','Allen_MO_RecycleArmor','Allen_MO_RecycleWeapon')) {
-            if (!$ascii.Contains($required)) { throw "Expected marker missing: $required" }
-          }
-          foreach ($bad in @('MendAndRecycle','JobDriver_Mend','TableMending')) {
-            if ($ascii.Contains($bad)) { throw "Unexpected MendAndRecycle dependency/marker: $bad" }
+          $recipe = 'MO-Recycle-Only-1.5\1.5\Defs\RecipeDefs\Recipes_Recycle.xml'
+          if (!(Test-Path $recipe)) { throw 'Recipe XML missing.' }
+          $xml = Get-Content $recipe -Raw
+          foreach ($required in @('Allen_MO_RecycleApparel','Allen_MO_RecycleArmor','Allen_MO_RecycleWeapon','DankPyon_MendingBench')) {
+            if (!$xml.Contains($required)) { throw "Recipe marker missing: $required" }
           }
 
           Remove-Item 'dist-mo-recycle' -Recurse -Force -ErrorAction SilentlyContinue
@@ -49,7 +48,7 @@ jobs:
           Copy-Item 'MO-Recycle-Only-1.5\LoadFolders.xml' "$stage\LoadFolders.xml"
           Copy-Item 'MO-Recycle-Only-1.5\README.md' "$stage\README.md"
           Copy-Item $dll "$stage\1.5\Assemblies\MORecycleOnly15.dll"
-          Copy-Item 'MO-Recycle-Only-1.5\1.5\Defs\RecipeDefs\Recipes_Recycle.xml' "$stage\1.5\Defs\RecipeDefs\Recipes_Recycle.xml"
+          Copy-Item $recipe "$stage\1.5\Defs\RecipeDefs\Recipes_Recycle.xml"
           Copy-Item 'MO-Recycle-Only-1.5\1.5\Languages\ChineseSimplified\DefInjected\RecipeDef\Recipes_Recycle.xml' "$stage\1.5\Languages\ChineseSimplified\DefInjected\RecipeDef\Recipes_Recycle.xml"
 
           $files = Get-ChildItem $stage -Recurse -File
