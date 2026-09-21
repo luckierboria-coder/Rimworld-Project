@@ -13,19 +13,20 @@ Target: RimWorld 1.5.4063 + Medieval Overhaul.
 - Uses the mending bench's existing CompRefuelable, so recycling consumes MO repair tools (DankPyon_RepairTools) while work is performed.
 
 ## Work amount
-Medieval Overhaul mending uses:
-  30 work x missing HP
+Medieval Overhaul mending uses 30 work per missing HP.
 
-Recycling mirrors it:
-  30 work x CURRENT HP
+Recycling uses a normalized durability-based work amount:
+  600 work x current durability fraction
 
-Therefore low-durability items are faster to recycle:
-- 10 HP remaining -> 300 base work
-- 25 HP remaining -> 750 base work
-- 50 HP remaining -> 1500 base work
-- 100 HP remaining -> 3000 base work
+Examples:
+- 100% durability -> 600 base work
+- 50% durability -> 300 base work
+- 10% durability -> 60 base work
+- Minimum -> 30 base work
 
-Repair-tool fuel consumption per active work tick remains exactly the mending bench's native rate, so total repair-tool usage also falls as remaining durability falls.
+This avoids very high-MaxHP weapons/armor taking disproportionately long to recycle, while preserving the intended rule that lower durability is faster.
+
+Repair-tool fuel consumption per active work tick remains exactly the mending bench's native rate, so total repair-tool usage also drops as durability falls.
 
 ## Material return
 Default:

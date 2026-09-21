@@ -61,7 +61,7 @@ namespace MORecycleOnly15
 
     internal static class RecycleUtility
     {
-        internal const float WorkPerRemainingHitPoint = 30f;
+        internal const float MaxRecycleWork = 600f;
 
         private static readonly HashSet<string> RecycleRecipes = new HashSet<string>
         {
@@ -82,18 +82,18 @@ namespace MORecycleOnly15
         static Bootstrap()
         {
             new Harmony("allen.mo.recycleonly15").PatchAll();
-            Log.Message("[MO Recycle Only 1.5] loaded. Recycle work = 30 x remaining HP; MO repair system is untouched.");
+            Log.Message("[MO Recycle Only 1.5] loaded. Recycle work = 600 x durability fraction; MO repair system is untouched.");
         }
     }
 
-    // MO mending uses 30 work per missing HP:
-    //   30 x (MaxHP - current HP)
+    // Medieval Overhaul mending uses 30 work per missing HP. Recycling keeps a
+    // similar practical time scale without depending on absolute MaxHP:
     //
-    // Recycling mirrors that logic from the opposite direction:
-    //   30 x current HP
+    //   recycle work = 600 x current durability fraction
     //
-    // Therefore lower-durability items are faster to dismantle, while using
-    // the exact same per-HP work scale as Medieval Overhaul mending.
+    // 100% durability = 600 work, 50% = 300, 10% = 60.
+    // This is roughly the same work as repairing 20 HP at full durability,
+    // and lower-durability items are always faster to dismantle.
     [HarmonyPatch(typeof(RecipeDef), nameof(RecipeDef.WorkAmountTotal))]
     internal static class Patch_RecipeDef_WorkAmountTotal
     {
@@ -102,7 +102,10 @@ namespace MORecycleOnly15
             if (!RecycleUtility.IsRecycleRecipe(__instance) || thing == null)
                 return;
 
-            __result = RecycleUtility.WorkPerRemainingHitPoint * Mathf.Max(1, thing.HitPoints);
+            float durability = thing.MaxHitPoints > 0
+                ? Mathf.Clamp01((float)thing.HitPoints / thing.MaxHitPoints)
+                : 1f;
+            __result = Mathf.Max(30f, RecycleUtility.MaxRecycleWork * durability);
         }
     }
 
