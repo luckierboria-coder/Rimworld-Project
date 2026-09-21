@@ -1,0 +1,80 @@
+name: RimFG V0.1 Test Package
+
+on:
+  push:
+    branches: [ rimfg-v0.1 ]
+    paths:
+      - 'RimFG/**'
+      - '.github/workflows/rimfg-v01-package.yml'
+  pull_request:
+    paths:
+      - 'RimFG/**'
+      - '.github/workflows/rimfg-v01-package.yml'
+  workflow_dispatch:
+
+jobs:
+  build-package:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore managed
+        run: dotnet restore RimFG/Source/Managed/RimFG.csproj
+
+      - name: Build managed Release
+        run: dotnet build RimFG/Source/Managed/RimFG.csproj --configuration Release --no-restore
+
+      - name: Configure native x64 Release
+        shell: pwsh
+        run: cmake -S RimFG/Source/Native -B build/rimfg-native -A x64
+
+      - name: Build native x64 Release
+        shell: pwsh
+        run: cmake --build build/rimfg-native --config Release --parallel
+
+      - name: Verify binaries
+        shell: pwsh
+        run: |
+          $managed = 'RimFG/Assemblies/RimFG.dll'
+          $native = 'RimFG/Plugins/x86_64/Release/RimFG.Native.dll'
+          if (!(Test-Path $managed)) { throw "Missing managed assembly: $managed" }
+          if (!(Test-Path $native)) { throw "Missing native assembly: $native" }
+          Get-Item $managed,$native | Format-Table FullName,Length,LastWriteTime
+
+      - name: Stage RimFG V0.1 test mod
+        shell: pwsh
+        run: |
+          $stage = 'build/RimFG'
+          Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "$stage/About","$stage/Assemblies","$stage/Plugins/x86_64" | Out-Null
+          Copy-Item 'RimFG/About/*' "$stage/About/" -Recurse -Force
+          Copy-Item 'RimFG/Assemblies/RimFG.dll' "$stage/Assemblies/RimFG.dll" -Force
+          # Native PE DLLs must not live in Assemblies: Verse/Prepatcher enumerates that
+          # folder as managed assemblies and throws BadImageFormatException on native code.
+          # RimFG explicitly LoadLibrary()s this absolute Plugins path before DllImport use.
+          Copy-Item 'RimFG/Plugins/x86_64/Release/RimFG.Native.dll' "$stage/Plugins/x86_64/RimFG.Native.dll" -Force
+          if (Test-Path 'RimFG/README.md') { Copy-Item 'RimFG/README.md' "$stage/README.md" -Force }
+          @'
+          RimFG V0.1 TEST BUILD
+          Target: RimWorld 1.5.4063, Windows x64, Direct3D 11.
+          Native DLL belongs in Plugins/x86_64; do not move it into Assemblies.
+          Start with Immediate Validation mode. Use VSync 2x only on high-refresh displays.
+          Includes a fail-closed camera CommandBuffer render-event bridge for Unity 2019.4 paths where GL.IssuePluginEvent does not reach the native callback.
+          Dynamic RimWorld WindowStack windows are masked from generated frames.
+          If presentation is unstable, switch Present mode to Disabled; simulation/save data are untouched.
+          '@ | Set-Content "$stage/TEST_BUILD.txt"
+          Compress-Archive -Path $stage -DestinationPath 'build/RimFG_V0.1_Test.zip' -Force
+
+      - name: Upload complete test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimFG-V0.1-Test
+          path: build/RimFG_V0.1_Test.zip
+          if-no-files-found: error
+          retention-days: 30
