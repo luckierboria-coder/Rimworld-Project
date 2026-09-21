@@ -1,43 +1,53 @@
-# Medieval Overhaul - Recycle Only 1.5 v1.4
+# Medieval Overhaul - Recycle Only 1.5 v1.5
 
 Target: RimWorld 1.5.4063 + Medieval Overhaul.
 
-## Core integration
-This version intentionally follows Medieval Overhaul's own mending implementation.
+## Critical fix in v1.5
+Medieval Overhaul's JobDriver_DoMending does two important things:
+1. Work time is calculated from the mending recipe and missing HP.
+2. On completion it directly heals the target item to full HP and does NOT call GenRecipe.MakeRecipeProducts.
 
-MO's mending RecipeDefs use:
+That means earlier recycle-only builds could finish by repairing the item instead of recycling it.
+
+v1.5 keeps MO's mending work path and repair-tool fuel consumption, but wraps the MO completion toil:
+- Normal MO mending recipes: original MO completion runs unchanged.
+- Allen_MO_RecycleApparel / Armor / Weapon:
+  - MO hpHeal is skipped.
+  - Recycle materials are calculated from the item's adjusted construction cost.
+  - The original item is consumed/destroyed.
+  - Returned materials are spawned near the worker.
+  - The bill iteration is completed normally.
+
+## Work amount
+The recycle RecipeDefs keep the same base workAmount as MO mending:
   workAmount = 30
 
-MO's JobDriver_DoMending then calculates:
-  mending work = 30 x missing HP
+MO mending effectively uses:
+  30 x missing HP
 
-Recycle recipes also use:
-  workAmount = 30
+Recycle mirrors it:
+  30 x current HP
 
-Because MO's WorkGiver_DoMending and JobDriver_DoMending automatically handle every bill on the mending bench, this mod adjusts only RecipeDef.WorkAmountTotal for the three recycle recipes so MO's existing multiplication resolves to:
-  recycle work = 30 x current HP
-
-Examples for an item with MaxHP 100:
-- 90 HP: recycle 2700 work; mend 300 work
-- 50 HP: recycle 1500 work; mend 1500 work
-- 20 HP: recycle 600 work; mend 2400 work
-- 10 HP: recycle 300 work; mend 2700 work
-
-Thus lower-durability items are faster to recycle, while using exactly the same 30-work-per-HP scale as MO mending.
-
-MO's mending WorkGiver selects damaged items only (HitPoints < MaxHitPoints). v1.4 intentionally preserves that behavior instead of replacing MO's WorkGiver.
-
-## Fuel
-The job remains DankPyon_DoBillMending on DankPyon_MendingBench, so MO's native repair-tool fuel consumption, work effects, sound and bill handling remain in control.
+So lower-durability items are faster to dismantle.
 
 ## Material return
-Default:
-- 100% durability -> up to 50% of original non-intricate materials
+Default maximum recovery: 50% at 100% durability.
+
+With durability scaling enabled:
+  recovery fraction = 50% x current HP / max HP
+
+Examples:
+- 100% durability -> up to 50% of eligible original materials
 - 50% durability -> up to 25%
 - 10% durability -> up to 5%
 
-Formula:
-  recovered fraction = max recovery x current HP / max HP
+Intricate materials/components remain excluded by default.
 
-The maximum recovery and durability scaling can be changed in Mod Settings.
-Intricate materials/components are excluded by default.
+## Fuel / workbench
+Uses:
+- DankPyon_MendingBench
+- MO WorkGiver_DoMending
+- MO DankPyon_DoBillMending / JobDriver_DoMending
+- MO repair-tool fuel consumption via UsedThisTick()
+
+No separate mending system is added.

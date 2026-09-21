@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using HarmonyLib;
 using RimWorld;
 using UnityEngine;
 using Verse;
+using Verse.AI;
 
 namespace MORecycleOnly15
 {
@@ -53,7 +55,7 @@ namespace MORecycleOnly15
                 "Disabled by default to prevent recycling equipment back into components or other intricate manufactured parts.");
 
             listing.Gap();
-            listing.Label("Recycle work uses Medieval Overhaul's own mending work path: 30 work per remaining HP. Repair tools are consumed by the mending bench's native fuel system.");
+            listing.Label("Recycle work follows Medieval Overhaul mending timing: 30 work per remaining HP. Recycle completion destroys the item and returns materials instead of repairing it.");
 
             listing.End();
         }
@@ -74,82 +76,12 @@ namespace MORecycleOnly15
         {
             return recipe != null && RecycleRecipes.Contains(recipe.defName);
         }
-    }
 
-    [StaticConstructorOnStartup]
-    internal static class Bootstrap
-    {
-        static Bootstrap()
+        internal static List<Thing> BuildProducts(Thing item)
         {
-            new Harmony("allen.mo.recycleonly15").PatchAll();
-            Log.Message("[MO Recycle Only 1.5 v1.4] loaded. MO mending path retained; recycle actual work = 30 x current HP.");
-        }
-    }
-
-    // Medieval Overhaul's JobDriver_DoMending initializes workLeft as:
-    //
-    //   bill.GetWorkAmount(item) * (MaxHP - HitPoints)
-    //
-    // and Bill.GetWorkAmount delegates to RecipeDef.WorkAmountTotal(item).
-    //
-    // For the original mending recipes WorkAmountTotal is simply 30, yielding:
-    //   30 * missingHP
-    //
-    // Recycling should use the exact same 30-work-per-HP scale in reverse:
-    //   30 * currentHP
-    //
-    // Therefore for recycle recipes we return:
-    //   30 * currentHP / missingHP
-    //
-    // MO then multiplies by missingHP, producing exactly 30 * currentHP.
-    // This also keeps MO's own progress-bar denominator consistent with workLeft.
-    [HarmonyPatch(typeof(RecipeDef), nameof(RecipeDef.WorkAmountTotal))]
-    internal static class Patch_RecipeDef_WorkAmountTotal
-    {
-        private static void Postfix(RecipeDef __instance, Thing thing, ref float __result)
-        {
-            if (!RecycleUtility.IsRecycleRecipe(__instance) || thing == null)
-                return;
-
-            int currentHp = Math.Max(1, thing.HitPoints);
-            int missingHp = thing.MaxHitPoints - thing.HitPoints;
-
-            // MO's WorkGiver_DoMending intentionally selects damaged items only,
-            // so missingHp should normally be > 0. Keep the XML base value as a
-            // safe fallback if another mod force-runs a full-durability item.
-            if (missingHp <= 0)
-            {
-                __result = RecycleUtility.WorkPerHp;
-                return;
-            }
-
-            __result = RecycleUtility.WorkPerHp * currentHp / missingHp;
-        }
-    }
-
-    [HarmonyPatch(typeof(GenRecipe), nameof(GenRecipe.MakeRecipeProducts))]
-    internal static class Patch_GenRecipe_MakeRecipeProducts
-    {
-        private static void Postfix(
-            RecipeDef recipeDef,
-            List<Thing> ingredients,
-            ref IEnumerable<Thing> __result)
-        {
-            if (!RecycleUtility.IsRecycleRecipe(recipeDef))
-                return;
-
-            Thing item = ingredients?.FirstOrDefault(t => t != null && !t.Destroyed);
             if (item == null)
-            {
-                __result = Enumerable.Empty<Thing>();
-                return;
-            }
+                return new List<Thing>();
 
-            __result = BuildProducts(item);
-        }
-
-        private static IEnumerable<Thing> BuildProducts(Thing item)
-        {
             var settings = MORecycleMod.Settings ?? new MORecycleSettings();
 
             float recovery = Mathf.Clamp(settings.maxRecovery, 0f, 1f);
@@ -170,7 +102,7 @@ namespace MORecycleOnly15
                 costs = item.def.smeltProducts;
 
             if (costs.NullOrEmpty() || recovery <= 0f)
-                return Enumerable.Empty<Thing>();
+                return new List<Thing>();
 
             var totals = new Dictionary<ThingDef, int>();
 
@@ -208,6 +140,153 @@ namespace MORecycleOnly15
             }
 
             return products;
+        }
+
+        internal static void FinishRecycle(Pawn actor, Job job)
+        {
+            if (actor == null || job?.bill == null)
+                return;
+
+            Thing item = job.GetTarget(TargetIndex.B).Thing;
+            if (item == null || item.Destroyed)
+            {
+                Log.Error("[MO Recycle Only 1.5 v1.5] Recycle completion had no valid target item.");
+                actor.jobs.EndCurrentJob(JobCondition.Incompletable, true, true);
+                return;
+            }
+
+            List<Thing> products = BuildProducts(item);
+            List<Thing> ingredients = new List<Thing> { item };
+
+            try
+            {
+                job.RecipeDef.Worker.ConsumeIngredient(item, job.RecipeDef, actor.Map);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[MO Recycle Only 1.5 v1.5] Failed consuming recycled item " + item.ToStringSafe() + ": " + ex);
+                actor.jobs.EndCurrentJob(JobCondition.Errored, true, true);
+                return;
+            }
+
+            job.placedThings = null;
+
+            try
+            {
+                job.bill.Notify_IterationCompleted(actor, ingredients);
+                RecordsUtility.Notify_BillDone(actor, products);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[MO Recycle Only 1.5 v1.5] Bill completion notification warning: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            foreach (Thing product in products)
+            {
+                if (product == null || product.Destroyed)
+                    continue;
+
+                if (!GenPlace.TryPlaceThing(product, actor.Position, actor.Map, ThingPlaceMode.Near))
+                    Log.Error("[MO Recycle Only 1.5 v1.5] Could not place recycled product " + product.ToStringSafe() + " near " + actor.Position);
+            }
+
+            actor.Map?.resourceCounter?.UpdateResourceCounts();
+            actor.jobs.EndCurrentJob(JobCondition.Succeeded, true, true);
+        }
+    }
+
+    [StaticConstructorOnStartup]
+    internal static class Bootstrap
+    {
+        static Bootstrap()
+        {
+            new Harmony("allen.mo.recycleonly15").PatchAll();
+            Log.Message("[MO Recycle Only 1.5 v1.5] loaded. Recycle completion bypasses MO hpHeal and produces materials.");
+        }
+    }
+
+    // MO mending initializes:
+    // workLeft = bill.GetWorkAmount(item) * missingHP
+    //
+    // For recycle recipes we make WorkAmountTotal return:
+    // 30 * currentHP / missingHP
+    //
+    // MO then multiplies by missingHP and the final work becomes:
+    // 30 * currentHP
+    [HarmonyPatch(typeof(RecipeDef), nameof(RecipeDef.WorkAmountTotal))]
+    internal static class Patch_RecipeDef_WorkAmountTotal
+    {
+        private static void Postfix(RecipeDef __instance, Thing thing, ref float __result)
+        {
+            if (!RecycleUtility.IsRecycleRecipe(__instance) || thing == null)
+                return;
+
+            int currentHp = Math.Max(1, thing.HitPoints);
+            int missingHp = thing.MaxHitPoints - thing.HitPoints;
+
+            if (missingHp <= 0)
+            {
+                __result = RecycleUtility.WorkPerHp;
+                return;
+            }
+
+            __result = RecycleUtility.WorkPerHp * currentHp / missingHp;
+        }
+    }
+
+    // Medieval Overhaul's FinishRecipeAndStartStoringProduct_Mend always heals
+    // Target B to full and never calls GenRecipe.MakeRecipeProducts. Wrap the
+    // returned toil's initAction: recycle recipes take our completion path,
+    // normal MO mending recipes run the original initAction unchanged.
+    [HarmonyPatch]
+    internal static class Patch_MO_FinishRecipeAndStartStoringProduct_Mend
+    {
+        private static MethodBase TargetMethod()
+        {
+            Type type = AccessTools.TypeByName("MedievalOverhaul.JobDriver_DoMending");
+            return type == null ? null : AccessTools.Method(type, "FinishRecipeAndStartStoringProduct_Mend");
+        }
+
+        private static void Postfix(ref Toil __result)
+        {
+            if (__result == null)
+                return;
+
+            Toil toil = __result;
+            Action original = toil.initAction;
+
+            toil.initAction = delegate
+            {
+                Pawn actor = toil.actor;
+                Job job = actor?.jobs?.curJob;
+
+                if (job != null && RecycleUtility.IsRecycleRecipe(job.RecipeDef))
+                {
+                    RecycleUtility.FinishRecycle(actor, job);
+                    return;
+                }
+
+                original?.Invoke();
+            };
+        }
+    }
+
+    // Kept as a fallback for any non-MO bill path that may execute these recipes.
+    [HarmonyPatch(typeof(GenRecipe), nameof(GenRecipe.MakeRecipeProducts))]
+    internal static class Patch_GenRecipe_MakeRecipeProducts
+    {
+        private static void Postfix(
+            RecipeDef recipeDef,
+            List<Thing> ingredients,
+            ref IEnumerable<Thing> __result)
+        {
+            if (!RecycleUtility.IsRecycleRecipe(recipeDef))
+                return;
+
+            Thing item = ingredients?.FirstOrDefault(t => t != null && !t.Destroyed);
+            __result = item == null
+                ? Enumerable.Empty<Thing>()
+                : RecycleUtility.BuildProducts(item);
         }
     }
 }
