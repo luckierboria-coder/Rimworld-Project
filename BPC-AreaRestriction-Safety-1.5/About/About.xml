@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>BPC Area Restriction Safety 1.5</name>
+  <author>Allen / OpenAI</author>
+  <packageId>allen.bpc.arearestrictionsafety15</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <description>
+Safety patch for RimWorld 1.5 area restrictions. Validates Better Pawn Control/other area assignments against the pawn's current map, clears stale cross-map area references, and prevents out-of-bounds Job area checks from breaking job selection. Does not patch StartJob, ThinkTree, WorkGiver, or JobGiver.
+  </description>
+</ModMetaData>
