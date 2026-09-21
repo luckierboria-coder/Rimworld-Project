@@ -1,0 +1,931 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using HarmonyLib;
+using RimWorld;
+using Verse;
+using Verse.AI;
+
+namespace RimMT
+{
+    /// <summary>
+    /// T34-B generic scanner parallel fabric.
+    ///
+    /// This is intentionally scanner-agnostic. It learns stable candidate sources from real
+    /// JobGiver_Work GenClosest traffic, keeps only bounded hot-source metadata, and overlaps
+    /// worker-side distance planning with the main thread inside the SAME TryIssueJobPackage.
+    ///
+    /// Safety contract:
+    /// - workers only read immutable PersistentMapSearchFabric.SourceSnapshot data;
+    /// - Thing references are opaque worker tokens and are never dereferenced off-thread;
+    /// - no worker calls WorkGiver callbacks, Reachability, reservations, Rand, Unity or Job APIs;
+    /// - main thread never waits for a worker result;
+    /// - every consumed plan is matched to the exact published source snapshot and root cell;
+    /// - membership/spawn/position are revalidated before any live validator/CanReach call;
+    /// - uncertain/missing/stale plans fall through to T34-A/Vanilla.
+    ///
+    /// The first production target is the exact 13-argument ClosestThingReachable path used by
+    /// broad WorkGiver scanners. T34-A remains installed as a synchronous spatial fallback.
+    /// </summary>
+    internal static class ScannerParallelFabric093T34B
+    {
+        internal const string FeatureId = "parallel.scannerFabric";
+
+        private const int MinSourceCount = 16;
+        private const int MaxSourceCount = 16384;
+        private const int MaxHotSourcesPerMap = 96;
+        private const int PrefetchSourcesPerPackage = 12;
+        private const int MaxPackagePlans = 48;
+        private const int MaxRootPlansPerHotSource = 8;
+
+        private static readonly object HotSync = new object();
+        private static readonly ConditionalWeakTable<object, HotSource> HotBySource =
+            new ConditionalWeakTable<object, HotSource>();
+        private static readonly Dictionary<int, List<HotSource>> HotByMap =
+            new Dictionary<int, List<HotSource>>();
+
+        [ThreadStatic] private static int packageDepth;
+        [ThreadStatic] private static PackageState currentPackage;
+
+        private static bool installed;
+        private static long nextPackageToken;
+        private static long nextHotSequence;
+
+        private static long packages;
+        private static long nestedPackages;
+        private static long observedQueries;
+        private static long shapeBypasses;
+        private static long sourceUnavailable;
+        private static long sourceRegisteredOrRefreshing;
+        private static long eligibleQueries;
+        private static long hotRegistrations;
+        private static long hotEvictions;
+        private static long prefetchPackages;
+        private static long prefetchSources;
+        private static long prefetchParallelAccepted;
+        private static long prefetchParallelRejected;
+        private static long onDemandScheduled;
+        private static long onDemandRejected;
+        private static long duplicateScheduleBypass;
+        private static long workerPlansBuilt;
+        private static long workerPlansDiscardedClosed;
+        private static long workerFailures;
+        private static long packagePlanHits;
+        private static long crossPackagePlanHits;
+        private static long planMisses;
+        private static long stalePlanBypass;
+        private static long planValidationBypass;
+        private static long accelerated;
+        private static long acceleratedNull;
+        private static long candidatesInSources;
+        private static long candidatesWithinDistance;
+        private static long candidatesVisitedLive;
+        private static long candidatesAvoidedLive;
+        private static long reachChecks;
+        private static long validatorChecks;
+        private static long workerBuildTicks;
+        private static long workerBuildTicksMax;
+        private static long mainValidateTicks;
+        private static long mainValidateTicksMax;
+        private static long mainLiveTicks;
+        private static long mainLiveTicksMax;
+        private static long failures;
+        private static long installFailures;
+        private static long tickFlushCalls;
+
+        internal static void Apply(Harmony harmony)
+        {
+            if (harmony == null)
+                return;
+
+            try
+            {
+                MethodBase package = AccessTools.Method(
+                    typeof(JobGiver_Work),
+                    "TryIssueJobPackage",
+                    new Type[] { typeof(Pawn), typeof(JobIssueParams) });
+                if (package == null)
+                    throw new MissingMethodException(typeof(JobGiver_Work).FullName, "TryIssueJobPackage");
+
+                HarmonyMethod packagePrefix =
+                    new HarmonyMethod(typeof(ScannerParallelFabric093T34B), nameof(PackagePrefix));
+                packagePrefix.priority = Priority.First + 350;
+                HarmonyMethod packageFinalizer =
+                    new HarmonyMethod(typeof(ScannerParallelFabric093T34B), nameof(PackageFinalizer));
+                packageFinalizer.priority = Priority.Last - 350;
+                harmony.Patch(package, prefix: packagePrefix, finalizer: packageFinalizer);
+
+                MethodBase reachable = AccessTools.Method(
+                    typeof(GenClosest),
+                    nameof(GenClosest.ClosestThingReachable),
+                    new Type[]
+                    {
+                        typeof(IntVec3), typeof(Map), typeof(ThingRequest), typeof(PathEndMode),
+                        typeof(TraverseParms), typeof(float), typeof(Predicate<Thing>),
+                        typeof(IEnumerable<Thing>), typeof(int), typeof(int), typeof(bool),
+                        typeof(RegionType), typeof(bool)
+                    });
+                if (reachable == null)
+                    throw new MissingMethodException(typeof(GenClosest).FullName, "ClosestThingReachable(13)");
+
+                CompatibilityGuard.RegisterTarget(FeatureId, reachable);
+                HarmonyMethod queryPrefix =
+                    new HarmonyMethod(typeof(ScannerParallelFabric093T34B), nameof(ClosestThingReachablePrefix));
+                queryPrefix.priority = Priority.First + 380;
+                harmony.Patch(reachable, prefix: queryPrefix);
+
+                MethodBase tick = AccessTools.Method(typeof(TickManager), "DoSingleTick");
+                if (tick != null)
+                {
+                    HarmonyMethod tickPostfix =
+                        new HarmonyMethod(typeof(ScannerParallelFabric093T34B), nameof(TickPostfix));
+                    tickPostfix.priority = Priority.Last - 450;
+                    harmony.Patch(tick, postfix: tickPostfix);
+                }
+
+                installed = true;
+                Log.Message("[RimMT] T34-B scanner parallel fabric installed. Hot WorkGiver candidate sources are distance-planned on workers in parallel with the current JobGiver package; the main thread never waits and live Reachability/validator remain authoritative.");
+            }
+            catch (Exception ex)
+            {
+                installed = false;
+                Interlocked.Increment(ref installFailures);
+                FeatureGate.Suppress(FeatureId, "T34-B install failed: " + ex.GetType().Name);
+                Log.Warning("[RimMT] T34-B scanner parallel fabric failed closed: " +
+                    ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        public static void PackagePrefix(Pawn __0)
+        {
+            if (!installed || !FeatureGate.IsEnabled(FeatureId) ||
+                !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return;
+
+            if (packageDepth == 0)
+            {
+                long token = Interlocked.Increment(ref nextPackageToken);
+                Map map = __0 == null ? null : __0.Map;
+                IntVec3 root = __0 == null ? IntVec3.Invalid : __0.Position;
+                currentPackage = new PackageState(token, map, root);
+                Interlocked.Increment(ref packages);
+                if (map != null && !map.Disposed && root.IsValid)
+                    PrefetchHotSources(currentPackage);
+            }
+            else
+            {
+                Interlocked.Increment(ref nestedPackages);
+            }
+
+            packageDepth++;
+        }
+
+        public static Exception PackageFinalizer(Exception __exception)
+        {
+            if (packageDepth > 0)
+                packageDepth--;
+
+            if (packageDepth == 0)
+            {
+                PackageState package = currentPackage;
+                currentPackage = null;
+                if (package != null)
+                    Volatile.Write(ref package.Closed, 1);
+            }
+
+            return __exception;
+        }
+
+        public static void TickPostfix()
+        {
+            if (!installed || !FeatureGate.IsEnabled(FeatureId) ||
+                !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return;
+
+            PersistentMapSearchFabric.FlushPendingT34B();
+            Interlocked.Increment(ref tickFlushCalls);
+        }
+
+        public static bool ClosestThingReachablePrefix(
+            IntVec3 root,
+            Map map,
+            ThingRequest thingReq,
+            PathEndMode peMode,
+            TraverseParms traverseParams,
+            float maxDistance,
+            Predicate<Thing> validator,
+            IEnumerable<Thing> customGlobalSearchSet,
+            int searchRegionsMin,
+            int searchRegionsMax,
+            bool forceAllowGlobalSearch,
+            RegionType traversableRegionTypes,
+            bool ignoreEntirelyForbiddenRegions,
+            ref Thing __result)
+        {
+            Interlocked.Increment(ref observedQueries);
+
+            if (!installed || !FeatureGate.IsEnabled(FeatureId) ||
+                !JobGiverGlobalNearest04181.InJobGiverScope ||
+                !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return true;
+
+            Pawn pawn = traverseParams.pawn;
+            if (map == null || map.Disposed || pawn == null || !pawn.Spawned || pawn.Map != map ||
+                !root.IsValid || !root.InBounds(map) || maxDistance <= 0f)
+                return true;
+
+            TraverseMode mode = traverseParams.mode;
+            if (mode != TraverseMode.ByPawn && mode != TraverseMode.PassDoors &&
+                mode != TraverseMode.NoPassClosedDoors)
+            {
+                Interlocked.Increment(ref shapeBypasses);
+                return true;
+            }
+
+            // Keep the exact T34-A authority envelope. T34-B broadens source SIZE coverage and
+            // overlaps worker planning; it does not broaden region/global semantics yet.
+            if (traversableRegionTypes != RegionType.Set_Passable ||
+                ignoreEntirelyForbiddenRegions ||
+                (!(searchRegionsMax < 0) && !forceAllowGlobalSearch))
+            {
+                Interlocked.Increment(ref shapeBypasses);
+                return true;
+            }
+
+            object source;
+            if (customGlobalSearchSet != null)
+            {
+                if (!thingReq.IsUndefined)
+                {
+                    Interlocked.Increment(ref shapeBypasses);
+                    return true;
+                }
+                source = customGlobalSearchSet;
+            }
+            else
+            {
+                try
+                {
+                    source = map.listerThings.ThingsMatching(thingReq);
+                }
+                catch
+                {
+                    Interlocked.Increment(ref sourceUnavailable);
+                    return true;
+                }
+            }
+
+            PersistentMapSearchFabric.SourceSnapshot snapshot;
+            int sourceId;
+            int count;
+            bool ready = CandidateFabric093T34A.TryEnsureSourceSnapshotT34B(
+                map, source, MinSourceCount, MaxSourceCount,
+                out snapshot, out sourceId, out count);
+
+            if (!ready || snapshot == null)
+            {
+                Interlocked.Increment(ref sourceRegisteredOrRefreshing);
+                return true;
+            }
+
+            if (count < MinSourceCount || count > MaxSourceCount)
+            {
+                Interlocked.Increment(ref sourceUnavailable);
+                return true;
+            }
+
+            Interlocked.Increment(ref eligibleQueries);
+            Interlocked.Add(ref candidatesInSources, count);
+
+            HotSource hot = RegisterHotSource(source, map, sourceId, count);
+            if (hot == null)
+                return true;
+
+            SharedPlan plan;
+            PackageState package = currentPackage;
+            if (package != null && package.MapId == map.uniqueID &&
+                package.TryGetPlan(sourceId, root.x, root.z, snapshot, out plan))
+            {
+                Interlocked.Increment(ref packagePlanHits);
+            }
+            else if (hot.TryGetPlan(root.x, root.z, snapshot, out plan))
+            {
+                Interlocked.Increment(ref crossPackagePlanHits);
+            }
+            else
+            {
+                Interlocked.Increment(ref planMisses);
+                if (package != null && package.MapId == map.uniqueID)
+                    TryScheduleOne(package, hot, snapshot, root.x, root.z);
+                return true;
+            }
+
+            long validateStarted = Stopwatch.GetTimestamp();
+            int validatedCount;
+            if (!CandidateFabric093T34A.TryValidateSourceSnapshotT34B(
+                map, source, snapshot, out validatedCount) ||
+                validatedCount != count ||
+                plan.DistancePlan == null ||
+                !ReferenceEquals(plan.Snapshot, snapshot) ||
+                plan.RootX != root.x || plan.RootZ != root.z)
+            {
+                RecordElapsed(ref mainValidateTicks, ref mainValidateTicksMax, validateStarted);
+                Interlocked.Increment(ref stalePlanBypass);
+                return true;
+            }
+
+            PersistentMapSearchFabric.DistancePlanEntry[] entries = plan.DistancePlan.Entries;
+            if (entries == null)
+            {
+                RecordElapsed(ref mainValidateTicks, ref mainValidateTicksMax, validateStarted);
+                Interlocked.Increment(ref planValidationBypass);
+                return true;
+            }
+
+            double maxDistanceSquared = (double)maxDistance * maxDistance;
+            int within = 0;
+            for (int i = 0; i < entries.Length; i++)
+            {
+                PersistentMapSearchFabric.DistancePlanEntry entry = entries[i];
+                if (entry.DistanceSquared > maxDistanceSquared)
+                    break;
+
+                Thing thing = entry.Thing;
+                if (thing == null || !thing.Spawned || thing.MapHeld != map)
+                {
+                    RecordElapsed(ref mainValidateTicks, ref mainValidateTicksMax, validateStarted);
+                    Interlocked.Increment(ref planValidationBypass);
+                    return true;
+                }
+
+                IntVec3 live = thing.Position;
+                if (!live.IsValid || live.x != entry.X || live.z != entry.Z)
+                {
+                    RecordElapsed(ref mainValidateTicks, ref mainValidateTicksMax, validateStarted);
+                    Interlocked.Increment(ref planValidationBypass);
+                    return true;
+                }
+
+                within++;
+            }
+            RecordElapsed(ref mainValidateTicks, ref mainValidateTicksMax, validateStarted);
+            Interlocked.Add(ref candidatesWithinDistance, within);
+
+            long liveStarted = Stopwatch.GetTimestamp();
+            Thing chosen = null;
+            int visited = 0;
+            int reaches = 0;
+            int validations = 0;
+
+            try
+            {
+                for (int i = 0; i < within; i++)
+                {
+                    Thing thing = entries[i].Thing;
+                    visited++;
+
+                    reaches++;
+                    if (!map.reachability.CanReach(
+                        root, (LocalTargetInfo)thing, peMode, traverseParams))
+                        continue;
+
+                    if (validator != null)
+                    {
+                        validations++;
+                        if (!validator(thing))
+                            continue;
+                    }
+
+                    chosen = thing;
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                RecordElapsed(ref mainLiveTicks, ref mainLiveTicksMax, liveStarted);
+                Interlocked.Increment(ref failures);
+                CircuitBreaker.RecordFailure(FeatureId, ex);
+                return true;
+            }
+
+            RecordElapsed(ref mainLiveTicks, ref mainLiveTicksMax, liveStarted);
+            __result = chosen;
+
+            Interlocked.Increment(ref accelerated);
+            if (chosen == null)
+                Interlocked.Increment(ref acceleratedNull);
+            Interlocked.Add(ref candidatesVisitedLive, visited);
+            Interlocked.Add(ref reachChecks, reaches);
+            Interlocked.Add(ref validatorChecks, validations);
+
+            long avoided = count - visited;
+            if (avoided > 0)
+                Interlocked.Add(ref candidatesAvoidedLive, avoided);
+
+            return false;
+        }
+
+        private static HotSource RegisterHotSource(
+            object source, Map map, int sourceId, int count)
+        {
+            if (source == null || map == null)
+                return null;
+
+            HotSource hot = HotBySource.GetValue(
+                source,
+                delegate(object key)
+                {
+                    return new HotSource(key);
+                });
+
+            bool newlyMapped = false;
+            lock (HotSync)
+            {
+                hot.MapId = map.uniqueID;
+                hot.SourceId = sourceId;
+                hot.Count = count;
+                hot.Score = Math.Min(1000000, hot.Score + 1);
+                hot.LastSeen = Interlocked.Increment(ref nextHotSequence);
+
+                List<HotSource> list;
+                if (!HotByMap.TryGetValue(map.uniqueID, out list))
+                {
+                    list = new List<HotSource>();
+                    HotByMap.Add(map.uniqueID, list);
+                }
+
+                if (!list.Contains(hot))
+                {
+                    if (list.Count >= MaxHotSourcesPerMap)
+                    {
+                        int evictIndex = 0;
+                        for (int i = 1; i < list.Count; i++)
+                        {
+                            if (list[i].Score < list[evictIndex].Score ||
+                                (list[i].Score == list[evictIndex].Score &&
+                                 list[i].LastSeen < list[evictIndex].LastSeen))
+                                evictIndex = i;
+                        }
+
+                        list.RemoveAt(evictIndex);
+                        Interlocked.Increment(ref hotEvictions);
+                    }
+
+                    list.Add(hot);
+                    newlyMapped = true;
+                }
+            }
+
+            if (newlyMapped)
+                Interlocked.Increment(ref hotRegistrations);
+
+            return hot;
+        }
+
+        private static void PrefetchHotSources(PackageState package)
+        {
+            if (package == null || package.Map == null || package.Map.Disposed)
+                return;
+
+            List<HotSource> selected = new List<HotSource>(PrefetchSourcesPerPackage);
+            lock (HotSync)
+            {
+                List<HotSource> list;
+                if (!HotByMap.TryGetValue(package.MapId, out list) || list.Count == 0)
+                    return;
+
+                List<HotSource> ordered = new List<HotSource>(list);
+                ordered.Sort(HotSourceComparer.Instance);
+                int take = Math.Min(PrefetchSourcesPerPackage, ordered.Count);
+                for (int i = 0; i < take; i++)
+                    selected.Add(ordered[i]);
+            }
+
+            if (selected.Count == 0)
+                return;
+
+            List<WorkSpec> specs = new List<WorkSpec>(selected.Count);
+            for (int i = 0; i < selected.Count; i++)
+            {
+                HotSource hot = selected[i];
+                PersistentMapSearchFabric.SourceSnapshot snapshot;
+                int sourceId;
+                int count;
+                if (!CandidateFabric093T34A.TryGetKnownSourceSnapshotFastT34B(
+                    package.Map, hot.Source, out snapshot, out sourceId, out count))
+                    continue;
+                if (snapshot == null || count < MinSourceCount || count > MaxSourceCount)
+                    continue;
+
+                if (hot.TryGetPlan(package.RootX, package.RootZ, snapshot, out _))
+                    continue;
+
+                long key = MakePlanKey(sourceId, package.RootX, package.RootZ);
+                if (!package.Scheduled.TryAdd(key, 1))
+                    continue;
+
+                specs.Add(new WorkSpec(hot, snapshot, sourceId, package.RootX, package.RootZ));
+            }
+
+            if (specs.Count == 0)
+                return;
+
+            JobScheduler scheduler = RimMTRuntime.Scheduler;
+            if (scheduler == null)
+                return;
+
+            Interlocked.Increment(ref prefetchPackages);
+            Interlocked.Add(ref prefetchSources, specs.Count);
+
+            WorkSpec[] array = specs.ToArray();
+            bool accepted = scheduler.ParallelFor(
+                FeatureId,
+                0,
+                array.Length,
+                1,
+                delegate(int from, int to)
+                {
+                    for (int i = from; i < to; i++)
+                        BuildPlan(package, array[i], true);
+                },
+                null,
+                JobPriority.High);
+
+            if (accepted)
+                Interlocked.Increment(ref prefetchParallelAccepted);
+            else
+                Interlocked.Increment(ref prefetchParallelRejected);
+        }
+
+        private static void TryScheduleOne(
+            PackageState package,
+            HotSource hot,
+            PersistentMapSearchFabric.SourceSnapshot snapshot,
+            int rootX,
+            int rootZ)
+        {
+            if (package == null || hot == null || snapshot == null ||
+                Volatile.Read(ref package.Closed) != 0)
+                return;
+
+            if (package.Scheduled.Count >= MaxPackagePlans)
+                return;
+
+            long key = MakePlanKey(hot.SourceId, rootX, rootZ);
+            if (!package.Scheduled.TryAdd(key, 1))
+            {
+                Interlocked.Increment(ref duplicateScheduleBypass);
+                return;
+            }
+
+            JobScheduler scheduler = RimMTRuntime.Scheduler;
+            if (scheduler == null)
+                return;
+
+            WorkSpec spec = new WorkSpec(hot, snapshot, hot.SourceId, rootX, rootZ);
+            bool accepted = scheduler.TryEnqueue(
+                FeatureId,
+                JobPriority.High,
+                delegate
+                {
+                    BuildPlan(package, spec, false);
+                });
+
+            if (accepted)
+                Interlocked.Increment(ref onDemandScheduled);
+            else
+                Interlocked.Increment(ref onDemandRejected);
+        }
+
+        private static void BuildPlan(
+            PackageState package,
+            WorkSpec spec,
+            bool prefetched)
+        {
+            long started = Stopwatch.GetTimestamp();
+            try
+            {
+                if (package == null || spec.Snapshot == null ||
+                    Volatile.Read(ref package.Closed) != 0)
+                {
+                    Interlocked.Increment(ref workerPlansDiscardedClosed);
+                    return;
+                }
+
+                // Worker-safe by construction: SourceSnapshot.BuildDistancePlan only reads
+                // captured primitive coordinates/source order. Thing references remain opaque.
+                PersistentMapSearchFabric.DistancePlan distancePlan =
+                    spec.Snapshot.BuildDistancePlan(spec.RootX, spec.RootZ);
+
+                if (distancePlan == null)
+                    return;
+
+                SharedPlan plan = new SharedPlan(
+                    spec.Snapshot,
+                    distancePlan,
+                    spec.SourceId,
+                    spec.RootX,
+                    spec.RootZ);
+
+                spec.Hot.PublishPlan(plan);
+                if (Volatile.Read(ref package.Closed) == 0)
+                    package.Publish(plan);
+                else
+                    Interlocked.Increment(ref workerPlansDiscardedClosed);
+
+                Interlocked.Increment(ref workerPlansBuilt);
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref workerFailures);
+                CircuitBreaker.RecordFailure(FeatureId, ex);
+            }
+            finally
+            {
+                RecordElapsed(ref workerBuildTicks, ref workerBuildTicksMax, started);
+            }
+        }
+
+        private static long MakePlanKey(int sourceId, int x, int z)
+        {
+            unchecked
+            {
+                long root = ((long)(uint)x << 32) | (uint)z;
+                return root ^ ((long)sourceId * 1099511628211L);
+            }
+        }
+
+        private static long MakeRootKey(int x, int z)
+        {
+            return ((long)(uint)x << 32) | (uint)z;
+        }
+
+        private static void RecordElapsed(ref long total, ref long max, long started)
+        {
+            long elapsed = Stopwatch.GetTimestamp() - started;
+            if (elapsed < 0)
+                return;
+
+            Interlocked.Add(ref total, elapsed);
+            long seen;
+            while (elapsed > (seen = Interlocked.Read(ref max)))
+            {
+                if (Interlocked.CompareExchange(ref max, elapsed, seen) == seen)
+                    break;
+            }
+        }
+
+        internal static string Summary()
+        {
+            long built = Interlocked.Read(ref workerPlansBuilt);
+            long acceleratedCount = Interlocked.Read(ref accelerated);
+            long sourceCandidates = Interlocked.Read(ref candidatesInSources);
+            long visited = Interlocked.Read(ref candidatesVisitedLive);
+            long avoided = Interlocked.Read(ref candidatesAvoidedLive);
+
+            double avgWorkerUs = built <= 0 ? 0.0 :
+                Interlocked.Read(ref workerBuildTicks) * 1000000.0 /
+                Stopwatch.Frequency / built;
+            double maxWorkerUs =
+                Interlocked.Read(ref workerBuildTicksMax) * 1000000.0 /
+                Stopwatch.Frequency;
+            double avgValidateUs = acceleratedCount <= 0 ? 0.0 :
+                Interlocked.Read(ref mainValidateTicks) * 1000000.0 /
+                Stopwatch.Frequency / acceleratedCount;
+            double avgLiveUs = acceleratedCount <= 0 ? 0.0 :
+                Interlocked.Read(ref mainLiveTicks) * 1000000.0 /
+                Stopwatch.Frequency / acceleratedCount;
+            double avgSource = Interlocked.Read(ref eligibleQueries) <= 0 ? 0.0 :
+                sourceCandidates / (double)Interlocked.Read(ref eligibleQueries);
+            double avgVisited = acceleratedCount <= 0 ? 0.0 :
+                visited / (double)acceleratedCount;
+            double avgAvoided = acceleratedCount <= 0 ? 0.0 :
+                avoided / (double)acceleratedCount;
+
+            return "T34-B scanner parallel fabric: installed=" + installed +
+                ", packages=" + Interlocked.Read(ref packages) +
+                ", nested=" + Interlocked.Read(ref nestedPackages) +
+                ", observedQueries=" + Interlocked.Read(ref observedQueries) +
+                ", eligible=" + Interlocked.Read(ref eligibleQueries) +
+                ", shapeBypass=" + Interlocked.Read(ref shapeBypasses) +
+                ", sourceUnavailable=" + Interlocked.Read(ref sourceUnavailable) +
+                ", sourceRefreshing=" + Interlocked.Read(ref sourceRegisteredOrRefreshing) +
+                ", hot[register/evict]=" +
+                Interlocked.Read(ref hotRegistrations) + "/" +
+                Interlocked.Read(ref hotEvictions) +
+                ", prefetch[packages/sources/accepted/rejected]=" +
+                Interlocked.Read(ref prefetchPackages) + "/" +
+                Interlocked.Read(ref prefetchSources) + "/" +
+                Interlocked.Read(ref prefetchParallelAccepted) + "/" +
+                Interlocked.Read(ref prefetchParallelRejected) +
+                ", onDemand[scheduled/rejected/duplicate]=" +
+                Interlocked.Read(ref onDemandScheduled) + "/" +
+                Interlocked.Read(ref onDemandRejected) + "/" +
+                Interlocked.Read(ref duplicateScheduleBypass) +
+                ", worker[plans/closedDiscard/failures]=" +
+                built + "/" +
+                Interlocked.Read(ref workerPlansDiscardedClosed) + "/" +
+                Interlocked.Read(ref workerFailures) +
+                ", planHits[package/crossPackage/miss/stale/validationBypass]=" +
+                Interlocked.Read(ref packagePlanHits) + "/" +
+                Interlocked.Read(ref crossPackagePlanHits) + "/" +
+                Interlocked.Read(ref planMisses) + "/" +
+                Interlocked.Read(ref stalePlanBypass) + "/" +
+                Interlocked.Read(ref planValidationBypass) +
+                ", accelerated=" + acceleratedCount +
+                ", acceleratedNull=" + Interlocked.Read(ref acceleratedNull) +
+                ", avgSource=" + avgSource.ToString("F1") +
+                ", avgWithinDistance=" +
+                (acceleratedCount <= 0 ? 0.0 :
+                 Interlocked.Read(ref candidatesWithinDistance) /
+                 (double)acceleratedCount).ToString("F1") +
+                ", avgVisitedLive=" + avgVisited.ToString("F1") +
+                ", avgAvoidedLive=" + avgAvoided.ToString("F1") +
+                ", reachChecks=" + Interlocked.Read(ref reachChecks) +
+                ", validatorChecks=" + Interlocked.Read(ref validatorChecks) +
+                ", avgWorkerBuildUs=" + avgWorkerUs.ToString("F2") +
+                ", maxWorkerBuildUs=" + maxWorkerUs.ToString("F2") +
+                ", avgMainValidateUs=" + avgValidateUs.ToString("F2") +
+                ", avgMainLiveUs=" + avgLiveUs.ToString("F2") +
+                ", tickFlushCalls=" + Interlocked.Read(ref tickFlushCalls) +
+                ", failures=" + Interlocked.Read(ref failures) +
+                ", installFailures=" + Interlocked.Read(ref installFailures) +
+                ". Same-package overlap + bounded cross-package root reuse; no main-thread worker wait.";
+        }
+
+        private sealed class PackageState
+        {
+            internal readonly long Token;
+            internal readonly Map Map;
+            internal readonly int MapId;
+            internal readonly int RootX;
+            internal readonly int RootZ;
+            internal readonly ConcurrentDictionary<long, byte> Scheduled =
+                new ConcurrentDictionary<long, byte>();
+            private readonly ConcurrentDictionary<long, SharedPlan> plans =
+                new ConcurrentDictionary<long, SharedPlan>();
+            internal int Closed;
+
+            internal PackageState(long token, Map map, IntVec3 root)
+            {
+                Token = token;
+                Map = map;
+                MapId = map == null ? int.MinValue : map.uniqueID;
+                RootX = root.IsValid ? root.x : int.MinValue;
+                RootZ = root.IsValid ? root.z : int.MinValue;
+            }
+
+            internal void Publish(SharedPlan plan)
+            {
+                if (plan == null)
+                    return;
+                long key = MakePlanKey(plan.SourceId, plan.RootX, plan.RootZ);
+                plans[key] = plan;
+            }
+
+            internal bool TryGetPlan(
+                int sourceId,
+                int rootX,
+                int rootZ,
+                PersistentMapSearchFabric.SourceSnapshot snapshot,
+                out SharedPlan plan)
+            {
+                plan = null;
+                long key = MakePlanKey(sourceId, rootX, rootZ);
+                SharedPlan found;
+                if (!plans.TryGetValue(key, out found) || found == null)
+                    return false;
+                if (!ReferenceEquals(found.Snapshot, snapshot))
+                    return false;
+                plan = found;
+                return true;
+            }
+        }
+
+        private sealed class HotSource
+        {
+            internal readonly object Source;
+            internal readonly object PlanSync = new object();
+            internal int MapId = int.MinValue;
+            internal int SourceId;
+            internal int Count;
+            internal int Score;
+            internal long LastSeen;
+            private readonly Dictionary<long, SharedPlan> rootPlans =
+                new Dictionary<long, SharedPlan>();
+
+            internal HotSource(object source)
+            {
+                Source = source;
+            }
+
+            internal void PublishPlan(SharedPlan plan)
+            {
+                if (plan == null)
+                    return;
+
+                lock (PlanSync)
+                {
+                    long key = MakeRootKey(plan.RootX, plan.RootZ);
+                    if (rootPlans.Count >= MaxRootPlansPerHotSource &&
+                        !rootPlans.ContainsKey(key))
+                    {
+                        long first = 0L;
+                        bool have = false;
+                        foreach (long existing in rootPlans.Keys)
+                        {
+                            first = existing;
+                            have = true;
+                            break;
+                        }
+                        if (have)
+                            rootPlans.Remove(first);
+                    }
+                    rootPlans[key] = plan;
+                }
+            }
+
+            internal bool TryGetPlan(
+                int rootX,
+                int rootZ,
+                PersistentMapSearchFabric.SourceSnapshot snapshot,
+                out SharedPlan plan)
+            {
+                plan = null;
+                lock (PlanSync)
+                {
+                    SharedPlan found;
+                    if (!rootPlans.TryGetValue(MakeRootKey(rootX, rootZ), out found) ||
+                        found == null ||
+                        !ReferenceEquals(found.Snapshot, snapshot))
+                        return false;
+                    plan = found;
+                    return true;
+                }
+            }
+        }
+
+        private sealed class HotSourceComparer : IComparer<HotSource>
+        {
+            internal static readonly HotSourceComparer Instance = new HotSourceComparer();
+
+            public int Compare(HotSource a, HotSource b)
+            {
+                int score = b.Score.CompareTo(a.Score);
+                if (score != 0)
+                    return score;
+                return b.LastSeen.CompareTo(a.LastSeen);
+            }
+        }
+
+        private sealed class SharedPlan
+        {
+            internal readonly PersistentMapSearchFabric.SourceSnapshot Snapshot;
+            internal readonly PersistentMapSearchFabric.DistancePlan DistancePlan;
+            internal readonly int SourceId;
+            internal readonly int RootX;
+            internal readonly int RootZ;
+
+            internal SharedPlan(
+                PersistentMapSearchFabric.SourceSnapshot snapshot,
+                PersistentMapSearchFabric.DistancePlan distancePlan,
+                int sourceId,
+                int rootX,
+                int rootZ)
+            {
+                Snapshot = snapshot;
+                DistancePlan = distancePlan;
+                SourceId = sourceId;
+                RootX = rootX;
+                RootZ = rootZ;
+            }
+        }
+
+        private struct WorkSpec
+        {
+            internal readonly HotSource Hot;
+            internal readonly PersistentMapSearchFabric.SourceSnapshot Snapshot;
+            internal readonly int SourceId;
+            internal readonly int RootX;
+            internal readonly int RootZ;
+
+            internal WorkSpec(
+                HotSource hot,
+                PersistentMapSearchFabric.SourceSnapshot snapshot,
+                int sourceId,
+                int rootX,
+                int rootZ)
+            {
+                Hot = hot;
+                Snapshot = snapshot;
+                SourceId = sourceId;
+                RootX = rootX;
+                RootZ = rootZ;
+            }
+        }
+    }
+}
