@@ -1,0 +1,40 @@
+name: Build RimMT Job Authority SAFE
+
+on:
+  push:
+    branches:
+      - rimmt-v0.9.3-job-authority-safe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rimmt-job-authority-safe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build Job Authority SAFE + Idle Authority Trace
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTJobAuthoritySafe.ps1
+
+      - name: Upload SAFE bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-Job-Authority-SAFE-With-Idle-Trace
+          path: |
+            build/RimMT_V0.9.3_JOB_AUTHORITY_SAFE.zip
+            build/RimMT_Diagnostics_v0.16_IDLE_AUTHORITY_TRACE_SAFE.zip
+            build/RimMT_JOB_AUTHORITY_SAFE_WITH_IDLE_TRACE_BUNDLE.zip
+          if-no-files-found: error
