@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <Allen_MO_RecycleApparel.label>回收衣物</Allen_MO_RecycleApparel.label>
+  <Allen_MO_RecycleApparel.description>拆解不再需要的衣物，回收其中一部分原始制作材料。</Allen_MO_RecycleApparel.description>
+  <Allen_MO_RecycleApparel.jobString>正在回收衣物。</Allen_MO_RecycleApparel.jobString>
+
+  <Allen_MO_RecycleArmor.label>回收护甲</Allen_MO_RecycleArmor.label>
+  <Allen_MO_RecycleArmor.description>拆解不再需要的护甲，回收其中一部分原始制作材料。</Allen_MO_RecycleArmor.description>
+  <Allen_MO_RecycleArmor.jobString>正在回收护甲。</Allen_MO_RecycleArmor.jobString>
+
+  <Allen_MO_RecycleWeapon.label>回收武器</Allen_MO_RecycleWeapon.label>
+  <Allen_MO_RecycleWeapon.description>拆解不再需要的武器，回收其中一部分原始制作材料。</Allen_MO_RecycleWeapon.description>
+  <Allen_MO_RecycleWeapon.jobString>正在回收武器。</Allen_MO_RecycleWeapon.jobString>
+</LanguageData>

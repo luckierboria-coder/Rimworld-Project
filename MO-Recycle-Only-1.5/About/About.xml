@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Medieval Overhaul - Recycle Only 1.5</name>
+  <author>Allen / OpenAI</author>
+  <packageId>allen.mo.recycleonly15</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+      <downloadUrl>https://github.com/pardeike/HarmonyRimWorld/releases/latest</downloadUrl>
+    </li>
+    <li>
+      <packageId>DankPyon.Medieval.Overhaul</packageId>
+      <displayName>Medieval Overhaul</displayName>
+      <downloadUrl>https://github.com/SirLalaPyon/MedievalOverhaul</downloadUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>DankPyon.Medieval.Overhaul</li>
+  </loadAfter>
+  <description>
+Adds recycling only to Medieval Overhaul's existing mending bench. Does not add or replace any mending system. Recycle apparel, armor, and weapons into a durability-scaled fraction of their original materials while consuming Medieval Overhaul repair tools through the bench's native fuel system.
+  </description>
+</ModMetaData>

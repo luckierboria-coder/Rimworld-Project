@@ -1,0 +1,66 @@
+name: Build MO Recycle Only 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'MO-Recycle-Only-1.5/**'
+      - '.github/workflows/build-mo-recycle-only-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore MO-Recycle-Only-1.5/Source/MORecycleOnly15.csproj
+
+      - name: Build Release
+        run: dotnet build MO-Recycle-Only-1.5/Source/MORecycleOnly15.csproj --configuration Release --no-restore
+
+      - name: Verify and package
+        shell: pwsh
+        run: |
+          $dll = 'MO-Recycle-Only-1.5\1.5\Assemblies\MORecycleOnly15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+
+          $bytes = [System.IO.File]::ReadAllBytes($dll)
+          $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($required in @('MORecycleOnly15','Allen_MO_RecycleApparel','Allen_MO_RecycleArmor','Allen_MO_RecycleWeapon')) {
+            if (!$ascii.Contains($required)) { throw "Expected marker missing: $required" }
+          }
+          foreach ($bad in @('MendAndRecycle','JobDriver_Mend','TableMending')) {
+            if ($ascii.Contains($bad)) { throw "Unexpected MendAndRecycle dependency/marker: $bad" }
+          }
+
+          Remove-Item 'dist-mo-recycle' -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist-mo-recycle\MO-Recycle-Only-1.5'
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Defs\RecipeDefs" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Languages\ChineseSimplified\DefInjected\RecipeDef" | Out-Null
+
+          Copy-Item 'MO-Recycle-Only-1.5\About\About.xml' "$stage\About\About.xml"
+          Copy-Item 'MO-Recycle-Only-1.5\LoadFolders.xml' "$stage\LoadFolders.xml"
+          Copy-Item 'MO-Recycle-Only-1.5\README.md' "$stage\README.md"
+          Copy-Item $dll "$stage\1.5\Assemblies\MORecycleOnly15.dll"
+          Copy-Item 'MO-Recycle-Only-1.5\1.5\Defs\RecipeDefs\Recipes_Recycle.xml' "$stage\1.5\Defs\RecipeDefs\Recipes_Recycle.xml"
+          Copy-Item 'MO-Recycle-Only-1.5\1.5\Languages\ChineseSimplified\DefInjected\RecipeDef\Recipes_Recycle.xml' "$stage\1.5\Languages\ChineseSimplified\DefInjected\RecipeDef\Recipes_Recycle.xml"
+
+          $files = Get-ChildItem $stage -Recurse -File
+          if ($files.Name -contains '0Harmony.dll') { throw 'Harmony DLL leaked into package.' }
+          if ($files.Name -match '\.pdb$') { throw 'PDB leaked into package.' }
+
+          Compress-Archive -Path $stage -DestinationPath 'dist-mo-recycle\MO-Recycle-Only-1.5.zip' -Force
+
+      - name: Upload mod zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: MO-Recycle-Only-1.5
+          path: dist-mo-recycle/MO-Recycle-Only-1.5.zip
+          if-no-files-found: error

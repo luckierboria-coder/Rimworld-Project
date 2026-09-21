@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+
+  <RecipeDef>
+    <defName>Allen_MO_RecycleApparel</defName>
+    <label>recycle apparel</label>
+    <description>Carefully dismantle unwanted clothing and recover part of its original materials.</description>
+    <jobString>Recycling apparel.</jobString>
+    <workAmount>1200</workAmount>
+    <workSkill>Crafting</workSkill>
+    <workSkillLearnFactor>1</workSkillLearnFactor>
+    <effectWorking>Tailor</effectWorking>
+    <soundWorking>Recipe_Tailor</soundWorking>
+    <ingredients>
+      <li>
+        <filter>
+          <categories>
+            <li>Apparel</li>
+          </categories>
+          <disallowedCategories>
+            <li>ApparelArmor</li>
+          </disallowedCategories>
+        </filter>
+        <count>1</count>
+      </li>
+    </ingredients>
+    <fixedIngredientFilter>
+      <categories>
+        <li>Apparel</li>
+      </categories>
+      <disallowedCategories>
+        <li>ApparelArmor</li>
+      </disallowedCategories>
+    </fixedIngredientFilter>
+    <defaultIngredientFilter>
+      <categories>
+        <li>Apparel</li>
+      </categories>
+      <disallowedCategories>
+        <li>ApparelArmor</li>
+      </disallowedCategories>
+    </defaultIngredientFilter>
+    <requiredGiverWorkType>Smithing</requiredGiverWorkType>
+    <recipeUsers>
+      <li>DankPyon_MendingBench</li>
+    </recipeUsers>
+    <researchPrerequisites>
+      <li>DankPyon_Tailoring</li>
+    </researchPrerequisites>
+  </RecipeDef>
+
+  <RecipeDef>
+    <defName>Allen_MO_RecycleArmor</defName>
+    <label>recycle armor</label>
+    <description>Carefully dismantle unwanted armor and recover part of its original materials.</description>
+    <jobString>Recycling armor.</jobString>
+    <workAmount>1500</workAmount>
+    <workSkill>Crafting</workSkill>
+    <workSkillLearnFactor>1</workSkillLearnFactor>
+    <effectWorking>Smith</effectWorking>
+    <soundWorking>Recipe_Smith</soundWorking>
+    <ingredients>
+      <li>
+        <filter>
+          <categories>
+            <li>ApparelArmor</li>
+          </categories>
+        </filter>
+        <count>1</count>
+      </li>
+    </ingredients>
+    <fixedIngredientFilter>
+      <categories>
+        <li>ApparelArmor</li>
+      </categories>
+    </fixedIngredientFilter>
+    <defaultIngredientFilter>
+      <categories>
+        <li>ApparelArmor</li>
+      </categories>
+    </defaultIngredientFilter>
+    <requiredGiverWorkType>Smithing</requiredGiverWorkType>
+    <recipeUsers>
+      <li>DankPyon_MendingBench</li>
+    </recipeUsers>
+    <researchPrerequisites>
+      <li>Smithing</li>
+    </researchPrerequisites>
+  </RecipeDef>
+
+  <RecipeDef>
+    <defName>Allen_MO_RecycleWeapon</defName>
+    <label>recycle weapon</label>
+    <description>Carefully dismantle an unwanted weapon and recover part of its original materials.</description>
+    <jobString>Recycling weapon.</jobString>
+    <workAmount>1500</workAmount>
+    <workSkill>Crafting</workSkill>
+    <workSkillLearnFactor>1</workSkillLearnFactor>
+    <effectWorking>Smith</effectWorking>
+    <soundWorking>Recipe_Smith</soundWorking>
+    <ingredients>
+      <li>
+        <filter>
+          <categories>
+            <li>Weapons</li>
+          </categories>
+        </filter>
+        <count>1</count>
+      </li>
+    </ingredients>
+    <fixedIngredientFilter>
+      <categories>
+        <li>Weapons</li>
+      </categories>
+    </fixedIngredientFilter>
+    <defaultIngredientFilter>
+      <categories>
+        <li>Weapons</li>
+      </categories>
+    </defaultIngredientFilter>
+    <requiredGiverWorkType>Smithing</requiredGiverWorkType>
+    <recipeUsers>
+      <li>DankPyon_MendingBench</li>
+    </recipeUsers>
+    <researchPrerequisites>
+      <li>Smithing</li>
+    </researchPrerequisites>
+  </RecipeDef>
+
+</Defs>
