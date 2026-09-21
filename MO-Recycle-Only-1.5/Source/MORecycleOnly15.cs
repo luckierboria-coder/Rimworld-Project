@@ -59,19 +59,10 @@ namespace MORecycleOnly15
         }
     }
 
-    [StaticConstructorOnStartup]
-    internal static class Bootstrap
+    internal static class RecycleUtility
     {
-        static Bootstrap()
-        {
-            new Harmony("allen.mo.recycleonly15").PatchAll();
-            Log.Message("[MO Recycle Only 1.5] loaded. Recycling added to DankPyon_MendingBench; MO repair system is untouched.");
-        }
-    }
+        internal const float WorkPerRemainingHitPoint = 30f;
 
-    [HarmonyPatch(typeof(GenRecipe), nameof(GenRecipe.MakeRecipeProducts))]
-    internal static class Patch_GenRecipe_MakeRecipeProducts
-    {
         private static readonly HashSet<string> RecycleRecipes = new HashSet<string>
         {
             "Allen_MO_RecycleApparel",
@@ -79,12 +70,51 @@ namespace MORecycleOnly15
             "Allen_MO_RecycleWeapon"
         };
 
+        internal static bool IsRecycleRecipe(RecipeDef recipe)
+        {
+            return recipe != null && RecycleRecipes.Contains(recipe.defName);
+        }
+    }
+
+    [StaticConstructorOnStartup]
+    internal static class Bootstrap
+    {
+        static Bootstrap()
+        {
+            new Harmony("allen.mo.recycleonly15").PatchAll();
+            Log.Message("[MO Recycle Only 1.5] loaded. Recycle work = 30 x remaining HP; MO repair system is untouched.");
+        }
+    }
+
+    // MO mending uses 30 work per missing HP:
+    //   30 x (MaxHP - current HP)
+    //
+    // Recycling mirrors that logic from the opposite direction:
+    //   30 x current HP
+    //
+    // Therefore lower-durability items are faster to dismantle, while using
+    // the exact same per-HP work scale as Medieval Overhaul mending.
+    [HarmonyPatch(typeof(RecipeDef), nameof(RecipeDef.WorkAmountTotal))]
+    internal static class Patch_RecipeDef_WorkAmountTotal
+    {
+        private static void Postfix(RecipeDef __instance, Thing thing, ref float __result)
+        {
+            if (!RecycleUtility.IsRecycleRecipe(__instance) || thing == null)
+                return;
+
+            __result = RecycleUtility.WorkPerRemainingHitPoint * Mathf.Max(1, thing.HitPoints);
+        }
+    }
+
+    [HarmonyPatch(typeof(GenRecipe), nameof(GenRecipe.MakeRecipeProducts))]
+    internal static class Patch_GenRecipe_MakeRecipeProducts
+    {
         private static void Postfix(
             RecipeDef recipeDef,
             List<Thing> ingredients,
             ref IEnumerable<Thing> __result)
         {
-            if (recipeDef == null || !RecycleRecipes.Contains(recipeDef.defName))
+            if (!RecycleUtility.IsRecycleRecipe(recipeDef))
                 return;
 
             Thing item = ingredients?.FirstOrDefault(t => t != null && !t.Destroyed);
