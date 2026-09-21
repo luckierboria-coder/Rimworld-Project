@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Pawn Idle Diagnostics 1.5</name>
+  <author>Allen / OpenAI</author>
+  <packageId>allen.pawn.idle.diagnostics15</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <description>
+Read-only diagnostics for player pawns that enter idle/wander jobs. Records ThinkTree/job source, recent JobGiver_Work result, work priorities, allowed-area state, needs/capacities, Harmony patch owners, and a rate-limited WorkGiver candidate scan. Does not alter AI decisions or issue jobs.
+  </description>
+</ModMetaData>
