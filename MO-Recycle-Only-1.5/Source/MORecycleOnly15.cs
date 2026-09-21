@@ -158,6 +158,16 @@ namespace MORecycleOnly15
             List<Thing> products = BuildProducts(item);
             List<Thing> ingredients = new List<Thing> { item };
 
+            // Mirror MO's normal mending XP award because recycle completion
+            // bypasses MO's original finish initAction.
+            if (job.RecipeDef.workSkill != null && actor.skills != null)
+            {
+                FieldInfo ticksField = AccessTools.Field(actor.jobs.curDriver.GetType(), "ticksSpentDoingRecipeWork");
+                int ticksSpent = ticksField != null ? (int)ticksField.GetValue(actor.jobs.curDriver) : 0;
+                float xp = ticksSpent * 0.1f * job.RecipeDef.workSkillLearnFactor;
+                actor.skills.GetSkill(job.RecipeDef.workSkill).Learn(xp, false, false);
+            }
+
             try
             {
                 job.RecipeDef.Worker.ConsumeIngredient(item, job.RecipeDef, actor.Map);
