@@ -126,8 +126,9 @@ foreach($required in @(
 if($fabric.Contains('scheduler.TryEnqueue(FeatureId, JobPriority.Normal')){
   throw 'T34-B persistent fabric still schedules foreground drains at Normal priority'
 }
-if($fabric.Contains('Interlocked.CompareExchange(ref state.WorkerScheduled, 1, 0) != 0)' -and
-   $fabric.Contains('ScheduleDrain(state);')){
+$hasWorkerCas=$fabric.Contains('Interlocked.CompareExchange(ref state.WorkerScheduled, 1, 0) != 0)')
+$hasScheduleDrain=$fabric.Contains('ScheduleDrain(state);')
+if($hasWorkerCas -and $hasScheduleDrain){
   # This token pair can appear in FlushPending; verify QueueEvent itself no longer schedules.
   $qStart=$fabric.IndexOf('        private static void QueueEvent(')
   $qEnd=$fabric.IndexOf('        private static void MarkPendingT34B',$qStart)
