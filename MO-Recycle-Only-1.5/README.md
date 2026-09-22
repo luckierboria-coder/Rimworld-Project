@@ -1,46 +1,48 @@
-# Medieval Overhaul - Recycle Only 1.5 v1.6
+# Medieval Overhaul - Recycle Only 1.5 v1.7
 
 Target: RimWorld 1.5.4063 + Medieval Overhaul.
 
-## v1.6
-Full-durability items can now be recycled.
+## Fixed recycle time
+Every recycle job now takes exactly:
 
-Medieval Overhaul's WorkGiver_DoMending normally accepts an ingredient only when:
-  ingredient.filter.Allows(t) && t.HitPoints < t.MaxHitPoints
+  5000 game ticks = 2 in-game hours
 
-That damaged-only rule remains unchanged for MO's original mending recipes.
+This applies to:
+- Recycle apparel
+- Recycle armor
+- Recycle weapon
 
-For these recycle recipes only:
-- Allen_MO_RecycleApparel
-- Allen_MO_RecycleArmor
-- Allen_MO_RecycleWeapon
+Duration is independent of:
+- current durability
+- maximum HP
+- material
+- item type
+- pawn crafting speed
+- workbench speed
 
-the patch keeps the normal bill and ingredient filters but removes the HitPoints < MaxHitPoints requirement.
+Medieval Overhaul's own mending recipes are unchanged.
 
-## Work amount
-MO's original mending JobDriver calculates work from missing HP. That breaks for a full-durability recycle target because missing HP is zero.
+## Full-durability items
+Recycle bills still accept 100% durability items.
+MO's original mending bills still require damaged items.
 
-v1.6 directly overrides the MO work toil after its normal initialization:
-  recycle workLeft = 30 x current HP
+## Completion behavior
+Recycle completion:
+- does NOT run MO's hpHeal code
+- destroys/consumes the original item
+- calculates returned materials
+- spawns returned materials near the worker
+- completes the bill normally
 
-Examples:
-- 100/100 HP -> 3000 work
-- 50/100 HP -> 1500 work
-- 10/100 HP -> 300 work
+## Material return
+Time is fixed, but material return still follows the existing recovery settings.
 
-Lower durability is therefore faster to recycle, and 100% durability is valid instead of becoming zero-work.
+Default:
+- maximum recovery at 100% durability: 50%
+- durability scaling enabled
+- intricate materials/components excluded
 
-## Completion
-Recycle completion does not run MO's hpHeal branch.
-
-Instead it:
-- Calculates returned materials from the item's adjusted construction cost.
-- Applies the configured recovery fraction.
-- Consumes/destroys the original item.
-- Spawns returned materials near the worker.
-- Completes the bill iteration.
-
-MO's normal mending recipes still use the original completion code unchanged.
+So durability may change HOW MUCH material is returned, but no longer changes HOW LONG recycling takes.
 
 ## Fuel / bench
 Still uses:
@@ -48,3 +50,5 @@ Still uses:
 - MO WorkGiver_DoMending
 - MO JobDriver_DoMending
 - MO repair-tool fuel via UsedThisTick()
+
+Repair-tool fuel is therefore consumed for the entire fixed 5000-tick recycle duration.

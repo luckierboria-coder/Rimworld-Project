@@ -55,7 +55,7 @@ namespace MORecycleOnly15
                 "Disabled by default to prevent recycling equipment back into components or other intricate manufactured parts.");
 
             listing.Gap();
-            listing.Label("Recycle work follows Medieval Overhaul mending timing: 30 work per remaining HP. Recycle completion destroys the item and returns materials instead of repairing it.");
+            listing.Label("Recycle time is fixed at 2 in-game hours (5000 ticks) for every item. Durability and material do not affect job duration.");
 
             listing.End();
         }
@@ -63,7 +63,7 @@ namespace MORecycleOnly15
 
     internal static class RecycleUtility
     {
-        internal const float WorkPerHp = 30f;
+        internal const float FixedRecycleTicks = 5000f;
 
         private static readonly HashSet<string> RecycleRecipes = new HashSet<string>
         {
@@ -150,7 +150,7 @@ namespace MORecycleOnly15
             Thing item = job.GetTarget(TargetIndex.B).Thing;
             if (item == null || item.Destroyed)
             {
-                Log.Error("[MO Recycle Only 1.5 v1.6] Recycle completion had no valid target item.");
+                Log.Error("[MO Recycle Only 1.5 v1.7] Recycle completion had no valid target item.");
                 actor.jobs.EndCurrentJob(JobCondition.Incompletable, true, true);
                 return;
             }
@@ -174,7 +174,7 @@ namespace MORecycleOnly15
             }
             catch (Exception ex)
             {
-                Log.Error("[MO Recycle Only 1.5 v1.6] Failed consuming recycled item " + item.ToStringSafe() + ": " + ex);
+                Log.Error("[MO Recycle Only 1.5 v1.7] Failed consuming recycled item " + item.ToStringSafe() + ": " + ex);
                 actor.jobs.EndCurrentJob(JobCondition.Errored, true, true);
                 return;
             }
@@ -188,7 +188,7 @@ namespace MORecycleOnly15
             }
             catch (Exception ex)
             {
-                Log.Warning("[MO Recycle Only 1.5 v1.6] Bill completion notification warning: " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[MO Recycle Only 1.5 v1.7] Bill completion notification warning: " + ex.GetType().Name + ": " + ex.Message);
             }
 
             foreach (Thing product in products)
@@ -197,7 +197,7 @@ namespace MORecycleOnly15
                     continue;
 
                 if (!GenPlace.TryPlaceThing(product, actor.Position, actor.Map, ThingPlaceMode.Near))
-                    Log.Error("[MO Recycle Only 1.5 v1.6] Could not place recycled product " + product.ToStringSafe() + " near " + actor.Position);
+                    Log.Error("[MO Recycle Only 1.5 v1.7] Could not place recycled product " + product.ToStringSafe() + " near " + actor.Position);
             }
 
             actor.Map?.resourceCounter?.UpdateResourceCounts();
@@ -211,22 +211,20 @@ namespace MORecycleOnly15
         static Bootstrap()
         {
             new Harmony("allen.mo.recycleonly15").PatchAll();
-            Log.Message("[MO Recycle Only 1.5 v1.6] loaded. Recycle accepts full-durability items; work = 30 x current HP; completion produces materials.");
+            Log.Message("[MO Recycle Only 1.5 v1.7] loaded. Every recycle job is fixed at 5000 ticks (2 in-game hours).");
         }
     }
 
-    // Keep the XML/RecipeDef base identical to MO mending.
-    // Actual recycle workLeft is set directly in the MO work toil below,
-    // so full-durability items do not collapse to zero work when missingHP=0.
+    // Expose the same fixed value to any UI/fallback path that asks the recipe
+    // for its work amount. The MO work toil below also hard-sets workLeft to
+    // exactly 5000 ticks so missing HP, material and work speed cannot change it.
     [HarmonyPatch(typeof(RecipeDef), nameof(RecipeDef.WorkAmountTotal))]
     internal static class Patch_RecipeDef_WorkAmountTotal
     {
         private static void Postfix(RecipeDef __instance, Thing thing, ref float __result)
         {
-            if (!RecycleUtility.IsRecycleRecipe(__instance))
-                return;
-
-            __result = RecycleUtility.WorkPerHp;
+            if (RecycleUtility.IsRecycleRecipe(__instance))
+                __result = RecycleUtility.FixedRecycleTicks;
         }
     }
 
@@ -270,14 +268,14 @@ namespace MORecycleOnly15
         }
     }
 
-    // MO initializes its work toil with:
-    //   bill.GetWorkAmount(item) * (MaxHP - HitPoints)
+    // MO's mending toil normally scales work by missing HP and pawn/table work
+    // speed. Recycle is intentionally different: every recycle job lasts exactly
+    // 5000 game ticks = 2 in-game hours.
     //
-    // For full-durability recycle targets that becomes zero. Wrap the returned
-    // toil and override workLeft after MO's own init has run:
-    //   recycle workLeft = 30 * current HP
-    //
-    // This is valid for every durability, including 100%.
+    // We preserve MO's bill notifications, repair-tool fuel use, comfort and
+    // completion hand-off, but decrement recycle workLeft by exactly 1 per game
+    // tick. No durability, material, MaxHP, crafting speed or table speed can
+    // shorten/lengthen the normal recycle duration.
     [HarmonyPatch]
     internal static class Patch_MO_DoRecipeWork_Mend
     {
@@ -294,6 +292,12 @@ namespace MORecycleOnly15
 
             Toil toil = __result;
             Action originalInit = toil.initAction;
+            Action originalTick = toil.tickAction;
+
+            Type driverType = AccessTools.TypeByName("MedievalOverhaul.JobDriver_DoMending");
+            FieldInfo workLeftField = driverType == null ? null : AccessTools.Field(driverType, "workLeft");
+            FieldInfo ticksSpentField = driverType == null ? null : AccessTools.Field(driverType, "ticksSpentDoingRecipeWork");
+            FieldInfo billStartTickField = driverType == null ? null : AccessTools.Field(driverType, "billStartTick");
 
             toil.initAction = delegate
             {
@@ -304,17 +308,96 @@ namespace MORecycleOnly15
                 if (job == null || !RecycleUtility.IsRecycleRecipe(job.RecipeDef))
                     return;
 
-                Thing item = job.GetTarget(TargetIndex.B).Thing;
-                if (item == null)
-                    return;
-
                 object driver = actor.jobs.curDriver;
                 if (driver == null)
                     return;
 
-                FieldInfo workLeftField = AccessTools.Field(driver.GetType(), "workLeft");
-                if (workLeftField != null)
-                    workLeftField.SetValue(driver, RecycleUtility.WorkPerHp * Math.Max(1, item.HitPoints));
+                workLeftField?.SetValue(driver, RecycleUtility.FixedRecycleTicks);
+                ticksSpentField?.SetValue(driver, 0);
+                billStartTickField?.SetValue(driver, Find.TickManager.TicksGame);
+            };
+
+            toil.tickAction = delegate
+            {
+                Pawn actor = toil.actor;
+                Job job = actor?.jobs?.curJob;
+
+                if (job == null || !RecycleUtility.IsRecycleRecipe(job.RecipeDef))
+                {
+                    originalTick?.Invoke();
+                    return;
+                }
+
+                object driver = actor.jobs.curDriver;
+                Thing item = job.GetTarget(TargetIndex.B).Thing;
+                if (driver == null || item == null || item.Destroyed)
+                {
+                    actor.jobs.EndCurrentJob(JobCondition.Incompletable, true, true);
+                    return;
+                }
+
+                int ticksSpent = ticksSpentField != null ? (int)ticksSpentField.GetValue(driver) : 0;
+                ticksSpentField?.SetValue(driver, ticksSpent + 1);
+
+                job.bill.Notify_PawnDidWork(actor);
+
+                IBillGiverWithTickAction tickGiver =
+                    job.GetTarget(TargetIndex.A).Thing as IBillGiverWithTickAction;
+                tickGiver?.UsedThisTick();
+
+                float workLeft = workLeftField != null
+                    ? (float)workLeftField.GetValue(driver)
+                    : RecycleUtility.FixedRecycleTicks;
+
+                workLeft -= 1f;
+                workLeftField?.SetValue(driver, workLeft);
+
+                actor.GainComfortFromCellIfPossible(true);
+
+                if (workLeft <= 0f)
+                {
+                    job.bill.Notify_BillWorkFinished(actor);
+                    actor.jobs.curDriver.ReadyForNextToil();
+                }
+            };
+        }
+    }
+
+    // MO's own progress bar denominator is based on missing HP, so it is wrong
+    // for fixed-duration recycle jobs (and becomes zero at 100% durability).
+    // Replace only the progress getter of MO's recipe-work toil while a recycle
+    // recipe is active.
+    [HarmonyPatch(typeof(ToilEffects), nameof(ToilEffects.WithProgressBar),
+        new Type[] { typeof(Toil), typeof(TargetIndex), typeof(Func<float>), typeof(bool), typeof(float), typeof(bool) })]
+    internal static class Patch_ToilEffects_WithProgressBar
+    {
+        private static void Prefix(Toil toil, ref Func<float> progressGetter)
+        {
+            if (toil == null || toil.debugName != "DoRecipeWork_Mend")
+                return;
+
+            Func<float> original = progressGetter;
+
+            progressGetter = delegate
+            {
+                Pawn actor = toil.actor;
+                Job job = actor?.jobs?.curJob;
+                if (job != null && RecycleUtility.IsRecycleRecipe(job.RecipeDef))
+                {
+                    object driver = actor.jobs.curDriver;
+                    if (driver != null)
+                    {
+                        FieldInfo workLeftField = AccessTools.Field(driver.GetType(), "workLeft");
+                        if (workLeftField != null)
+                        {
+                            float workLeft = (float)workLeftField.GetValue(driver);
+                            return Mathf.Clamp01(1f - workLeft / RecycleUtility.FixedRecycleTicks);
+                        }
+                    }
+                    return 0f;
+                }
+
+                return original != null ? original() : 0f;
             };
         }
     }

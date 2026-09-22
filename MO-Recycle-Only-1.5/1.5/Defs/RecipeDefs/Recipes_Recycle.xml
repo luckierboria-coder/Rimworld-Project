@@ -9,7 +9,7 @@
     <workSkill>Crafting</workSkill>
     <effectWorking>Tailor</effectWorking>
     <soundWorking>Recipe_Tailor</soundWorking>
-    <workAmount>30</workAmount><!-- Same base as MO mending: work per HP -->
+    <workAmount>5000</workAmount><!-- Fixed recycle duration: 5000 ticks = 2 in-game hours -->
     <ingredients>
       <li>
         <filter>
@@ -55,7 +55,7 @@
     <workSkill>Crafting</workSkill>
     <effectWorking>Smith</effectWorking>
     <soundWorking>Recipe_Smith</soundWorking>
-    <workAmount>30</workAmount><!-- Same base as MO mending: work per HP -->
+    <workAmount>5000</workAmount><!-- Fixed recycle duration: 5000 ticks = 2 in-game hours -->
     <ingredients>
       <li>
         <filter>
@@ -92,7 +92,7 @@
     <workSkill>Crafting</workSkill>
     <effectWorking>Smith</effectWorking>
     <soundWorking>Recipe_Smith</soundWorking>
-    <workAmount>30</workAmount><!-- Same base as MO mending: work per HP -->
+    <workAmount>5000</workAmount><!-- Fixed recycle duration: 5000 ticks = 2 in-game hours -->
     <ingredients>
       <li>
         <filter>
