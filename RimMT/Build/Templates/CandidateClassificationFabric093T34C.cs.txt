@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using HarmonyLib;
 using RimWorld;
@@ -11,7 +12,7 @@ using Verse;
 namespace RimMT
 {
     /// <summary>
-    /// T34-C adds a second worker stage to T34-B distance plans. The main thread captures a
+    /// T34-C.3 adds a second worker stage to T34-B distance plans. The main thread captures a
     /// compact primitive fact row once; workers run pure rule kernels and publish rejection
     /// bitmaps. Only invariant type/component negatives are authoritative. Mutable pawn, stack
     /// and building facts are shadow telemetry until a later version supplies an invalidation
@@ -23,6 +24,9 @@ namespace RimMT
         internal const string FeatureId = "parallel.candidateClassification";
         private const string MainHarmonyOwner = "allen.rimmt";
         private const string DiagnosticsHarmonyOwner = "allen.rimmt.diagnostics";
+        private const int MaxTrackedUnresolvedTypes = 64;
+        private const int MaxReportedUnresolvedTypes = 12;
+        private const int MaxAuthorityEvidence = 16;
 
         private const byte RejectWrongType = 1;
         private const byte RejectMissingFixedComp = 2;
@@ -45,6 +49,14 @@ namespace RimMT
             new Dictionary<Type, ScannerAccessor>();
         private static readonly Dictionary<Type, bool> AuthorityCache =
             new Dictionary<Type, bool>();
+        // Census writes and report reads occur on the RimWorld main thread. The bounded maps keep
+        // evidence useful without adding locks or unbounded allocation to scanner hot paths.
+        private static readonly Dictionary<Type, long> UnresolvedTypes = new Dictionary<Type, long>();
+        private static readonly Dictionary<Type, long> AuthorityBypassTypes = new Dictionary<Type, long>();
+        private static readonly List<AuthorityEvidence> AuthorityEvidenceRows = new List<AuthorityEvidence>();
+        private static readonly KernelCounters[] KernelYield = new KernelCounters[] {
+            null, new KernelCounters(), new KernelCounters(), new KernelCounters(), new KernelCounters()
+        };
 
         private static long observed;
         private static long kernelResolved;
@@ -71,6 +83,10 @@ namespace RimMT
         private static long quarantined;
         private static long sourceIndexInvalid;
         private static long sourceIndexDuplicate;
+        private static long scannerResolveMisses;
+        private static long unresolvedTypeDropped;
+        private static long authorityTypeDropped;
+        private static long authorityEvidenceDropped;
 
         internal static bool TryGetOrSchedule(
             PersistentMapSearchFabric.SourceSnapshot snapshot,
@@ -96,6 +112,7 @@ namespace RimMT
                 return false;
             }
             Interlocked.Increment(ref kernelResolved);
+            Interlocked.Increment(ref Counters(kernel).Resolved);
 
             SnapshotPlans table = Plans.GetValue(snapshot, delegate(PersistentMapSearchFabric.SourceSnapshot ignored) { return new SnapshotPlans(); });
             long key = MakeKey(kernel);
@@ -111,6 +128,7 @@ namespace RimMT
                 {
                     plan = ready;
                     Interlocked.Increment(ref planHits);
+                    Interlocked.Increment(ref Counters(kernel).PlanHits);
                     if (slot.FirstRootX != rootX || slot.FirstRootZ != rootZ)
                         Interlocked.Increment(ref crossRootPlanHits);
                     return true;
@@ -118,6 +136,7 @@ namespace RimMT
             }
 
             Interlocked.Increment(ref planMisses);
+            Interlocked.Increment(ref Counters(kernel).PlanMisses);
             if (Interlocked.CompareExchange(ref slot.Scheduled, 1, 0) != 0)
                 return false;
 
@@ -165,10 +184,12 @@ namespace RimMT
                 return false;
 
             Interlocked.Increment(ref liveParityChecks);
+            Interlocked.Increment(ref Counters(plan.Kernel).ParityChecks);
             bool stillRejected = LiveReject(plan.Kernel, reason, thing);
             if (!stillRejected)
             {
                 Interlocked.Increment(ref liveParityFailures);
+                Interlocked.Increment(ref Counters(plan.Kernel).ParityFailures);
                 return false;
             }
             return true;
@@ -205,6 +226,7 @@ namespace RimMT
             {
                 Volatile.Write(ref slot.Quarantined, 1);
                 Interlocked.Increment(ref quarantined);
+                Interlocked.Increment(ref Counters(plan.Kernel).Quarantined);
             }
         }
 
@@ -213,8 +235,12 @@ namespace RimMT
             if (plan == null)
                 return;
             Interlocked.Increment(ref consumedQueries);
+            Interlocked.Increment(ref Counters(plan.Kernel).ConsumedQueries);
             if (rejected > 0)
+            {
                 Interlocked.Add(ref candidatesRejected, rejected);
+                Interlocked.Add(ref Counters(plan.Kernel).CandidatesRejected, rejected);
+            }
         }
 
         private static CandidateFact[] CaptureFacts(
@@ -352,20 +378,31 @@ namespace RimMT
             kernel = KernelKind.None;
             WorkGiver_Scanner scanner = ResolveScanner(validator);
             if (scanner == null)
-                return false;
-
-            Type type = scanner.GetType();
-            if (!AuthoritySafe(type))
             {
-                Interlocked.Increment(ref authorityBypass);
+                Interlocked.Increment(ref scannerResolveMisses);
                 return false;
             }
 
+            Type type = scanner.GetType();
             if (type == typeof(WorkGiver_HaulCorpses)) kernel = KernelKind.Corpse;
             else if (type == typeof(WorkGiver_TakeEntityToHoldingPlatform)) kernel = KernelKind.HoldingTarget;
             else if (type == typeof(Workgiver_AdministerHemogen) || type == typeof(WorkGiver_VisitSickPawn)) kernel = KernelKind.Pawn;
             else if (type.FullName == "RimWorld.WorkGiver_FightFires") kernel = KernelKind.Fire;
-            return kernel != KernelKind.None;
+            if (kernel == KernelKind.None)
+            {
+                RecordBoundedType(UnresolvedTypes, type, MaxTrackedUnresolvedTypes, ref unresolvedTypeDropped);
+                return false;
+            }
+
+            Interlocked.Increment(ref Counters(kernel).Observed);
+            if (!AuthoritySafe(type))
+            {
+                Interlocked.Increment(ref authorityBypass);
+                Interlocked.Increment(ref Counters(kernel).AuthorityBypass);
+                RecordBoundedType(AuthorityBypassTypes, type, MaxAuthorityEvidence, ref authorityTypeDropped);
+                return false;
+            }
+            return true;
         }
 
         private static WorkGiver_Scanner ResolveScanner(Predicate<Thing> validator)
@@ -397,7 +434,7 @@ namespace RimMT
             {
                 Type[] args = new Type[] { typeof(Pawn), typeof(Thing), typeof(bool) };
                 string[] names = new string[] { "HasJobOnThing", "JobOnThing" };
-                for (int n = 0; n < names.Length && safe; n++)
+                for (int n = 0; n < names.Length; n++)
                 {
                     Type current = scannerType;
                     while (current != null && typeof(WorkGiver).IsAssignableFrom(current))
@@ -408,14 +445,14 @@ namespace RimMT
                         if (method != null)
                         {
                             Patches patches = Harmony.GetPatchInfo(method);
-                            if (patches != null &&
-                                (HasIncompatiblePatch(patches.Prefixes, true) ||
-                                 HasIncompatiblePatch(patches.Postfixes, true) ||
-                                 HasIncompatiblePatch(patches.Transpilers, false) ||
-                                 HasIncompatiblePatch(patches.Finalizers, false)))
+                            if (patches != null)
                             {
-                                safe = false;
-                                break;
+                                bool incompatible = false;
+                                incompatible |= HasIncompatiblePatch(scannerType, method, patches.Prefixes, true, "prefix");
+                                incompatible |= HasIncompatiblePatch(scannerType, method, patches.Postfixes, true, "postfix");
+                                incompatible |= HasIncompatiblePatch(scannerType, method, patches.Transpilers, false, "transpiler");
+                                incompatible |= HasIncompatiblePatch(scannerType, method, patches.Finalizers, false, "finalizer");
+                                if (incompatible) safe = false;
                             }
                         }
                         current = current.BaseType;
@@ -428,12 +465,16 @@ namespace RimMT
         }
 
         private static bool HasIncompatiblePatch(
+            Type scannerType,
+            MethodInfo targetMethod,
             IEnumerable<Patch> patches,
-            bool allowDiagnosticsMeasurement)
+            bool allowDiagnosticsMeasurement,
+            string category)
         {
             if (patches == null)
                 return false;
 
+            bool incompatible = false;
             foreach (Patch patch in patches)
             {
                 if (patch == null)
@@ -454,9 +495,14 @@ namespace RimMT
                 }
 
                 Interlocked.Increment(ref authorityForeignPatches);
-                return true;
+                incompatible = true;
+                if (AuthorityEvidenceRows.Count < MaxAuthorityEvidence)
+                    AuthorityEvidenceRows.Add(new AuthorityEvidence(scannerType, targetMethod, patch.owner,
+                        patch.PatchMethod, category, patch.priority));
+                else
+                    Interlocked.Increment(ref authorityEvidenceDropped);
             }
-            return false;
+            return incompatible;
         }
 
         private static bool IsDiagnosticsMeasurementPatch(MethodInfo method)
@@ -470,9 +516,95 @@ namespace RimMT
 
         private static long MakeKey(KernelKind kernel) { return (long)(int)kernel; }
 
+        private static KernelCounters Counters(KernelKind kernel)
+        {
+            int index = (int)kernel;
+            return index > 0 && index < KernelYield.Length ? KernelYield[index] : KernelYield[1];
+        }
+
+        private static void RecordBoundedType(
+            Dictionary<Type, long> rows,
+            Type type,
+            int capacity,
+            ref long dropped)
+        {
+            if (type == null) return;
+            long count;
+            if (rows.TryGetValue(type, out count))
+            {
+                rows[type] = count + 1;
+                return;
+            }
+            if (rows.Count < capacity)
+                rows.Add(type, 1);
+            else
+                Interlocked.Increment(ref dropped);
+        }
+
+        private static string KernelYieldSummary()
+        {
+            StringBuilder sb = new StringBuilder();
+            KernelKind[] kinds = new KernelKind[] {
+                KernelKind.Corpse, KernelKind.Pawn, KernelKind.Fire, KernelKind.HoldingTarget
+            };
+            for (int i = 0; i < kinds.Length; i++)
+            {
+                if (i != 0) sb.Append(';');
+                KernelCounters row = Counters(kinds[i]);
+                sb.Append(kinds[i]).Append('=')
+                    .Append(Interlocked.Read(ref row.Observed)).Append('/')
+                    .Append(Interlocked.Read(ref row.Resolved)).Append('/')
+                    .Append(Interlocked.Read(ref row.AuthorityBypass)).Append('/')
+                    .Append(Interlocked.Read(ref row.PlanHits)).Append('/')
+                    .Append(Interlocked.Read(ref row.PlanMisses)).Append('/')
+                    .Append(Interlocked.Read(ref row.ConsumedQueries)).Append('/')
+                    .Append(Interlocked.Read(ref row.CandidatesRejected)).Append('/')
+                    .Append(Interlocked.Read(ref row.ParityChecks)).Append('/')
+                    .Append(Interlocked.Read(ref row.ParityFailures)).Append('/')
+                    .Append(Interlocked.Read(ref row.Quarantined));
+            }
+            return sb.ToString();
+        }
+
+        private static string TopTypeSummary(Dictionary<Type, long> rows, int limit)
+        {
+            List<KeyValuePair<Type, long>> copy = new List<KeyValuePair<Type, long>>(rows);
+            copy.Sort(delegate(KeyValuePair<Type, long> left, KeyValuePair<Type, long> right) {
+                int byCount = right.Value.CompareTo(left.Value);
+                if (byCount != 0) return byCount;
+                return string.Compare(left.Key.FullName, right.Key.FullName, StringComparison.Ordinal);
+            });
+            StringBuilder sb = new StringBuilder();
+            int count = Math.Min(limit, copy.Count);
+            for (int i = 0; i < count; i++)
+            {
+                if (i != 0) sb.Append(';');
+                sb.Append(copy[i].Key.FullName).Append('=').Append(copy[i].Value);
+            }
+            return sb.Length == 0 ? "none" : sb.ToString();
+        }
+
+        private static string AuthorityEvidenceSummary()
+        {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < AuthorityEvidenceRows.Count; i++)
+            {
+                AuthorityEvidence row = AuthorityEvidenceRows[i];
+                if (i != 0) sb.Append(';');
+                sb.Append(row.ScannerType == null ? "?" : row.ScannerType.FullName).Append('.')
+                    .Append(row.TargetMethod == null ? "?" : row.TargetMethod.Name).Append(':')
+                    .Append(row.Category).Append("[owner=").Append(row.Owner ?? "?")
+                    .Append(",patch=")
+                    .Append(row.PatchMethod == null || row.PatchMethod.DeclaringType == null ? "?" : row.PatchMethod.DeclaringType.FullName)
+                    .Append('.').Append(row.PatchMethod == null ? "?" : row.PatchMethod.Name)
+                    .Append(",priority=").Append(row.Priority).Append(']');
+            }
+            return sb.Length == 0 ? "none" : sb.ToString();
+        }
+
         internal static string Summary()
         {
-            return "T34-C.2 Source-Indexed Classification Reuse: feature=" + FeatureGate.IsEnabled(FeatureId) +
+            return "T34-C.3 Authority and Kernel Yield Census: feature=" + FeatureGate.IsEnabled(FeatureId) +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", kernels[resolved/unresolved/authorityBypass]=" + Interlocked.Read(ref kernelResolved) + "/" +
                 Interlocked.Read(ref kernelUnresolved) + "/" + Interlocked.Read(ref authorityBypass) +
@@ -494,6 +626,14 @@ namespace RimMT
                 Interlocked.Read(ref candidatesRejected) +
                 ", parity[checks/fail/quarantine]=" + Interlocked.Read(ref liveParityChecks) + "/" +
                 Interlocked.Read(ref liveParityFailures) + "/" + Interlocked.Read(ref quarantined) +
+                ", kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine]=" +
+                KernelYieldSummary() +
+                ", unresolved[scannerMiss/dropped/top]=" + Interlocked.Read(ref scannerResolveMisses) + "/" +
+                Interlocked.Read(ref unresolvedTypeDropped) + "/" + TopTypeSummary(UnresolvedTypes, MaxReportedUnresolvedTypes) +
+                ", authorityBypassTypes[dropped/top]=" + Interlocked.Read(ref authorityTypeDropped) + "/" +
+                TopTypeSummary(AuthorityBypassTypes, MaxAuthorityEvidence) +
+                ", authorityEvidence[dropped/rows]=" + Interlocked.Read(ref authorityEvidenceDropped) + "/" +
+                AuthorityEvidenceSummary() +
                 ". Root-independent source-index plans; no-wait; worker input is primitive-only; mutable stack/pawn/building facts are shadow-only; live validator and Reachability remain authoritative for survivors.";
         }
 
@@ -512,6 +652,38 @@ namespace RimMT
         }
 
         internal enum KernelKind : byte { None, Corpse, Pawn, Fire, HoldingTarget }
+        private sealed class KernelCounters
+        {
+            internal long Observed;
+            internal long Resolved;
+            internal long AuthorityBypass;
+            internal long PlanHits;
+            internal long PlanMisses;
+            internal long ConsumedQueries;
+            internal long CandidatesRejected;
+            internal long ParityChecks;
+            internal long ParityFailures;
+            internal long Quarantined;
+        }
+        private sealed class AuthorityEvidence
+        {
+            internal readonly Type ScannerType;
+            internal readonly MethodInfo TargetMethod;
+            internal readonly string Owner;
+            internal readonly MethodInfo PatchMethod;
+            internal readonly string Category;
+            internal readonly int Priority;
+            internal AuthorityEvidence(Type scannerType, MethodInfo targetMethod, string owner,
+                MethodInfo patchMethod, string category, int priority)
+            {
+                ScannerType = scannerType;
+                TargetMethod = targetMethod;
+                Owner = owner;
+                PatchMethod = patchMethod;
+                Category = category;
+                Priority = priority;
+            }
+        }
         private struct CandidateFact { internal readonly int Flags; internal CandidateFact(int flags) { Flags = flags; } }
         private sealed class ClassificationSlot { internal ClassificationPlan Plan; internal int Scheduled; internal int Ready; internal int Quarantined; internal int FirstRootX; internal int FirstRootZ; }
         private sealed class SnapshotPlans { internal readonly ConcurrentDictionary<long, ClassificationSlot> Slots = new ConcurrentDictionary<long, ClassificationSlot>(); }
