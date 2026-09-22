@@ -54,6 +54,7 @@ namespace RimMT
         private static long authorityForeignPatches;
         private static long planHits;
         private static long planMisses;
+        private static long crossRootPlanHits;
         private static long plansScheduled;
         private static long schedulerRejected;
         private static long plansBuilt;
@@ -68,6 +69,8 @@ namespace RimMT
         private static long liveParityChecks;
         private static long liveParityFailures;
         private static long quarantined;
+        private static long sourceIndexInvalid;
+        private static long sourceIndexDuplicate;
 
         internal static bool TryGetOrSchedule(
             PersistentMapSearchFabric.SourceSnapshot snapshot,
@@ -95,7 +98,7 @@ namespace RimMT
             Interlocked.Increment(ref kernelResolved);
 
             SnapshotPlans table = Plans.GetValue(snapshot, delegate(PersistentMapSearchFabric.SourceSnapshot ignored) { return new SnapshotPlans(); });
-            long key = MakeKey(kernel, rootX, rootZ);
+            long key = MakeKey(kernel);
             ClassificationSlot slot = table.Slots.GetOrAdd(key, delegate { return new ClassificationSlot(); });
 
             if (Volatile.Read(ref slot.Quarantined) != 0)
@@ -104,10 +107,12 @@ namespace RimMT
             if (Volatile.Read(ref slot.Ready) != 0)
             {
                 ClassificationPlan ready = slot.Plan;
-                if (ready != null && ready.Count == entries.Length && ready.Kernel == kernel)
+                if (ready != null && ready.Count == snapshot.Count && ready.Kernel == kernel)
                 {
                     plan = ready;
                     Interlocked.Increment(ref planHits);
+                    if (slot.FirstRootX != rootX || slot.FirstRootZ != rootZ)
+                        Interlocked.Increment(ref crossRootPlanHits);
                     return true;
                 }
             }
@@ -119,7 +124,7 @@ namespace RimMT
             CandidateFact[] facts;
             try
             {
-                facts = CaptureFacts(entries);
+                facts = CaptureFacts(entries, snapshot.Count);
             }
             catch
             {
@@ -135,6 +140,8 @@ namespace RimMT
 
             if (accepted)
             {
+                slot.FirstRootX = rootX;
+                slot.FirstRootZ = rootZ;
                 Interlocked.Increment(ref plansScheduled);
             }
             else
@@ -167,11 +174,24 @@ namespace RimMT
             return true;
         }
 
+        internal static bool TryGetRejectReason(
+            ClassificationPlan plan,
+            int sourceIndex,
+            out byte reason)
+        {
+            reason = 0;
+            if (plan == null || sourceIndex < 0 || sourceIndex >= plan.Count)
+            {
+                Interlocked.Increment(ref sourceIndexInvalid);
+                return false;
+            }
+            reason = plan.RejectReasons[sourceIndex];
+            return true;
+        }
+
         internal static void Quarantine(
             PersistentMapSearchFabric.SourceSnapshot snapshot,
-            ClassificationPlan plan,
-            int rootX,
-            int rootZ)
+            ClassificationPlan plan)
         {
             if (snapshot == null || plan == null)
                 return;
@@ -181,7 +201,7 @@ namespace RimMT
                 return;
 
             ClassificationSlot slot;
-            if (table.Slots.TryGetValue(MakeKey(plan.Kernel, rootX, rootZ), out slot) && slot != null)
+            if (table.Slots.TryGetValue(MakeKey(plan.Kernel), out slot) && slot != null)
             {
                 Volatile.Write(ref slot.Quarantined, 1);
                 Interlocked.Increment(ref quarantined);
@@ -198,11 +218,32 @@ namespace RimMT
         }
 
         private static CandidateFact[] CaptureFacts(
-            PersistentMapSearchFabric.DistancePlanEntry[] entries)
+            PersistentMapSearchFabric.DistancePlanEntry[] entries,
+            int sourceCount)
         {
-            CandidateFact[] facts = new CandidateFact[entries.Length];
+            if (sourceCount <= 0 || entries.Length != sourceCount)
+            {
+                Interlocked.Increment(ref sourceIndexInvalid);
+                throw new InvalidOperationException("T34-C.2 source count mismatch");
+            }
+
+            CandidateFact[] facts = new CandidateFact[sourceCount];
+            bool[] seen = new bool[sourceCount];
             for (int i = 0; i < entries.Length; i++)
             {
+                int sourceIndex = entries[i].SourceIndex;
+                if (sourceIndex < 0 || sourceIndex >= sourceCount)
+                {
+                    Interlocked.Increment(ref sourceIndexInvalid);
+                    throw new InvalidOperationException("T34-C.2 source index outside snapshot");
+                }
+                if (seen[sourceIndex])
+                {
+                    Interlocked.Increment(ref sourceIndexDuplicate);
+                    throw new InvalidOperationException("T34-C.2 duplicate source index");
+                }
+                seen[sourceIndex] = true;
+
                 Thing thing = entries[i].Thing;
                 int flags = 0;
                 if (thing is Pawn) flags |= FactPawn;
@@ -226,7 +267,7 @@ namespace RimMT
                     if (thing is Building && power != null && !power.PowerOn)
                         flags |= FactBuildingUnpowered;
                 }
-                facts[i] = new CandidateFact(flags);
+                facts[sourceIndex] = new CandidateFact(flags);
             }
             Interlocked.Add(ref factsCaptured, facts.Length);
             return facts;
@@ -427,28 +468,24 @@ namespace RimMT
                  ns.StartsWith("RimMT.Diagnostics.", StringComparison.Ordinal));
         }
 
-        private static long MakeKey(KernelKind kernel, int x, int z)
-        {
-            unchecked
-            {
-                long root = ((long)(uint)x << 32) | (uint)z;
-                return root ^ ((long)(int)kernel * 1099511628211L);
-            }
-        }
+        private static long MakeKey(KernelKind kernel) { return (long)(int)kernel; }
 
         internal static string Summary()
         {
-            return "T34-C Parallel Candidate Classification Fabric: feature=" + FeatureGate.IsEnabled(FeatureId) +
+            return "T34-C.2 Source-Indexed Classification Reuse: feature=" + FeatureGate.IsEnabled(FeatureId) +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", kernels[resolved/unresolved/authorityBypass]=" + Interlocked.Read(ref kernelResolved) + "/" +
                 Interlocked.Read(ref kernelUnresolved) + "/" + Interlocked.Read(ref authorityBypass) +
                 ", authorityPatches[compatible/foreign]=" +
                 Interlocked.Read(ref authorityCompatiblePatches) + "/" +
                 Interlocked.Read(ref authorityForeignPatches) +
-                ", plans[hit/miss/scheduled/rejected/built/fail]=" + Interlocked.Read(ref planHits) + "/" +
-                Interlocked.Read(ref planMisses) + "/" + Interlocked.Read(ref plansScheduled) + "/" +
+                ", sourcePlans[hit/miss/crossRoot/scheduled/rejected/built/fail]=" + Interlocked.Read(ref planHits) + "/" +
+                Interlocked.Read(ref planMisses) + "/" + Interlocked.Read(ref crossRootPlanHits) + "/" +
+                Interlocked.Read(ref plansScheduled) + "/" +
                 Interlocked.Read(ref schedulerRejected) + "/" + Interlocked.Read(ref plansBuilt) + "/" +
                 Interlocked.Read(ref workerFailures) +
+                ", entryIndex[invalid/duplicate]=" + Interlocked.Read(ref sourceIndexInvalid) + "/" +
+                Interlocked.Read(ref sourceIndexDuplicate) +
                 ", facts=" + Interlocked.Read(ref factsCaptured) +
                 ", classified[authoritative/shadowStack/shadowPawn/shadowBuilding]=" +
                 Interlocked.Read(ref authoritativeClassified) + "/" + Interlocked.Read(ref shadowStack) + "/" +
@@ -457,7 +494,7 @@ namespace RimMT
                 Interlocked.Read(ref candidatesRejected) +
                 ", parity[checks/fail/quarantine]=" + Interlocked.Read(ref liveParityChecks) + "/" +
                 Interlocked.Read(ref liveParityFailures) + "/" + Interlocked.Read(ref quarantined) +
-                ". No-wait; worker input is primitive-only; mutable stack/pawn/building facts are shadow-only; live validator and Reachability remain authoritative for survivors.";
+                ". Root-independent source-index plans; no-wait; worker input is primitive-only; mutable stack/pawn/building facts are shadow-only; live validator and Reachability remain authoritative for survivors.";
         }
 
         internal sealed class ClassificationPlan
@@ -476,7 +513,7 @@ namespace RimMT
 
         internal enum KernelKind : byte { None, Corpse, Pawn, Fire, HoldingTarget }
         private struct CandidateFact { internal readonly int Flags; internal CandidateFact(int flags) { Flags = flags; } }
-        private sealed class ClassificationSlot { internal ClassificationPlan Plan; internal int Scheduled; internal int Ready; internal int Quarantined; }
+        private sealed class ClassificationSlot { internal ClassificationPlan Plan; internal int Scheduled; internal int Ready; internal int Quarantined; internal int FirstRootX; internal int FirstRootZ; }
         private sealed class SnapshotPlans { internal readonly ConcurrentDictionary<long, ClassificationSlot> Slots = new ConcurrentDictionary<long, ClassificationSlot>(); }
 
         private sealed class ScannerAccessor
