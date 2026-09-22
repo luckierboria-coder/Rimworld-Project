@@ -21,6 +21,8 @@ namespace RimMT
     internal static class CandidateClassificationFabric093T34C
     {
         internal const string FeatureId = "parallel.candidateClassification";
+        private const string MainHarmonyOwner = "allen.rimmt";
+        private const string DiagnosticsHarmonyOwner = "allen.rimmt.diagnostics";
 
         private const byte RejectWrongType = 1;
         private const byte RejectMissingFixedComp = 2;
@@ -48,6 +50,8 @@ namespace RimMT
         private static long kernelResolved;
         private static long kernelUnresolved;
         private static long authorityBypass;
+        private static long authorityCompatiblePatches;
+        private static long authorityForeignPatches;
         private static long planHits;
         private static long planMisses;
         private static long plansScheduled;
@@ -364,8 +368,10 @@ namespace RimMT
                         {
                             Patches patches = Harmony.GetPatchInfo(method);
                             if (patches != null &&
-                                (patches.Prefixes.Count != 0 || patches.Postfixes.Count != 0 ||
-                                 patches.Transpilers.Count != 0 || patches.Finalizers.Count != 0))
+                                (HasIncompatiblePatch(patches.Prefixes, true) ||
+                                 HasIncompatiblePatch(patches.Postfixes, true) ||
+                                 HasIncompatiblePatch(patches.Transpilers, false) ||
+                                 HasIncompatiblePatch(patches.Finalizers, false)))
                             {
                                 safe = false;
                                 break;
@@ -378,6 +384,47 @@ namespace RimMT
             catch { safe = false; }
             AuthorityCache[scannerType] = safe;
             return safe;
+        }
+
+        private static bool HasIncompatiblePatch(
+            IEnumerable<Patch> patches,
+            bool allowDiagnosticsMeasurement)
+        {
+            if (patches == null)
+                return false;
+
+            foreach (Patch patch in patches)
+            {
+                if (patch == null)
+                    continue;
+
+                if (string.Equals(patch.owner, MainHarmonyOwner, StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref authorityCompatiblePatches);
+                    continue;
+                }
+
+                if (allowDiagnosticsMeasurement &&
+                    string.Equals(patch.owner, DiagnosticsHarmonyOwner, StringComparison.Ordinal) &&
+                    IsDiagnosticsMeasurementPatch(patch.PatchMethod))
+                {
+                    Interlocked.Increment(ref authorityCompatiblePatches);
+                    continue;
+                }
+
+                Interlocked.Increment(ref authorityForeignPatches);
+                return true;
+            }
+            return false;
+        }
+
+        private static bool IsDiagnosticsMeasurementPatch(MethodInfo method)
+        {
+            Type owner = method == null ? null : method.DeclaringType;
+            string ns = owner == null ? null : owner.Namespace;
+            return !string.IsNullOrEmpty(ns) &&
+                (string.Equals(ns, "RimMT.Diagnostics", StringComparison.Ordinal) ||
+                 ns.StartsWith("RimMT.Diagnostics.", StringComparison.Ordinal));
         }
 
         private static long MakeKey(KernelKind kernel, int x, int z)
@@ -395,6 +442,9 @@ namespace RimMT
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", kernels[resolved/unresolved/authorityBypass]=" + Interlocked.Read(ref kernelResolved) + "/" +
                 Interlocked.Read(ref kernelUnresolved) + "/" + Interlocked.Read(ref authorityBypass) +
+                ", authorityPatches[compatible/foreign]=" +
+                Interlocked.Read(ref authorityCompatiblePatches) + "/" +
+                Interlocked.Read(ref authorityForeignPatches) +
                 ", plans[hit/miss/scheduled/rejected/built/fail]=" + Interlocked.Read(ref planHits) + "/" +
                 Interlocked.Read(ref planMisses) + "/" + Interlocked.Read(ref plansScheduled) + "/" +
                 Interlocked.Read(ref schedulerRejected) + "/" + Interlocked.Read(ref plansBuilt) + "/" +

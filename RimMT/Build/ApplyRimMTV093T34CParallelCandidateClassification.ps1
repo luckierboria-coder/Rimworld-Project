@@ -82,7 +82,7 @@ Set-Content $scannerPath $scanner -Encoding UTF8
 
 $bootPath=Join-Path $root 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
 $boot=Get-Content $bootPath -Raw
-$boot=Replace-OrThrow $boot '0.9.3-t34b-scanner-parallel-fabric' '0.9.3-t34c-parallel-candidate-classification-fabric' 'bootstrap version'
+$boot=Replace-OrThrow $boot '0.9.3-t34b-scanner-parallel-fabric' '0.9.3-t34c1-authority-coexistence' 'bootstrap version'
 Set-Content $bootPath $boot -Encoding UTF8
 
 $runtimePath=Join-Path $root 'RimMT/Source/RimMT/Core/RimMTRuntime.cs'
@@ -97,25 +97,25 @@ Set-Content $runtimePath $runtime -Encoding UTF8
 
 $reportPath=Join-Path $root 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $report=Get-Content $reportPath -Raw
-$report=$report.Replace('V0.9.3-T34B Scanner Parallel Fabric','V0.9.3-T34C Parallel Candidate Classification Fabric')
+$report=$report.Replace('V0.9.3-T34B Scanner Parallel Fabric','V0.9.3-T34C.1 Parallel Candidate Classification Fabric')
 $anchor='            sb.AppendLine(ScannerParallelFabric093T34B.Summary());'
 $report=Replace-OrThrow $report $anchor ($anchor + [Environment]::NewLine +
   '            sb.AppendLine(CandidateClassificationFabric093T34C.Summary());') 'production summary'
 $report=$report.Replace(
   'T34-B scanner parallel planning=ACTIVE(HIGH priority, same-package overlap); T34-A persistent candidate fabric remains synchronous fallback; fabric mutations are tick-coalesced + dirty-source-only rebuilt.',
-  'T34-C candidate classification=ACTIVE(primitive-only worker kernels + live parity); mutable stack/pawn/building facts=SHADOW; T34-B distance planning and T34-A synchronous fallback remain active.')
+  'T34-C.1 candidate classification=ACTIVE(primitive-only worker kernels + live parity + trusted diagnostics coexistence); mutable stack/pawn/building facts=SHADOW; unknown Harmony owners still fail open; T34-B distance planning and T34-A synchronous fallback remain active.')
 Set-Content $reportPath $report -Encoding UTF8
 
 $aboutPath=Join-Path $root 'RimMT/About/About.xml'
 $about=Get-Content $aboutPath -Raw
-$about=[regex]::Replace($about,'<name>.*?</name>','<name>RimMT V0.9.3-T34C Parallel Candidate Classification Fabric</name>',1)
+$about=[regex]::Replace($about,'<name>.*?</name>','<name>RimMT V0.9.3-T34C.1 Authority Coexistence</name>',1)
 $about=[regex]::Replace($about,'(?s)<description>.*?</description>',
-  '<description>RimMT T34-C for RimWorld 1.5. Adds a no-wait parallel candidate-classification stage above the T34-B distance fabric. The main thread captures compact primitive facts, worker rule kernels publish rejection and shadow bitmaps, and every authoritative negative is rechecked live before Reachability or the original validator can be skipped. First production kernels cover invariant corpse, pawn, fire and holding-platform-target shape requirements. Mutable stack fullness, pawn availability and building power are classified for shadow telemetry only. Missing, stale, unfinished, foreign-patched or parity-mismatched plans fail open. T34-B and T34-A remain fallbacks; FullParallel remains HARD_OFF.</description>')
+  '<description>RimMT T34-C.1 for RimWorld 1.5. Adds a no-wait parallel candidate-classification stage above the T34-B distance fabric. The main thread captures compact primitive facts, worker rule kernels publish rejection and shadow bitmaps, and every authoritative negative is rechecked live before Reachability or the original validator can be skipped. First production kernels cover invariant corpse, pawn, fire and holding-platform-target shape requirements. RimMT and the external RimMT.Diagnostics measurement prefixes/postfixes are trusted coexistence owners; unknown Harmony owners, diagnostics transpilers/finalizers, missing, stale, unfinished or parity-mismatched plans fail open. Mutable stack fullness, pawn availability and building power remain shadow-only. T34-B and T34-A remain fallbacks; FullParallel remains HARD_OFF.</description>')
 Set-Content $aboutPath $about -Encoding UTF8
 
 $diagPatchPath=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticsPatches.cs'
 $diag=Get-Content $diagPatchPath -Raw
-$diag=Replace-OrThrow $diag 'internal const string Version = "0.18.0";' 'internal const string Version = "0.19.0";' 'diagnostics version'
+$diag=Replace-OrThrow $diag 'internal const string Version = "0.18.0";' 'internal const string Version = "0.19.1";' 'diagnostics version'
 Set-Content $diagPatchPath $diag -Encoding UTF8
 
 $diagReportPath=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticReport.cs'
@@ -126,9 +126,9 @@ Set-Content $diagReportPath $diagReport -Encoding UTF8
 
 $diagAboutPath=Join-Path $root 'RimMTDiagnostics/About/About.xml'
 $diagAbout=Get-Content $diagAboutPath -Raw
-$diagAbout=[regex]::Replace($diagAbout,'<name>.*?</name>','<name>RimMT Diagnostics v0.19 - T34C Candidate Classification</name>',1)
+$diagAbout=[regex]::Replace($diagAbout,'<name>.*?</name>','<name>RimMT Diagnostics v0.19.1 - T34C.1 Authority Coexistence</name>',1)
 $diagAbout=[regex]::Replace($diagAbout,'(?s)<description>.*?</description>',
-  '<description>Optional diagnostics companion for RimMT T34-C. Reports candidate-classification kernel resolution, plan readiness, authoritative rejection counts, mutable-state shadow families, scheduler acceptance and live parity quarantine alongside T34-B scanner-plan counters.</description>')
+  '<description>Optional diagnostics companion for RimMT T34-C.1. Its measurement-only prefixes/postfixes are recognized by the production classifier authority audit. Reports kernel resolution, trusted/foreign patch counts, plan readiness, authoritative rejection counts, mutable-state shadow families, scheduler acceptance and live parity quarantine alongside T34-B scanner-plan counters.</description>')
 Set-Content $diagAboutPath $diagAbout -Encoding UTF8
 
-Write-Host 'Applied RimMT T34-C Parallel Candidate Classification Fabric + Diagnostics v0.19.'
+Write-Host 'Applied RimMT T34-C.1 Authority Coexistence + Diagnostics v0.19.1.'
