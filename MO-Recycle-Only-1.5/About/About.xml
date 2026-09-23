@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>Medieval Overhaul - Recycle Only 1.5 v1.7</name>
+  <name>Medieval Overhaul - Recycle Only 1.5 v1.8</name>
   <author>Allen / OpenAI</author>
   <packageId>allen.mo.recycleonly15</packageId>
   <supportedVersions>
@@ -24,6 +24,6 @@
     <li>DankPyon.Medieval.Overhaul</li>
   </loadAfter>
   <description>
-Adds recycling only to Medieval Overhaul's existing mending bench. Recycle bills accept damaged or full-durability items. Every recycle job takes exactly 5000 game ticks (2 in-game hours), independent of durability, material, MaxHP or work speed. Completion dismantles the item into materials instead of repairing it.
+Adds recycling only to Medieval Overhaul's existing mending bench. Recycle bills accept damaged or full-durability items. Recycle duration is controlled only by each RecipeDef's workAmount; durability, material, MaxHP, pawn work speed and bench speed do not affect duration. Completion dismantles the item into materials instead of repairing it.
   </description>
 </ModMetaData>

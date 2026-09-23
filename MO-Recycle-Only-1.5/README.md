@@ -1,48 +1,42 @@
-# Medieval Overhaul - Recycle Only 1.5 v1.7
+# Medieval Overhaul - Recycle Only 1.5 v1.8
 
 Target: RimWorld 1.5.4063 + Medieval Overhaul.
 
-## Fixed recycle time
-Every recycle job now takes exactly:
+## Recycle duration
+Recycle duration is controlled ONLY by the recycle RecipeDef's XML workAmount.
 
-  5000 game ticks = 2 in-game hours
+Default XML value:
+  <workAmount>5000</workAmount>
 
-This applies to:
-- Recycle apparel
-- Recycle armor
-- Recycle weapon
+Meaning:
+- 5000 = 2 in-game hours
+- 2500 = 1 in-game hour
+- 1000 = 0.4 in-game hours
 
-Duration is independent of:
-- current durability
-- maximum HP
+The C# no longer forces 5000.
+
+The job decrements workLeft by exactly 1 per game tick, so duration is not affected by:
+- durability
 - material
-- item type
-- pawn crafting speed
+- MaxHP
+- pawn crafting/work speed
 - workbench speed
 
-Medieval Overhaul's own mending recipes are unchanged.
-
 ## Full-durability items
-Recycle bills still accept 100% durability items.
-MO's original mending bills still require damaged items.
+Recycle bills accept 100% durability items.
+MO's original mending bills remain unchanged.
 
 ## Completion behavior
 Recycle completion:
-- does NOT run MO's hpHeal code
-- destroys/consumes the original item
+- does not run MO hpHeal
+- consumes/destroys the original item
 - calculates returned materials
 - spawns returned materials near the worker
 - completes the bill normally
 
 ## Material return
-Time is fixed, but material return still follows the existing recovery settings.
-
-Default:
-- maximum recovery at 100% durability: 50%
-- durability scaling enabled
-- intricate materials/components excluded
-
-So durability may change HOW MUCH material is returned, but no longer changes HOW LONG recycling takes.
+Durability can still affect HOW MUCH material is returned if that setting is enabled.
+It no longer affects HOW LONG recycling takes.
 
 ## Fuel / bench
 Still uses:
@@ -50,5 +44,3 @@ Still uses:
 - MO WorkGiver_DoMending
 - MO JobDriver_DoMending
 - MO repair-tool fuel via UsedThisTick()
-
-Repair-tool fuel is therefore consumed for the entire fixed 5000-tick recycle duration.

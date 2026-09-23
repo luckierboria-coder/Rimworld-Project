@@ -55,7 +55,7 @@ namespace MORecycleOnly15
                 "Disabled by default to prevent recycling equipment back into components or other intricate manufactured parts.");
 
             listing.Gap();
-            listing.Label("Recycle time is fixed at 2 in-game hours (5000 ticks) for every item. Durability and material do not affect job duration.");
+            listing.Label("Recycle duration is controlled only by each recycle RecipeDef's workAmount. Durability, material, MaxHP, pawn work speed and bench speed do not affect duration.");
 
             listing.End();
         }
@@ -63,7 +63,7 @@ namespace MORecycleOnly15
 
     internal static class RecycleUtility
     {
-        internal const float FixedRecycleTicks = 5000f;
+        internal const float FallbackRecycleTicks = 5000f;
 
         private static readonly HashSet<string> RecycleRecipes = new HashSet<string>
         {
@@ -150,7 +150,7 @@ namespace MORecycleOnly15
             Thing item = job.GetTarget(TargetIndex.B).Thing;
             if (item == null || item.Destroyed)
             {
-                Log.Error("[MO Recycle Only 1.5 v1.7] Recycle completion had no valid target item.");
+                Log.Error("[MO Recycle Only 1.5 v1.8] Recycle completion had no valid target item.");
                 actor.jobs.EndCurrentJob(JobCondition.Incompletable, true, true);
                 return;
             }
@@ -174,7 +174,7 @@ namespace MORecycleOnly15
             }
             catch (Exception ex)
             {
-                Log.Error("[MO Recycle Only 1.5 v1.7] Failed consuming recycled item " + item.ToStringSafe() + ": " + ex);
+                Log.Error("[MO Recycle Only 1.5 v1.8] Failed consuming recycled item " + item.ToStringSafe() + ": " + ex);
                 actor.jobs.EndCurrentJob(JobCondition.Errored, true, true);
                 return;
             }
@@ -188,7 +188,7 @@ namespace MORecycleOnly15
             }
             catch (Exception ex)
             {
-                Log.Warning("[MO Recycle Only 1.5 v1.7] Bill completion notification warning: " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[MO Recycle Only 1.5 v1.8] Bill completion notification warning: " + ex.GetType().Name + ": " + ex.Message);
             }
 
             foreach (Thing product in products)
@@ -197,7 +197,7 @@ namespace MORecycleOnly15
                     continue;
 
                 if (!GenPlace.TryPlaceThing(product, actor.Position, actor.Map, ThingPlaceMode.Near))
-                    Log.Error("[MO Recycle Only 1.5 v1.7] Could not place recycled product " + product.ToStringSafe() + " near " + actor.Position);
+                    Log.Error("[MO Recycle Only 1.5 v1.8] Could not place recycled product " + product.ToStringSafe() + " near " + actor.Position);
             }
 
             actor.Map?.resourceCounter?.UpdateResourceCounts();
@@ -211,20 +211,7 @@ namespace MORecycleOnly15
         static Bootstrap()
         {
             new Harmony("allen.mo.recycleonly15").PatchAll();
-            Log.Message("[MO Recycle Only 1.5 v1.7] loaded. Every recycle job is fixed at 5000 ticks (2 in-game hours).");
-        }
-    }
-
-    // Expose the same fixed value to any UI/fallback path that asks the recipe
-    // for its work amount. The MO work toil below also hard-sets workLeft to
-    // exactly 5000 ticks so missing HP, material and work speed cannot change it.
-    [HarmonyPatch(typeof(RecipeDef), nameof(RecipeDef.WorkAmountTotal))]
-    internal static class Patch_RecipeDef_WorkAmountTotal
-    {
-        private static void Postfix(RecipeDef __instance, Thing thing, ref float __result)
-        {
-            if (RecycleUtility.IsRecycleRecipe(__instance))
-                __result = RecycleUtility.FixedRecycleTicks;
+            Log.Message("[MO Recycle Only 1.5 v1.8] loaded. Recycle duration is read directly from RecipeDef.workAmount.");
         }
     }
 
@@ -269,13 +256,11 @@ namespace MORecycleOnly15
     }
 
     // MO's mending toil normally scales work by missing HP and pawn/table work
-    // speed. Recycle is intentionally different: every recycle job lasts exactly
-    // 5000 game ticks = 2 in-game hours.
+    // speed. Recycle ignores all of that and uses RecipeDef.workAmount directly.
     //
     // We preserve MO's bill notifications, repair-tool fuel use, comfort and
     // completion hand-off, but decrement recycle workLeft by exactly 1 per game
-    // tick. No durability, material, MaxHP, crafting speed or table speed can
-    // shorten/lengthen the normal recycle duration.
+    // tick. Therefore XML workAmount is the sole duration control.
     [HarmonyPatch]
     internal static class Patch_MO_DoRecipeWork_Mend
     {
@@ -312,7 +297,10 @@ namespace MORecycleOnly15
                 if (driver == null)
                     return;
 
-                workLeftField?.SetValue(driver, RecycleUtility.FixedRecycleTicks);
+                float configuredWork = job.RecipeDef != null && job.RecipeDef.workAmount > 0f
+                    ? job.RecipeDef.workAmount
+                    : RecycleUtility.FallbackRecycleTicks;
+                workLeftField?.SetValue(driver, configuredWork);
                 ticksSpentField?.SetValue(driver, 0);
                 billStartTickField?.SetValue(driver, Find.TickManager.TicksGame);
             };
@@ -345,9 +333,13 @@ namespace MORecycleOnly15
                     job.GetTarget(TargetIndex.A).Thing as IBillGiverWithTickAction;
                 tickGiver?.UsedThisTick();
 
+                float configuredWork = job.RecipeDef != null && job.RecipeDef.workAmount > 0f
+                    ? job.RecipeDef.workAmount
+                    : RecycleUtility.FallbackRecycleTicks;
+
                 float workLeft = workLeftField != null
                     ? (float)workLeftField.GetValue(driver)
-                    : RecycleUtility.FixedRecycleTicks;
+                    : configuredWork;
 
                 workLeft -= 1f;
                 workLeftField?.SetValue(driver, workLeft);
@@ -364,9 +356,8 @@ namespace MORecycleOnly15
     }
 
     // MO's own progress bar denominator is based on missing HP, so it is wrong
-    // for fixed-duration recycle jobs (and becomes zero at 100% durability).
-    // Replace only the progress getter of MO's recipe-work toil while a recycle
-    // recipe is active.
+    // for recycle jobs. Replace only the recycle progress getter and use the
+    // active RecipeDef.workAmount as the denominator.
     [HarmonyPatch(typeof(ToilEffects), nameof(ToilEffects.WithProgressBar),
         new Type[] { typeof(Toil), typeof(TargetIndex), typeof(Func<float>), typeof(bool), typeof(float), typeof(bool) })]
     internal static class Patch_ToilEffects_WithProgressBar
@@ -391,7 +382,10 @@ namespace MORecycleOnly15
                         if (workLeftField != null)
                         {
                             float workLeft = (float)workLeftField.GetValue(driver);
-                            return Mathf.Clamp01(1f - workLeft / RecycleUtility.FixedRecycleTicks);
+                            float configuredWork = job.RecipeDef != null && job.RecipeDef.workAmount > 0f
+                                ? job.RecipeDef.workAmount
+                                : RecycleUtility.FallbackRecycleTicks;
+                            return Mathf.Clamp01(1f - workLeft / configuredWork);
                         }
                     }
                     return 0f;
