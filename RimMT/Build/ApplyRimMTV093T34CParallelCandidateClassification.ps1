@@ -57,16 +57,24 @@ $new=@'
                     }
                     if (classificationReady && classificationReason != 0)
                     {
+                        bool classificationQuarantineRequired;
                         if (!CandidateClassificationFabric093T34C.ValidateReject(
-                            classificationPlan, classificationIndex, thing))
+                            classificationPlan, classificationIndex, thing,
+                            out classificationQuarantineRequired))
                         {
-                            CandidateClassificationFabric093T34C.Quarantine(
-                                snapshot, classificationPlan);
-                            RecordElapsed(ref mainLiveTicks, ref mainLiveTicksMax, liveStarted);
-                            return true;
+                            if (classificationQuarantineRequired)
+                            {
+                                CandidateClassificationFabric093T34C.Quarantine(
+                                    snapshot, classificationPlan);
+                                RecordElapsed(ref mainLiveTicks, ref mainLiveTicksMax, liveStarted);
+                                return true;
+                            }
                         }
-                        classifiedRejected++;
-                        continue;
+                        else
+                        {
+                            classifiedRejected++;
+                            continue;
+                        }
                     }
 
                     visited++;
@@ -91,7 +99,7 @@ Set-Content $scannerPath $scanner -Encoding UTF8
 
 $bootPath=Join-Path $root 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
 $boot=Get-Content $bootPath -Raw
-$boot=Replace-OrThrow $boot '0.9.3-t34b-scanner-parallel-fabric' '0.9.3-t34c5-refuel-full-negative-kernel' 'bootstrap version'
+$boot=Replace-OrThrow $boot '0.9.3-t34b-scanner-parallel-fabric' '0.9.3-t34c6-refuel-drift-tolerant-kernel' 'bootstrap version'
 Set-Content $bootPath $boot -Encoding UTF8
 
 $runtimePath=Join-Path $root 'RimMT/Source/RimMT/Core/RimMTRuntime.cs'
@@ -106,25 +114,25 @@ Set-Content $runtimePath $runtime -Encoding UTF8
 
 $reportPath=Join-Path $root 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $report=Get-Content $reportPath -Raw
-$report=$report.Replace('V0.9.3-T34B Scanner Parallel Fabric','V0.9.3-T34C.5 Refuel Full Negative Kernel')
+$report=$report.Replace('V0.9.3-T34B Scanner Parallel Fabric','V0.9.3-T34C.6 Refuel Drift-Tolerant Kernel')
 $anchor='            sb.AppendLine(ScannerParallelFabric093T34B.Summary());'
 $report=Replace-OrThrow $report $anchor ($anchor + [Environment]::NewLine +
   '            sb.AppendLine(CandidateClassificationFabric093T34C.Summary());') 'production summary'
 $report=$report.Replace(
   'T34-B scanner parallel planning=ACTIVE(HIGH priority, same-package overlap); T34-A persistent candidate fabric remains synchronous fallback; fabric mutations are tick-coalesced + dirty-source-only rebuilt.',
-  'T34-C.5 candidate classification=ACTIVE(root-independent SourceSnapshot+Kernel plans indexed by stable SourceIndex + live parity + authority-safe Refuel/Refuel_Turret full-negative kernel + bounded scanner-miss evidence); full state is rechecked live before any skip; invalid/duplicate indices and unknown Harmony owners fail open; T34-B distance planning and T34-A synchronous fallback remain active.')
+  'T34-C.6 candidate classification=ACTIVE(root-independent SourceSnapshot+Kernel plans indexed by stable SourceIndex + live parity + authority-safe Refuel/Refuel_Turret full-negative kernel + volatile-state revocation); full state is rechecked live before any skip; normal fuel consumption resumes live validation without quarantining the reusable plan; structural mismatches, invalid/duplicate indices and unknown Harmony owners fail open; T34-B distance planning and T34-A synchronous fallback remain active.')
 Set-Content $reportPath $report -Encoding UTF8
 
 $aboutPath=Join-Path $root 'RimMT/About/About.xml'
 $about=Get-Content $aboutPath -Raw
-$about=[regex]::Replace($about,'<name>.*?</name>','<name>RimMT V0.9.3-T34C.5 Refuel Full Negative Kernel</name>',1)
+$about=[regex]::Replace($about,'<name>.*?</name>','<name>RimMT V0.9.3-T34C.6 Refuel Drift-Tolerant Kernel</name>',1)
 $about=[regex]::Replace($about,'(?s)<description>.*?</description>',
-  '<description>RimMT T34-C.5 for RimWorld 1.5. Promotes the T34-C.4 proven Refuel and Refuel_Turret full-fuel condition to an authority-safe negative kernel. Full state is captured on the main thread, classified from primitive rows on workers and rechecked live before Reachability or the original validator can be skipped. The T34-C.4 per-candidate validator shadow hook is removed from the hot path. Foreign Harmony authority, stale state, invalid indices, missing plans and parity mismatches fail open. Bounded scanner-closure evidence and first-consumption plan yield remain; FullParallel remains HARD_OFF.</description>')
+  '<description>RimMT T34-C.6 for RimWorld 1.5. Keeps the authority-safe Refuel and Refuel_Turret full-fuel negative kernel while distinguishing normal volatile fuel-state changes from structural parity failures. Full state is captured on the main thread and rechecked live before any skip. If fuel is consumed between capture and use, that candidate resumes ordinary live Reachability and validator checks without quarantining the reusable source plan. Structural mismatches, foreign Harmony authority, invalid indices and missing plans still fail open; FullParallel remains HARD_OFF.</description>')
 Set-Content $aboutPath $about -Encoding UTF8
 
 $diagPatchPath=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticsPatches.cs'
 $diag=Get-Content $diagPatchPath -Raw
-$diag=Replace-OrThrow $diag 'internal const string Version = "0.18.0";' 'internal const string Version = "0.19.5";' 'diagnostics version'
+$diag=Replace-OrThrow $diag 'internal const string Version = "0.18.0";' 'internal const string Version = "0.19.6";' 'diagnostics version'
 Set-Content $diagPatchPath $diag -Encoding UTF8
 
 $diagReportPath=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticReport.cs'
@@ -135,9 +143,9 @@ Set-Content $diagReportPath $diagReport -Encoding UTF8
 
 $diagAboutPath=Join-Path $root 'RimMTDiagnostics/About/About.xml'
 $diagAbout=Get-Content $diagAboutPath -Raw
-$diagAbout=[regex]::Replace($diagAbout,'<name>.*?</name>','<name>RimMT Diagnostics v0.19.5 - T34C.5 Refuel Full Negative Kernel</name>',1)
+$diagAbout=[regex]::Replace($diagAbout,'<name>.*?</name>','<name>RimMT Diagnostics v0.19.6 - T34C.6 Refuel Drift-Tolerant Kernel</name>',1)
 $diagAbout=[regex]::Replace($diagAbout,'(?s)<description>.*?</description>',
-  '<description>Optional diagnostics companion for RimMT T34-C.5. Reports Refuel/Refuel_Turret full-negative capture, consumption, live parity and quarantine counts, bounded scanner-closure failure evidence, first-consumption plan yield and foreign-patch authority evidence.</description>')
+  '<description>Optional diagnostics companion for RimMT T34-C.6. Separately reports volatile Refuel state revocations, structural parity failures and quarantines alongside full-negative capture, consumption, plan yield and foreign-patch authority evidence.</description>')
 Set-Content $diagAboutPath $diagAbout -Encoding UTF8
 
-Write-Host 'Applied RimMT T34-C.5 Refuel Full Negative Kernel + Diagnostics v0.19.5.'
+Write-Host 'Applied RimMT T34-C.6 Refuel Drift-Tolerant Kernel + Diagnostics v0.19.6.'

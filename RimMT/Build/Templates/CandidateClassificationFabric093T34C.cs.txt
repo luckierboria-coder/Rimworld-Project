@@ -12,7 +12,7 @@ using Verse;
 namespace RimMT
 {
     /// <summary>
-    /// T34-C.5 adds a second worker stage to T34-B distance plans. The main thread captures a
+    /// T34-C.6 adds a second worker stage to T34-B distance plans. The main thread captures a
     /// compact primitive fact row once; workers run pure rule kernels and publish rejection
     /// bitmaps. Only invariant type/component negatives are authoritative. Mutable pawn, stack
     /// and building facts are shadow telemetry until a later version supplies an invalidation
@@ -88,6 +88,7 @@ namespace RimMT
         private static long candidatesRejected;
         private static long liveParityChecks;
         private static long liveParityFailures;
+        private static long liveStateRevocations;
         private static long quarantined;
         private static long sourceIndexInvalid;
         private static long sourceIndexDuplicate;
@@ -186,8 +187,10 @@ namespace RimMT
         internal static bool ValidateReject(
             ClassificationPlan plan,
             int index,
-            Thing thing)
+            Thing thing,
+            out bool quarantineRequired)
         {
+            quarantineRequired = false;
             if (plan == null || index < 0 || index >= plan.Count || thing == null)
                 return false;
 
@@ -200,8 +203,18 @@ namespace RimMT
             bool stillRejected = LiveReject(plan.Kernel, reason, thing);
             if (!stillRejected)
             {
+                // Fuel fullness is volatile. A consumer can burn fuel after capture without
+                // changing source membership. The live recheck already prevents an unsafe
+                // skip, so this candidate resumes the ordinary live path without quarantine.
+                if (plan.Kernel == KernelKind.Refuel && (reason & RejectRefuelFull) != 0)
+                {
+                    Interlocked.Increment(ref liveStateRevocations);
+                    Interlocked.Increment(ref Counters(plan.Kernel).LiveStateRevocations);
+                    return false;
+                }
                 Interlocked.Increment(ref liveParityFailures);
                 Interlocked.Increment(ref Counters(plan.Kernel).ParityFailures);
+                quarantineRequired = true;
                 return false;
             }
             return true;
@@ -647,7 +660,8 @@ namespace RimMT
                     .Append(Interlocked.Read(ref row.CandidatesRejected)).Append('/')
                     .Append(Interlocked.Read(ref row.ParityChecks)).Append('/')
                     .Append(Interlocked.Read(ref row.ParityFailures)).Append('/')
-                    .Append(Interlocked.Read(ref row.Quarantined));
+                    .Append(Interlocked.Read(ref row.Quarantined)).Append('/')
+                    .Append(Interlocked.Read(ref row.LiveStateRevocations));
             }
             return sb.ToString();
         }
@@ -710,7 +724,7 @@ namespace RimMT
         {
             long built = Interlocked.Read(ref plansBuilt);
             long firstConsumed = Interlocked.Read(ref plansFirstConsumed);
-            return "T34-C.5 Refuel Full Negative Kernel: feature=" + FeatureGate.IsEnabled(FeatureId) +
+            return "T34-C.6 Refuel Drift-Tolerant Kernel: feature=" + FeatureGate.IsEnabled(FeatureId) +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", kernels[resolved/unresolved/authorityBypass]=" + Interlocked.Read(ref kernelResolved) + "/" +
                 Interlocked.Read(ref kernelUnresolved) + "/" + Interlocked.Read(ref authorityBypass) +
@@ -730,11 +744,12 @@ namespace RimMT
                 Interlocked.Read(ref shadowPawn) + "/" + Interlocked.Read(ref shadowBuilding) +
                 ", consumed[queries/rejected]=" + Interlocked.Read(ref consumedQueries) + "/" +
                 Interlocked.Read(ref candidatesRejected) +
-                ", parity[checks/fail/quarantine]=" + Interlocked.Read(ref liveParityChecks) + "/" +
-                Interlocked.Read(ref liveParityFailures) + "/" + Interlocked.Read(ref quarantined) +
+                ", parity[checks/fail/quarantine/liveStateRevoked]=" + Interlocked.Read(ref liveParityChecks) + "/" +
+                Interlocked.Read(ref liveParityFailures) + "/" + Interlocked.Read(ref quarantined) + "/" +
+                Interlocked.Read(ref liveStateRevocations) +
                 ", planUse[firstConsumed/built/unconsumedUpper]=" + firstConsumed + "/" + built + "/" +
                 Math.Max(0L, built - firstConsumed) +
-                ", kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine]=" +
+                ", kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine/liveStateRevoked]=" +
                 KernelYieldSummary() +
                 ", unresolved[scannerMiss/dropped/top]=" + Interlocked.Read(ref scannerResolveMisses) + "/" +
                 Interlocked.Read(ref unresolvedTypeDropped) + "/" + TopTypeSummary(UnresolvedTypes, MaxReportedUnresolvedTypes) +
@@ -777,6 +792,7 @@ namespace RimMT
             internal long ParityChecks;
             internal long ParityFailures;
             internal long Quarantined;
+            internal long LiveStateRevocations;
         }
         private enum ScannerResolveFailure : byte { None, NoValidator, NoTarget, NoAccessorPath, NullPathValue, Exception }
         private sealed class ScannerMissEvidence

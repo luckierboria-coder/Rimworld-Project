@@ -1,6 +1,7 @@
 param([switch]$ValidateCurrentTree)
 
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'InitializeRimMTToolchain.ps1')
 $root=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 
 if(-not $ValidateCurrentTree){
@@ -13,14 +14,14 @@ if(-not $ValidateCurrentTree){
   $mainProj=Join-Path $root 'RimMT/Source/RimMT/RimMT.csproj'
   $diagProj=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/RimMTDiagnostics.csproj'
   dotnet build $mainProj --configuration Release --no-restore
-  if($LASTEXITCODE -ne 0){ throw 'RimMT T34-C.5 build failed' }
+  if($LASTEXITCODE -ne 0){ throw 'RimMT T34-C.6 build failed' }
   dotnet build $diagProj --configuration Release --no-restore
-  if($LASTEXITCODE -ne 0){ throw 'Diagnostics v0.19.5 build failed' }
+  if($LASTEXITCODE -ne 0){ throw 'Diagnostics v0.19.6 build failed' }
 }
 
 $boot=Get-Content (Join-Path $root 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs') -Raw
 foreach($required in @(
-  '0.9.3-t34c5-refuel-full-negative-kernel',
+  '0.9.3-t34c6-refuel-drift-tolerant-kernel',
   'CandidateFabric093T34A.Apply(harmony);',
   'ScannerParallelFabric093T34B.Apply(harmony);'
 )){
@@ -48,7 +49,8 @@ foreach($required in @(
   'HasIncompatiblePatch(',
   'IsDiagnosticsMeasurementPatch(',
   'authorityPatches[compatible/foreign]',
-  'kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine]',
+  'kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine/liveStateRevoked]',
+  'liveStateRevocations',
   'authorityEvidence[dropped/rows]',
   'unresolved[scannerMiss/dropped/top]',
   'scannerMissEvidence[dropped/rows]',
@@ -98,7 +100,7 @@ foreach($required in @(
 }
 
 $diag=Get-Content (Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticsPatches.cs') -Raw
-if($diag -notmatch 'Version = "0\.19\.5"'){ throw 'Diagnostics v0.19.5 version missing' }
+if($diag -notmatch 'Version = "0\.19\.6"'){ throw 'Diagnostics v0.19.6 version missing' }
 $diagReport=Get-Content (Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticReport.cs') -Raw
 if(-not $diagReport.Contains('"RimMT.CandidateClassificationFabric093T34C"')){
   throw 'Diagnostics T34-C reflection bridge missing'
@@ -134,9 +136,9 @@ Copy-Item (Join-Path $root 'RimMTDiagnostics/About') $diagStage -Recurse
 Copy-Item (Join-Path $root 'RimMTDiagnostics/1.5') $diagStage -Recurse
 Copy-Item (Join-Path $root 'RimMTDiagnostics/LoadFolders.xml') $diagStage
 
-$mainZip=Join-Path $build 'RimMT_V0.9.3_T34C5_RefuelFullNegativeKernel.zip'
-$diagZip=Join-Path $build 'RimMT_Diagnostics_v0.19.5_T34C5.zip'
-$bundleZip=Join-Path $build 'RimMT_T34C5_RefuelFullNegativeKernel_Bundle.zip'
+$mainZip=Join-Path $build 'RimMT_V0.9.3_T34C6_RefuelDriftTolerantKernel.zip'
+$diagZip=Join-Path $build 'RimMT_Diagnostics_v0.19.6_T34C6.zip'
+$bundleZip=Join-Path $build 'RimMT_T34C6_RefuelDriftTolerantKernel_Bundle.zip'
 foreach($z in @($mainZip,$diagZip,$bundleZip)){
   if(Test-Path $z){ Remove-Item $z -Force }
 }
