@@ -1,0 +1,32 @@
+name: Fetch Dignified Departure Workshop
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fetch-dignified-departure.yml'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download SteamCMD
+        run: |
+          mkdir -p "$HOME/steamcmd"
+          cd "$HOME/steamcmd"
+          curl -L --retry 3 -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+          tar -xzf steamcmd.tar.gz
+
+      - name: Download Workshop item
+        run: |
+          "$HOME/steamcmd/steamcmd.sh"             +force_install_dir "$GITHUB_WORKSPACE/steamworkshop"             +login anonymous             +workshop_download_item 294100 3790055136 validate             +quit
+          find "$HOME/steamcmd/steamapps/workshop/content/294100/3790055136" -maxdepth 4 -type f -print || true
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp -a "$HOME/steamcmd/steamapps/workshop/content/294100/3790055136" "$GITHUB_WORKSPACE/out/DignifiedDeparture"
+
+      - name: Upload Workshop item
+        uses: actions/upload-artifact@v4
+        with:
+          name: DignifiedDeparture-1.6-original
+          path: out/DignifiedDeparture
+          if-no-files-found: error
