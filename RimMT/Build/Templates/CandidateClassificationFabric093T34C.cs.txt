@@ -12,7 +12,7 @@ using Verse;
 namespace RimMT
 {
     /// <summary>
-    /// T34-C.3 adds a second worker stage to T34-B distance plans. The main thread captures a
+    /// T34-C.4 adds a second worker stage to T34-B distance plans. The main thread captures a
     /// compact primitive fact row once; workers run pure rule kernels and publish rejection
     /// bitmaps. Only invariant type/component negatives are authoritative. Mutable pawn, stack
     /// and building facts are shadow telemetry until a later version supplies an invalidation
@@ -27,12 +27,16 @@ namespace RimMT
         private const int MaxTrackedUnresolvedTypes = 64;
         private const int MaxReportedUnresolvedTypes = 12;
         private const int MaxAuthorityEvidence = 16;
+        private const int MaxScannerMissEvidence = 16;
 
         private const byte RejectWrongType = 1;
         private const byte RejectMissingFixedComp = 2;
         private const byte ShadowStackFull = 1;
         private const byte ShadowPawnUnavailable = 2;
         private const byte ShadowBuildingUnpowered = 4;
+        private const byte ShadowRefuelable = 8;
+        private const byte ShadowRefuelFull = 16;
+        private const byte ShadowRefuelAutoNow = 32;
 
         private const int FactPawn = 1;
         private const int FactCorpse = 2;
@@ -42,6 +46,9 @@ namespace RimMT
         private const int FactStackFull = 32;
         private const int FactPawnUnavailable = 64;
         private const int FactBuildingUnpowered = 128;
+        private const int FactRefuelable = 256;
+        private const int FactRefuelFull = 512;
+        private const int FactRefuelAutoNow = 1024;
 
         private static readonly ConditionalWeakTable<PersistentMapSearchFabric.SourceSnapshot, SnapshotPlans>
             Plans = new ConditionalWeakTable<PersistentMapSearchFabric.SourceSnapshot, SnapshotPlans>();
@@ -54,8 +61,10 @@ namespace RimMT
         private static readonly Dictionary<Type, long> UnresolvedTypes = new Dictionary<Type, long>();
         private static readonly Dictionary<Type, long> AuthorityBypassTypes = new Dictionary<Type, long>();
         private static readonly List<AuthorityEvidence> AuthorityEvidenceRows = new List<AuthorityEvidence>();
+        private static readonly List<ScannerMissEvidence> ScannerMissEvidenceRows = new List<ScannerMissEvidence>();
         private static readonly KernelCounters[] KernelYield = new KernelCounters[] {
-            null, new KernelCounters(), new KernelCounters(), new KernelCounters(), new KernelCounters()
+            null, new KernelCounters(), new KernelCounters(), new KernelCounters(), new KernelCounters(),
+            new KernelCounters()
         };
 
         private static long observed;
@@ -87,6 +96,17 @@ namespace RimMT
         private static long unresolvedTypeDropped;
         private static long authorityTypeDropped;
         private static long authorityEvidenceDropped;
+        private static long scannerMissEvidenceDropped;
+        private static long refuelFacts;
+        private static long refuelFullFacts;
+        private static long refuelAutoNowFacts;
+        private static long refuelValidatorObserved;
+        private static long refuelValidatorRejected;
+        private static long refuelFullValidatorObserved;
+        private static long refuelFullValidatorAccepted;
+        private static long refuelAutoValidatorObserved;
+        private static long refuelAutoValidatorAccepted;
+        private static long plansFirstConsumed;
 
         internal static bool TryGetOrSchedule(
             PersistentMapSearchFabric.SourceSnapshot snapshot,
@@ -143,7 +163,7 @@ namespace RimMT
             CandidateFact[] facts;
             try
             {
-                facts = CaptureFacts(entries, snapshot.Count);
+                facts = CaptureFacts(entries, snapshot.Count, kernel);
             }
             catch
             {
@@ -234,6 +254,8 @@ namespace RimMT
         {
             if (plan == null)
                 return;
+            if (Interlocked.CompareExchange(ref plan.ConsumptionNoted, 1, 0) == 0)
+                Interlocked.Increment(ref plansFirstConsumed);
             Interlocked.Increment(ref consumedQueries);
             Interlocked.Increment(ref Counters(plan.Kernel).ConsumedQueries);
             if (rejected > 0)
@@ -243,9 +265,34 @@ namespace RimMT
             }
         }
 
+        internal static void NoteValidatorResult(
+            ClassificationPlan plan,
+            int sourceIndex,
+            bool accepted)
+        {
+            if (plan == null || plan.Kernel != KernelKind.Refuel ||
+                sourceIndex < 0 || sourceIndex >= plan.Count)
+                return;
+
+            byte shadow = plan.ShadowReasons[sourceIndex];
+            Interlocked.Increment(ref refuelValidatorObserved);
+            if (!accepted) Interlocked.Increment(ref refuelValidatorRejected);
+            if ((shadow & ShadowRefuelFull) != 0)
+            {
+                Interlocked.Increment(ref refuelFullValidatorObserved);
+                if (accepted) Interlocked.Increment(ref refuelFullValidatorAccepted);
+            }
+            if ((shadow & ShadowRefuelAutoNow) != 0)
+            {
+                Interlocked.Increment(ref refuelAutoValidatorObserved);
+                if (accepted) Interlocked.Increment(ref refuelAutoValidatorAccepted);
+            }
+        }
+
         private static CandidateFact[] CaptureFacts(
             PersistentMapSearchFabric.DistancePlanEntry[] entries,
-            int sourceCount)
+            int sourceCount,
+            KernelKind kernel)
         {
             if (sourceCount <= 0 || entries.Length != sourceCount)
             {
@@ -292,6 +339,17 @@ namespace RimMT
                     CompPowerTrader power = thing.TryGetComp<CompPowerTrader>();
                     if (thing is Building && power != null && !power.PowerOn)
                         flags |= FactBuildingUnpowered;
+
+                    if (kernel == KernelKind.Refuel)
+                    {
+                        CompRefuelable refuelable = thing.TryGetComp<CompRefuelable>();
+                        if (refuelable != null)
+                        {
+                            flags |= FactRefuelable;
+                            if (refuelable.IsFull) flags |= FactRefuelFull;
+                            if (refuelable.ShouldAutoRefuelNow) flags |= FactRefuelAutoNow;
+                        }
+                    }
                 }
                 facts[sourceIndex] = new CandidateFact(flags);
             }
@@ -312,6 +370,9 @@ namespace RimMT
                 long localStack = 0;
                 long localPawn = 0;
                 long localBuilding = 0;
+                long localRefuelable = 0;
+                long localRefuelFull = 0;
+                long localRefuelAutoNow = 0;
 
                 for (int i = 0; i < facts.Length; i++)
                 {
@@ -324,6 +385,9 @@ namespace RimMT
                     if ((flags & FactStackFull) != 0) { shadow |= ShadowStackFull; localStack++; }
                     if ((flags & FactPawnUnavailable) != 0) { shadow |= ShadowPawnUnavailable; localPawn++; }
                     if ((flags & FactBuildingUnpowered) != 0) { shadow |= ShadowBuildingUnpowered; localBuilding++; }
+                    if ((flags & FactRefuelable) != 0) { shadow |= ShadowRefuelable; localRefuelable++; }
+                    if ((flags & FactRefuelFull) != 0) { shadow |= ShadowRefuelFull; localRefuelFull++; }
+                    if ((flags & FactRefuelAutoNow) != 0) { shadow |= ShadowRefuelAutoNow; localRefuelAutoNow++; }
                     shadows[i] = shadow;
                 }
 
@@ -332,6 +396,9 @@ namespace RimMT
                 Interlocked.Add(ref shadowStack, localStack);
                 Interlocked.Add(ref shadowPawn, localPawn);
                 Interlocked.Add(ref shadowBuilding, localBuilding);
+                Interlocked.Add(ref refuelFacts, localRefuelable);
+                Interlocked.Add(ref refuelFullFacts, localRefuelFull);
+                Interlocked.Add(ref refuelAutoNowFacts, localRefuelAutoNow);
                 Interlocked.Increment(ref plansBuilt);
                 Volatile.Write(ref slot.Ready, 1);
             }
@@ -376,10 +443,12 @@ namespace RimMT
         private static bool TryResolveKernel(Predicate<Thing> validator, out KernelKind kernel)
         {
             kernel = KernelKind.None;
-            WorkGiver_Scanner scanner = ResolveScanner(validator);
+            ScannerResolveFailure resolveFailure;
+            WorkGiver_Scanner scanner = ResolveScanner(validator, out resolveFailure);
             if (scanner == null)
             {
                 Interlocked.Increment(ref scannerResolveMisses);
+                RecordScannerMiss(validator, resolveFailure);
                 return false;
             }
 
@@ -388,6 +457,7 @@ namespace RimMT
             else if (type == typeof(WorkGiver_TakeEntityToHoldingPlatform)) kernel = KernelKind.HoldingTarget;
             else if (type == typeof(Workgiver_AdministerHemogen) || type == typeof(WorkGiver_VisitSickPawn)) kernel = KernelKind.Pawn;
             else if (type.FullName == "RimWorld.WorkGiver_FightFires") kernel = KernelKind.Fire;
+            else if (type == typeof(WorkGiver_Refuel) || type == typeof(WorkGiver_Refuel_Turret)) kernel = KernelKind.Refuel;
             if (kernel == KernelKind.None)
             {
                 RecordBoundedType(UnresolvedTypes, type, MaxTrackedUnresolvedTypes, ref unresolvedTypeDropped);
@@ -395,20 +465,34 @@ namespace RimMT
             }
 
             Interlocked.Increment(ref Counters(kernel).Observed);
-            if (!AuthoritySafe(type))
+            bool authoritySafe = AuthoritySafe(type);
+            if (!authoritySafe && kernel != KernelKind.Refuel)
             {
                 Interlocked.Increment(ref authorityBypass);
                 Interlocked.Increment(ref Counters(kernel).AuthorityBypass);
                 RecordBoundedType(AuthorityBypassTypes, type, MaxAuthorityEvidence, ref authorityTypeDropped);
                 return false;
             }
+            if (!authoritySafe)
+                Interlocked.Increment(ref Counters(kernel).ShadowAuthorityUnsafe);
             return true;
         }
 
-        private static WorkGiver_Scanner ResolveScanner(Predicate<Thing> validator)
+        private static WorkGiver_Scanner ResolveScanner(
+            Predicate<Thing> validator,
+            out ScannerResolveFailure failure)
         {
-            if (validator == null || validator.Target == null)
+            failure = ScannerResolveFailure.None;
+            if (validator == null)
+            {
+                failure = ScannerResolveFailure.NoValidator;
                 return null;
+            }
+            if (validator.Target == null)
+            {
+                failure = ScannerResolveFailure.NoTarget;
+                return null;
+            }
             try
             {
                 Type type = validator.Target.GetType();
@@ -418,9 +502,41 @@ namespace RimMT
                     accessor = ScannerAccessor.Build(type);
                     ScannerAccessors[type] = accessor;
                 }
-                return accessor == null ? null : accessor.Read(validator.Target);
+                if (accessor == null)
+                {
+                    failure = ScannerResolveFailure.NoAccessorPath;
+                    return null;
+                }
+                WorkGiver_Scanner scanner = accessor.Read(validator.Target);
+                if (scanner == null) failure = ScannerResolveFailure.NullPathValue;
+                return scanner;
             }
-            catch { return null; }
+            catch
+            {
+                failure = ScannerResolveFailure.Exception;
+                return null;
+            }
+        }
+
+        private static void RecordScannerMiss(
+            Predicate<Thing> validator,
+            ScannerResolveFailure failure)
+        {
+            Type targetType = validator == null || validator.Target == null ? null : validator.Target.GetType();
+            MethodInfo method = validator == null ? null : validator.Method;
+            for (int i = 0; i < ScannerMissEvidenceRows.Count; i++)
+            {
+                ScannerMissEvidence row = ScannerMissEvidenceRows[i];
+                if (row.TargetType == targetType && row.Method == method && row.Failure == failure)
+                {
+                    row.Count++;
+                    return;
+                }
+            }
+            if (ScannerMissEvidenceRows.Count < MaxScannerMissEvidence)
+                ScannerMissEvidenceRows.Add(new ScannerMissEvidence(targetType, method, failure));
+            else
+                Interlocked.Increment(ref scannerMissEvidenceDropped);
         }
 
         private static bool AuthoritySafe(Type scannerType)
@@ -545,7 +661,8 @@ namespace RimMT
         {
             StringBuilder sb = new StringBuilder();
             KernelKind[] kinds = new KernelKind[] {
-                KernelKind.Corpse, KernelKind.Pawn, KernelKind.Fire, KernelKind.HoldingTarget
+                KernelKind.Corpse, KernelKind.Pawn, KernelKind.Fire, KernelKind.HoldingTarget,
+                KernelKind.Refuel
             };
             for (int i = 0; i < kinds.Length; i++)
             {
@@ -561,7 +678,8 @@ namespace RimMT
                     .Append(Interlocked.Read(ref row.CandidatesRejected)).Append('/')
                     .Append(Interlocked.Read(ref row.ParityChecks)).Append('/')
                     .Append(Interlocked.Read(ref row.ParityFailures)).Append('/')
-                    .Append(Interlocked.Read(ref row.Quarantined));
+                    .Append(Interlocked.Read(ref row.Quarantined)).Append('/')
+                    .Append(Interlocked.Read(ref row.ShadowAuthorityUnsafe));
             }
             return sb.ToString();
         }
@@ -602,9 +720,29 @@ namespace RimMT
             return sb.Length == 0 ? "none" : sb.ToString();
         }
 
+        private static string ScannerMissEvidenceSummary()
+        {
+            List<ScannerMissEvidence> copy = new List<ScannerMissEvidence>(ScannerMissEvidenceRows);
+            copy.Sort(delegate(ScannerMissEvidence left, ScannerMissEvidence right) {
+                return right.Count.CompareTo(left.Count);
+            });
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < copy.Count; i++)
+            {
+                ScannerMissEvidence row = copy[i];
+                if (i != 0) sb.Append(';');
+                sb.Append(row.TargetType == null ? "static-or-null" : row.TargetType.FullName)
+                    .Append('.').Append(row.Method == null ? "?" : row.Method.Name)
+                    .Append('[').Append(row.Failure).Append("]=").Append(row.Count);
+            }
+            return sb.Length == 0 ? "none" : sb.ToString();
+        }
+
         internal static string Summary()
         {
-            return "T34-C.3 Authority and Kernel Yield Census: feature=" + FeatureGate.IsEnabled(FeatureId) +
+            long built = Interlocked.Read(ref plansBuilt);
+            long firstConsumed = Interlocked.Read(ref plansFirstConsumed);
+            return "T34-C.4 Refuel Eligibility Shadow Census: feature=" + FeatureGate.IsEnabled(FeatureId) +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", kernels[resolved/unresolved/authorityBypass]=" + Interlocked.Read(ref kernelResolved) + "/" +
                 Interlocked.Read(ref kernelUnresolved) + "/" + Interlocked.Read(ref authorityBypass) +
@@ -626,7 +764,9 @@ namespace RimMT
                 Interlocked.Read(ref candidatesRejected) +
                 ", parity[checks/fail/quarantine]=" + Interlocked.Read(ref liveParityChecks) + "/" +
                 Interlocked.Read(ref liveParityFailures) + "/" + Interlocked.Read(ref quarantined) +
-                ", kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine]=" +
+                ", planUse[firstConsumed/built/unconsumedUpper]=" + firstConsumed + "/" + built + "/" +
+                Math.Max(0L, built - firstConsumed) +
+                ", kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine/shadowAuthorityUnsafe]=" +
                 KernelYieldSummary() +
                 ", unresolved[scannerMiss/dropped/top]=" + Interlocked.Read(ref scannerResolveMisses) + "/" +
                 Interlocked.Read(ref unresolvedTypeDropped) + "/" + TopTypeSummary(UnresolvedTypes, MaxReportedUnresolvedTypes) +
@@ -634,7 +774,15 @@ namespace RimMT
                 TopTypeSummary(AuthorityBypassTypes, MaxAuthorityEvidence) +
                 ", authorityEvidence[dropped/rows]=" + Interlocked.Read(ref authorityEvidenceDropped) + "/" +
                 AuthorityEvidenceSummary() +
-                ". Root-independent source-index plans; no-wait; worker input is primitive-only; mutable stack/pawn/building facts are shadow-only; live validator and Reachability remain authoritative for survivors.";
+                ", scannerMissEvidence[dropped/rows]=" + Interlocked.Read(ref scannerMissEvidenceDropped) + "/" +
+                ScannerMissEvidenceSummary() +
+                ", refuelShadow[facts/full/autoNow/validatorObserved/validatorRejected/fullObserved/fullAccepted/autoObserved/autoAccepted]=" +
+                Interlocked.Read(ref refuelFacts) + "/" + Interlocked.Read(ref refuelFullFacts) + "/" +
+                Interlocked.Read(ref refuelAutoNowFacts) + "/" + Interlocked.Read(ref refuelValidatorObserved) + "/" +
+                Interlocked.Read(ref refuelValidatorRejected) + "/" + Interlocked.Read(ref refuelFullValidatorObserved) + "/" +
+                Interlocked.Read(ref refuelFullValidatorAccepted) + "/" + Interlocked.Read(ref refuelAutoValidatorObserved) + "/" +
+                Interlocked.Read(ref refuelAutoValidatorAccepted) +
+                ". Refuel/Refuel_Turret facts are measurement-only and never reject candidates; Root-independent source-index plans; no-wait; worker input is primitive-only; mutable stack/pawn/building facts are shadow-only; live validator and Reachability remain authoritative.";
         }
 
         internal sealed class ClassificationPlan
@@ -642,6 +790,7 @@ namespace RimMT
             internal readonly KernelKind Kernel;
             internal readonly byte[] RejectReasons;
             internal readonly byte[] ShadowReasons;
+            internal int ConsumptionNoted;
             internal int Count { get { return RejectReasons.Length; } }
             internal ClassificationPlan(KernelKind kernel, byte[] rejects, byte[] shadows)
             {
@@ -651,7 +800,7 @@ namespace RimMT
             }
         }
 
-        internal enum KernelKind : byte { None, Corpse, Pawn, Fire, HoldingTarget }
+        internal enum KernelKind : byte { None, Corpse, Pawn, Fire, HoldingTarget, Refuel }
         private sealed class KernelCounters
         {
             internal long Observed;
@@ -664,6 +813,22 @@ namespace RimMT
             internal long ParityChecks;
             internal long ParityFailures;
             internal long Quarantined;
+            internal long ShadowAuthorityUnsafe;
+        }
+        private enum ScannerResolveFailure : byte { None, NoValidator, NoTarget, NoAccessorPath, NullPathValue, Exception }
+        private sealed class ScannerMissEvidence
+        {
+            internal readonly Type TargetType;
+            internal readonly MethodInfo Method;
+            internal readonly ScannerResolveFailure Failure;
+            internal long Count;
+            internal ScannerMissEvidence(Type targetType, MethodInfo method, ScannerResolveFailure failure)
+            {
+                TargetType = targetType;
+                Method = method;
+                Failure = failure;
+                Count = 1;
+            }
         }
         private sealed class AuthorityEvidence
         {

@@ -76,6 +76,28 @@ $new=@'
 $scanner=Replace-OrThrow $scanner $old $new 'classification rejection consumption'
 
 $old=@'
+                    if (validator != null)
+                    {
+                        validations++;
+                        if (!validator(thing))
+                            continue;
+                    }
+'@
+$new=@'
+                    if (validator != null)
+                    {
+                        validations++;
+                        bool validatorAccepted = validator(thing);
+                        if (classificationReady)
+                            CandidateClassificationFabric093T34C.NoteValidatorResult(
+                                classificationPlan, classificationIndex, validatorAccepted);
+                        if (!validatorAccepted)
+                            continue;
+                    }
+'@
+$scanner=Replace-OrThrow $scanner $old $new 'classification validator shadow census'
+
+$old=@'
             RecordElapsed(ref mainLiveTicks, ref mainLiveTicksMax, liveStarted);
             __result = chosen;
 '@
@@ -91,7 +113,7 @@ Set-Content $scannerPath $scanner -Encoding UTF8
 
 $bootPath=Join-Path $root 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
 $boot=Get-Content $bootPath -Raw
-$boot=Replace-OrThrow $boot '0.9.3-t34b-scanner-parallel-fabric' '0.9.3-t34c3-authority-kernel-yield-census' 'bootstrap version'
+$boot=Replace-OrThrow $boot '0.9.3-t34b-scanner-parallel-fabric' '0.9.3-t34c4-refuel-eligibility-shadow-census' 'bootstrap version'
 Set-Content $bootPath $boot -Encoding UTF8
 
 $runtimePath=Join-Path $root 'RimMT/Source/RimMT/Core/RimMTRuntime.cs'
@@ -106,25 +128,25 @@ Set-Content $runtimePath $runtime -Encoding UTF8
 
 $reportPath=Join-Path $root 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $report=Get-Content $reportPath -Raw
-$report=$report.Replace('V0.9.3-T34B Scanner Parallel Fabric','V0.9.3-T34C.3 Authority and Kernel Yield Census')
+$report=$report.Replace('V0.9.3-T34B Scanner Parallel Fabric','V0.9.3-T34C.4 Refuel Eligibility Shadow Census')
 $anchor='            sb.AppendLine(ScannerParallelFabric093T34B.Summary());'
 $report=Replace-OrThrow $report $anchor ($anchor + [Environment]::NewLine +
   '            sb.AppendLine(CandidateClassificationFabric093T34C.Summary());') 'production summary'
 $report=$report.Replace(
   'T34-B scanner parallel planning=ACTIVE(HIGH priority, same-package overlap); T34-A persistent candidate fabric remains synchronous fallback; fabric mutations are tick-coalesced + dirty-source-only rebuilt.',
-  'T34-C.3 candidate classification=ACTIVE(root-independent SourceSnapshot+Kernel plans indexed by stable SourceIndex + live parity + bounded authority and per-kernel yield census); mutable stack/pawn/building facts=SHADOW; invalid/duplicate indices and unknown Harmony owners fail open; T34-B distance planning and T34-A synchronous fallback remain active.')
+  'T34-C.4 candidate classification=ACTIVE(root-independent SourceSnapshot+Kernel plans indexed by stable SourceIndex + live parity + Refuel/Refuel_Turret measurement-only shadow census + bounded scanner-miss evidence); Refuel facts never reject candidates; invalid/duplicate indices and unknown Harmony owners fail open; T34-B distance planning and T34-A synchronous fallback remain active.')
 Set-Content $reportPath $report -Encoding UTF8
 
 $aboutPath=Join-Path $root 'RimMT/About/About.xml'
 $about=Get-Content $aboutPath -Raw
-$about=[regex]::Replace($about,'<name>.*?</name>','<name>RimMT V0.9.3-T34C.3 Authority and Kernel Yield Census</name>',1)
+$about=[regex]::Replace($about,'<name>.*?</name>','<name>RimMT V0.9.3-T34C.4 Refuel Eligibility Shadow Census</name>',1)
 $about=[regex]::Replace($about,'(?s)<description>.*?</description>',
-  '<description>RimMT T34-C.3 for RimWorld 1.5. Adds bounded authority evidence, top unresolved WorkGiver types and per-kernel yield counters to the root-independent SourceSnapshot classification reuse introduced by T34-C.2. Evidence records the target method, Harmony owner, patch method, category and priority during the cached authority audit; report-time formatting stays off scanner hot paths. Every authoritative negative is still rechecked live before Reachability or the original validator can be skipped. Unknown Harmony owners, invalid indices, missing plans and parity mismatches fail open. Mutable stack, pawn and building facts remain shadow-only; FullParallel remains HARD_OFF.</description>')
+  '<description>RimMT T34-C.4 for RimWorld 1.5. Adds measurement-only Refuel and Refuel_Turret eligibility shadows to the root-independent candidate classification fabric. Refuelable presence, full state and automatic-refuel state are captured on the main thread, classified from primitive rows on workers and correlated with the live original validator, but never reject a candidate in this version. Bounded scanner-closure failure evidence and first-consumption plan yield expose the remaining coverage and build waste. Existing authoritative negatives retain live parity checks and fail-open quarantine; FullParallel remains HARD_OFF.</description>')
 Set-Content $aboutPath $about -Encoding UTF8
 
 $diagPatchPath=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticsPatches.cs'
 $diag=Get-Content $diagPatchPath -Raw
-$diag=Replace-OrThrow $diag 'internal const string Version = "0.18.0";' 'internal const string Version = "0.19.3";' 'diagnostics version'
+$diag=Replace-OrThrow $diag 'internal const string Version = "0.18.0";' 'internal const string Version = "0.19.4";' 'diagnostics version'
 Set-Content $diagPatchPath $diag -Encoding UTF8
 
 $diagReportPath=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticReport.cs'
@@ -135,9 +157,9 @@ Set-Content $diagReportPath $diagReport -Encoding UTF8
 
 $diagAboutPath=Join-Path $root 'RimMTDiagnostics/About/About.xml'
 $diagAbout=Get-Content $diagAboutPath -Raw
-$diagAbout=[regex]::Replace($diagAbout,'<name>.*?</name>','<name>RimMT Diagnostics v0.19.3 - T34C.3 Authority and Kernel Yield Census</name>',1)
+$diagAbout=[regex]::Replace($diagAbout,'<name>.*?</name>','<name>RimMT Diagnostics v0.19.4 - T34C.4 Refuel Eligibility Shadow Census</name>',1)
 $diagAbout=[regex]::Replace($diagAbout,'(?s)<description>.*?</description>',
-  '<description>Optional diagnostics companion for RimMT T34-C.3. Its measurement-only prefixes/postfixes are recognized by the production classifier authority audit. Reports bounded foreign-patch evidence, authority bypass types, top unresolved WorkGiver types and per-kernel resolution, plan reuse, consumption, rejection and parity counts alongside T34-B scanner-plan counters.</description>')
+  '<description>Optional diagnostics companion for RimMT T34-C.4. Reports Refuel/Refuel_Turret shadow fact distributions and original-validator correlation, bounded scanner-closure failure evidence, first-consumption plan yield, foreign-patch authority evidence and existing per-kernel classification safety counters.</description>')
 Set-Content $diagAboutPath $diagAbout -Encoding UTF8
 
-Write-Host 'Applied RimMT T34-C.3 Authority and Kernel Yield Census + Diagnostics v0.19.3.'
+Write-Host 'Applied RimMT T34-C.4 Refuel Eligibility Shadow Census + Diagnostics v0.19.4.'
