@@ -20,9 +20,9 @@ jobs:
       - name: Download Workshop item
         run: |
           "$HOME/steamcmd/steamcmd.sh"             +force_install_dir "$GITHUB_WORKSPACE/steamworkshop"             +login anonymous             +workshop_download_item 294100 3790055136 validate             +quit
-          find "$HOME/steamcmd/steamapps/workshop/content/294100/3790055136" -maxdepth 4 -type f -print || true
+          find "$GITHUB_WORKSPACE/steamworkshop/steamapps/workshop/content/294100/3790055136" -maxdepth 4 -type f -print || true
           mkdir -p "$GITHUB_WORKSPACE/out"
-          cp -a "$HOME/steamcmd/steamapps/workshop/content/294100/3790055136" "$GITHUB_WORKSPACE/out/DignifiedDeparture"
+          cp -a "$GITHUB_WORKSPACE/steamworkshop/steamapps/workshop/content/294100/3790055136" "$GITHUB_WORKSPACE/out/DignifiedDeparture"
 
       - name: Upload Workshop item
         uses: actions/upload-artifact@v4
