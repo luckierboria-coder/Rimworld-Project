@@ -13,14 +13,14 @@ if(-not $ValidateCurrentTree){
   $mainProj=Join-Path $root 'RimMT/Source/RimMT/RimMT.csproj'
   $diagProj=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/RimMTDiagnostics.csproj'
   dotnet build $mainProj --configuration Release --no-restore
-  if($LASTEXITCODE -ne 0){ throw 'RimMT T34-C.4 build failed' }
+  if($LASTEXITCODE -ne 0){ throw 'RimMT T34-C.5 build failed' }
   dotnet build $diagProj --configuration Release --no-restore
-  if($LASTEXITCODE -ne 0){ throw 'Diagnostics v0.19.4 build failed' }
+  if($LASTEXITCODE -ne 0){ throw 'Diagnostics v0.19.5 build failed' }
 }
 
 $boot=Get-Content (Join-Path $root 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs') -Raw
 foreach($required in @(
-  '0.9.3-t34c4-refuel-eligibility-shadow-census',
+  '0.9.3-t34c5-refuel-full-negative-kernel',
   'CandidateFabric093T34A.Apply(harmony);',
   'ScannerParallelFabric093T34B.Apply(harmony);'
 )){
@@ -48,14 +48,14 @@ foreach($required in @(
   'HasIncompatiblePatch(',
   'IsDiagnosticsMeasurementPatch(',
   'authorityPatches[compatible/foreign]',
-  'kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine/shadowAuthorityUnsafe]',
+  'kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine]',
   'authorityEvidence[dropped/rows]',
   'unresolved[scannerMiss/dropped/top]',
   'scannerMissEvidence[dropped/rows]',
-  'refuelShadow[facts/full/autoNow/validatorObserved/validatorRejected/fullObserved/fullAccepted/autoObserved/autoAccepted]',
+  'refuelFullKernel[facts/fullCaptured]',
   'planUse[firstConsumed/built/unconsumedUpper]',
   'KernelKind.Refuel',
-  'NoteValidatorResult(',
+  'RejectRefuelFull',
   'TryGetRejectReason(',
   'entries[i].SourceIndex',
   'sourcePlans[hit/miss/crossRoot/scheduled/rejected/built/fail]',
@@ -92,14 +92,13 @@ foreach($required in @(
   'CandidateClassificationFabric093T34C.TryGetOrSchedule(',
   'CandidateClassificationFabric093T34C.ValidateReject(',
   'CandidateClassificationFabric093T34C.Quarantine(',
-  'CandidateClassificationFabric093T34C.NoteConsumed(',
-  'CandidateClassificationFabric093T34C.NoteValidatorResult('
+  'CandidateClassificationFabric093T34C.NoteConsumed('
 )){
   if(-not $scanner.Contains($required)){ throw "T34-C scanner bridge missing: $required" }
 }
 
 $diag=Get-Content (Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticsPatches.cs') -Raw
-if($diag -notmatch 'Version = "0\.19\.4"'){ throw 'Diagnostics v0.19.4 version missing' }
+if($diag -notmatch 'Version = "0\.19\.5"'){ throw 'Diagnostics v0.19.5 version missing' }
 $diagReport=Get-Content (Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticReport.cs') -Raw
 if(-not $diagReport.Contains('"RimMT.CandidateClassificationFabric093T34C"')){
   throw 'Diagnostics T34-C reflection bridge missing'
@@ -135,9 +134,9 @@ Copy-Item (Join-Path $root 'RimMTDiagnostics/About') $diagStage -Recurse
 Copy-Item (Join-Path $root 'RimMTDiagnostics/1.5') $diagStage -Recurse
 Copy-Item (Join-Path $root 'RimMTDiagnostics/LoadFolders.xml') $diagStage
 
-$mainZip=Join-Path $build 'RimMT_V0.9.3_T34C4_RefuelEligibilityShadowCensus.zip'
-$diagZip=Join-Path $build 'RimMT_Diagnostics_v0.19.4_T34C4.zip'
-$bundleZip=Join-Path $build 'RimMT_T34C4_RefuelEligibilityShadowCensus_Bundle.zip'
+$mainZip=Join-Path $build 'RimMT_V0.9.3_T34C5_RefuelFullNegativeKernel.zip'
+$diagZip=Join-Path $build 'RimMT_Diagnostics_v0.19.5_T34C5.zip'
+$bundleZip=Join-Path $build 'RimMT_T34C5_RefuelFullNegativeKernel_Bundle.zip'
 foreach($z in @($mainZip,$diagZip,$bundleZip)){
   if(Test-Path $z){ Remove-Item $z -Force }
 }

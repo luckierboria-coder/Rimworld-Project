@@ -12,7 +12,7 @@ using Verse;
 namespace RimMT
 {
     /// <summary>
-    /// T34-C.4 adds a second worker stage to T34-B distance plans. The main thread captures a
+    /// T34-C.5 adds a second worker stage to T34-B distance plans. The main thread captures a
     /// compact primitive fact row once; workers run pure rule kernels and publish rejection
     /// bitmaps. Only invariant type/component negatives are authoritative. Mutable pawn, stack
     /// and building facts are shadow telemetry until a later version supplies an invalidation
@@ -31,12 +31,12 @@ namespace RimMT
 
         private const byte RejectWrongType = 1;
         private const byte RejectMissingFixedComp = 2;
+        private const byte RejectRefuelFull = 4;
         private const byte ShadowStackFull = 1;
         private const byte ShadowPawnUnavailable = 2;
         private const byte ShadowBuildingUnpowered = 4;
         private const byte ShadowRefuelable = 8;
         private const byte ShadowRefuelFull = 16;
-        private const byte ShadowRefuelAutoNow = 32;
 
         private const int FactPawn = 1;
         private const int FactCorpse = 2;
@@ -48,7 +48,6 @@ namespace RimMT
         private const int FactBuildingUnpowered = 128;
         private const int FactRefuelable = 256;
         private const int FactRefuelFull = 512;
-        private const int FactRefuelAutoNow = 1024;
 
         private static readonly ConditionalWeakTable<PersistentMapSearchFabric.SourceSnapshot, SnapshotPlans>
             Plans = new ConditionalWeakTable<PersistentMapSearchFabric.SourceSnapshot, SnapshotPlans>();
@@ -99,13 +98,6 @@ namespace RimMT
         private static long scannerMissEvidenceDropped;
         private static long refuelFacts;
         private static long refuelFullFacts;
-        private static long refuelAutoNowFacts;
-        private static long refuelValidatorObserved;
-        private static long refuelValidatorRejected;
-        private static long refuelFullValidatorObserved;
-        private static long refuelFullValidatorAccepted;
-        private static long refuelAutoValidatorObserved;
-        private static long refuelAutoValidatorAccepted;
         private static long plansFirstConsumed;
 
         internal static bool TryGetOrSchedule(
@@ -265,30 +257,6 @@ namespace RimMT
             }
         }
 
-        internal static void NoteValidatorResult(
-            ClassificationPlan plan,
-            int sourceIndex,
-            bool accepted)
-        {
-            if (plan == null || plan.Kernel != KernelKind.Refuel ||
-                sourceIndex < 0 || sourceIndex >= plan.Count)
-                return;
-
-            byte shadow = plan.ShadowReasons[sourceIndex];
-            Interlocked.Increment(ref refuelValidatorObserved);
-            if (!accepted) Interlocked.Increment(ref refuelValidatorRejected);
-            if ((shadow & ShadowRefuelFull) != 0)
-            {
-                Interlocked.Increment(ref refuelFullValidatorObserved);
-                if (accepted) Interlocked.Increment(ref refuelFullValidatorAccepted);
-            }
-            if ((shadow & ShadowRefuelAutoNow) != 0)
-            {
-                Interlocked.Increment(ref refuelAutoValidatorObserved);
-                if (accepted) Interlocked.Increment(ref refuelAutoValidatorAccepted);
-            }
-        }
-
         private static CandidateFact[] CaptureFacts(
             PersistentMapSearchFabric.DistancePlanEntry[] entries,
             int sourceCount,
@@ -347,7 +315,6 @@ namespace RimMT
                         {
                             flags |= FactRefuelable;
                             if (refuelable.IsFull) flags |= FactRefuelFull;
-                            if (refuelable.ShouldAutoRefuelNow) flags |= FactRefuelAutoNow;
                         }
                     }
                 }
@@ -372,7 +339,6 @@ namespace RimMT
                 long localBuilding = 0;
                 long localRefuelable = 0;
                 long localRefuelFull = 0;
-                long localRefuelAutoNow = 0;
 
                 for (int i = 0; i < facts.Length; i++)
                 {
@@ -387,7 +353,6 @@ namespace RimMT
                     if ((flags & FactBuildingUnpowered) != 0) { shadow |= ShadowBuildingUnpowered; localBuilding++; }
                     if ((flags & FactRefuelable) != 0) { shadow |= ShadowRefuelable; localRefuelable++; }
                     if ((flags & FactRefuelFull) != 0) { shadow |= ShadowRefuelFull; localRefuelFull++; }
-                    if ((flags & FactRefuelAutoNow) != 0) { shadow |= ShadowRefuelAutoNow; localRefuelAutoNow++; }
                     shadows[i] = shadow;
                 }
 
@@ -398,7 +363,6 @@ namespace RimMT
                 Interlocked.Add(ref shadowBuilding, localBuilding);
                 Interlocked.Add(ref refuelFacts, localRefuelable);
                 Interlocked.Add(ref refuelFullFacts, localRefuelFull);
-                Interlocked.Add(ref refuelAutoNowFacts, localRefuelAutoNow);
                 Interlocked.Increment(ref plansBuilt);
                 Volatile.Write(ref slot.Ready, 1);
             }
@@ -421,6 +385,8 @@ namespace RimMT
                     return (flags & FactFire) == 0 ? RejectWrongType : (byte)0;
                 case KernelKind.HoldingTarget:
                     return (flags & FactHoldingTargetComp) == 0 ? RejectMissingFixedComp : (byte)0;
+                case KernelKind.Refuel:
+                    return (flags & FactRefuelFull) != 0 ? RejectRefuelFull : (byte)0;
                 default:
                     return 0;
             }
@@ -437,6 +403,11 @@ namespace RimMT
             }
             if ((reason & RejectMissingFixedComp) != 0 && kernel == KernelKind.HoldingTarget)
                 return thing.TryGetComp<CompHoldingPlatformTarget>() == null;
+            if ((reason & RejectRefuelFull) != 0 && kernel == KernelKind.Refuel)
+            {
+                CompRefuelable refuelable = thing.TryGetComp<CompRefuelable>();
+                return refuelable != null && refuelable.IsFull;
+            }
             return false;
         }
 
@@ -466,15 +437,13 @@ namespace RimMT
 
             Interlocked.Increment(ref Counters(kernel).Observed);
             bool authoritySafe = AuthoritySafe(type);
-            if (!authoritySafe && kernel != KernelKind.Refuel)
+            if (!authoritySafe)
             {
                 Interlocked.Increment(ref authorityBypass);
                 Interlocked.Increment(ref Counters(kernel).AuthorityBypass);
                 RecordBoundedType(AuthorityBypassTypes, type, MaxAuthorityEvidence, ref authorityTypeDropped);
                 return false;
             }
-            if (!authoritySafe)
-                Interlocked.Increment(ref Counters(kernel).ShadowAuthorityUnsafe);
             return true;
         }
 
@@ -678,8 +647,7 @@ namespace RimMT
                     .Append(Interlocked.Read(ref row.CandidatesRejected)).Append('/')
                     .Append(Interlocked.Read(ref row.ParityChecks)).Append('/')
                     .Append(Interlocked.Read(ref row.ParityFailures)).Append('/')
-                    .Append(Interlocked.Read(ref row.Quarantined)).Append('/')
-                    .Append(Interlocked.Read(ref row.ShadowAuthorityUnsafe));
+                    .Append(Interlocked.Read(ref row.Quarantined));
             }
             return sb.ToString();
         }
@@ -742,7 +710,7 @@ namespace RimMT
         {
             long built = Interlocked.Read(ref plansBuilt);
             long firstConsumed = Interlocked.Read(ref plansFirstConsumed);
-            return "T34-C.4 Refuel Eligibility Shadow Census: feature=" + FeatureGate.IsEnabled(FeatureId) +
+            return "T34-C.5 Refuel Full Negative Kernel: feature=" + FeatureGate.IsEnabled(FeatureId) +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", kernels[resolved/unresolved/authorityBypass]=" + Interlocked.Read(ref kernelResolved) + "/" +
                 Interlocked.Read(ref kernelUnresolved) + "/" + Interlocked.Read(ref authorityBypass) +
@@ -766,7 +734,7 @@ namespace RimMT
                 Interlocked.Read(ref liveParityFailures) + "/" + Interlocked.Read(ref quarantined) +
                 ", planUse[firstConsumed/built/unconsumedUpper]=" + firstConsumed + "/" + built + "/" +
                 Math.Max(0L, built - firstConsumed) +
-                ", kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine/shadowAuthorityUnsafe]=" +
+                ", kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine]=" +
                 KernelYieldSummary() +
                 ", unresolved[scannerMiss/dropped/top]=" + Interlocked.Read(ref scannerResolveMisses) + "/" +
                 Interlocked.Read(ref unresolvedTypeDropped) + "/" + TopTypeSummary(UnresolvedTypes, MaxReportedUnresolvedTypes) +
@@ -776,13 +744,9 @@ namespace RimMT
                 AuthorityEvidenceSummary() +
                 ", scannerMissEvidence[dropped/rows]=" + Interlocked.Read(ref scannerMissEvidenceDropped) + "/" +
                 ScannerMissEvidenceSummary() +
-                ", refuelShadow[facts/full/autoNow/validatorObserved/validatorRejected/fullObserved/fullAccepted/autoObserved/autoAccepted]=" +
-                Interlocked.Read(ref refuelFacts) + "/" + Interlocked.Read(ref refuelFullFacts) + "/" +
-                Interlocked.Read(ref refuelAutoNowFacts) + "/" + Interlocked.Read(ref refuelValidatorObserved) + "/" +
-                Interlocked.Read(ref refuelValidatorRejected) + "/" + Interlocked.Read(ref refuelFullValidatorObserved) + "/" +
-                Interlocked.Read(ref refuelFullValidatorAccepted) + "/" + Interlocked.Read(ref refuelAutoValidatorObserved) + "/" +
-                Interlocked.Read(ref refuelAutoValidatorAccepted) +
-                ". Refuel/Refuel_Turret facts are measurement-only and never reject candidates; Root-independent source-index plans; no-wait; worker input is primitive-only; mutable stack/pawn/building facts are shadow-only; live validator and Reachability remain authoritative.";
+                ", refuelFullKernel[facts/fullCaptured]=" + Interlocked.Read(ref refuelFacts) + "/" +
+                Interlocked.Read(ref refuelFullFacts) +
+                ". Refuel/Refuel_Turret full negatives require a clean Harmony authority audit and are rechecked live before Reachability or the original validator can be skipped; Root-independent source-index plans; no-wait; worker input is primitive-only; mutable stack/pawn/building facts are shadow-only; live validator and Reachability remain authoritative for survivors.";
         }
 
         internal sealed class ClassificationPlan
@@ -813,7 +777,6 @@ namespace RimMT
             internal long ParityChecks;
             internal long ParityFailures;
             internal long Quarantined;
-            internal long ShadowAuthorityUnsafe;
         }
         private enum ScannerResolveFailure : byte { None, NoValidator, NoTarget, NoAccessorPath, NullPathValue, Exception }
         private sealed class ScannerMissEvidence
