@@ -56,6 +56,12 @@ namespace MORecycleOnly15
 
             listing.Gap();
             listing.Label("Recycle duration is controlled only by each recycle RecipeDef's workAmount. Durability, material, MaxHP, pawn work speed and bench speed do not affect duration.");
+            RecipeDef apparel = DefDatabase<RecipeDef>.GetNamedSilentFail("Allen_MO_RecycleApparel");
+            RecipeDef armor = DefDatabase<RecipeDef>.GetNamedSilentFail("Allen_MO_RecycleArmor");
+            RecipeDef weapon = DefDatabase<RecipeDef>.GetNamedSilentFail("Allen_MO_RecycleWeapon");
+            listing.Label("Runtime workAmount — Apparel: " + (apparel != null ? apparel.workAmount.ToString("0.##") : "missing") +
+                " | Armor: " + (armor != null ? armor.workAmount.ToString("0.##") : "missing") +
+                " | Weapon: " + (weapon != null ? weapon.workAmount.ToString("0.##") : "missing"));
 
             listing.End();
         }
@@ -150,7 +156,7 @@ namespace MORecycleOnly15
             Thing item = job.GetTarget(TargetIndex.B).Thing;
             if (item == null || item.Destroyed)
             {
-                Log.Error("[MO Recycle Only 1.5 v1.8] Recycle completion had no valid target item.");
+                Log.Error("[MO Recycle Only 1.5 v1.9] Recycle completion had no valid target item.");
                 actor.jobs.EndCurrentJob(JobCondition.Incompletable, true, true);
                 return;
             }
@@ -174,7 +180,7 @@ namespace MORecycleOnly15
             }
             catch (Exception ex)
             {
-                Log.Error("[MO Recycle Only 1.5 v1.8] Failed consuming recycled item " + item.ToStringSafe() + ": " + ex);
+                Log.Error("[MO Recycle Only 1.5 v1.9] Failed consuming recycled item " + item.ToStringSafe() + ": " + ex);
                 actor.jobs.EndCurrentJob(JobCondition.Errored, true, true);
                 return;
             }
@@ -188,7 +194,7 @@ namespace MORecycleOnly15
             }
             catch (Exception ex)
             {
-                Log.Warning("[MO Recycle Only 1.5 v1.8] Bill completion notification warning: " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[MO Recycle Only 1.5 v1.9] Bill completion notification warning: " + ex.GetType().Name + ": " + ex.Message);
             }
 
             foreach (Thing product in products)
@@ -197,7 +203,7 @@ namespace MORecycleOnly15
                     continue;
 
                 if (!GenPlace.TryPlaceThing(product, actor.Position, actor.Map, ThingPlaceMode.Near))
-                    Log.Error("[MO Recycle Only 1.5 v1.8] Could not place recycled product " + product.ToStringSafe() + " near " + actor.Position);
+                    Log.Error("[MO Recycle Only 1.5 v1.9] Could not place recycled product " + product.ToStringSafe() + " near " + actor.Position);
             }
 
             actor.Map?.resourceCounter?.UpdateResourceCounts();
@@ -211,7 +217,13 @@ namespace MORecycleOnly15
         static Bootstrap()
         {
             new Harmony("allen.mo.recycleonly15").PatchAll();
-            Log.Message("[MO Recycle Only 1.5 v1.8] loaded. Recycle duration is read directly from RecipeDef.workAmount.");
+            Log.Message("[MO Recycle Only 1.5 v1.9] loaded. Recycle work toil bypasses MO work initialization and reads RecipeDef.workAmount directly.");
+            foreach (string defName in new[] { "Allen_MO_RecycleApparel", "Allen_MO_RecycleArmor", "Allen_MO_RecycleWeapon" })
+            {
+                RecipeDef def = DefDatabase<RecipeDef>.GetNamedSilentFail(defName);
+                if (def != null)
+                    Log.Message("[MO Recycle Only 1.5 v1.9] Runtime " + defName + ".workAmount = " + def.workAmount);
+            }
         }
     }
 
@@ -286,12 +298,14 @@ namespace MORecycleOnly15
 
             toil.initAction = delegate
             {
-                originalInit?.Invoke();
-
                 Pawn actor = toil.actor;
                 Job job = actor?.jobs?.curJob;
+
                 if (job == null || !RecycleUtility.IsRecycleRecipe(job.RecipeDef))
+                {
+                    originalInit?.Invoke();
                     return;
+                }
 
                 object driver = actor.jobs.curDriver;
                 if (driver == null)
@@ -300,9 +314,18 @@ namespace MORecycleOnly15
                 float configuredWork = job.RecipeDef != null && job.RecipeDef.workAmount > 0f
                     ? job.RecipeDef.workAmount
                     : RecycleUtility.FallbackRecycleTicks;
+
                 workLeftField?.SetValue(driver, configuredWork);
                 ticksSpentField?.SetValue(driver, 0);
                 billStartTickField?.SetValue(driver, Find.TickManager.TicksGame);
+                job.bill.Notify_BillWorkStarted(actor);
+
+                Thing item = job.GetTarget(TargetIndex.B).Thing;
+                Log.Message("[MO Recycle Only 1.5 v1.9] Recycle start: recipe=" +
+                    job.RecipeDef.defName +
+                    ", XML workAmount=" + job.RecipeDef.workAmount +
+                    ", actual workLeft=" + configuredWork +
+                    ", item=" + item.ToStringSafe());
             };
 
             toil.tickAction = delegate
