@@ -12,7 +12,7 @@ using Verse;
 namespace RimMT
 {
     /// <summary>
-    /// T34-C.6 adds a second worker stage to T34-B distance plans. The main thread captures a
+    /// T34-C.7 adds a reuse-gated second worker stage to T34-B distance plans. The main thread captures a
     /// compact primitive fact row once; workers run pure rule kernels and publish rejection
     /// bitmaps. Only invariant type/component negatives are authoritative. Mutable pawn, stack
     /// and building facts are shadow telemetry until a later version supplies an invalidation
@@ -100,6 +100,8 @@ namespace RimMT
         private static long refuelFacts;
         private static long refuelFullFacts;
         private static long plansFirstConsumed;
+        private static long firstObservationDeferred;
+        private static long repeatObservationAdmitted;
 
         internal static bool TryGetOrSchedule(
             PersistentMapSearchFabric.SourceSnapshot snapshot,
@@ -150,8 +152,19 @@ namespace RimMT
 
             Interlocked.Increment(ref planMisses);
             Interlocked.Increment(ref Counters(kernel).PlanMisses);
+
+            // Runtime evidence showed that most source+kernel plans were built after one query and
+            // never consumed. Require one repeated observation of the same immutable source snapshot
+            // before copying facts or queueing worker work. Reused Refuel sources pay only one extra
+            // Vanilla pass; one-shot sources allocate and schedule nothing.
+            if (Interlocked.Increment(ref slot.Observations) < 2)
+            {
+                Interlocked.Increment(ref firstObservationDeferred);
+                return false;
+            }
             if (Interlocked.CompareExchange(ref slot.Scheduled, 1, 0) != 0)
                 return false;
+            Interlocked.Increment(ref repeatObservationAdmitted);
 
             CandidateFact[] facts;
             try
@@ -724,7 +737,7 @@ namespace RimMT
         {
             long built = Interlocked.Read(ref plansBuilt);
             long firstConsumed = Interlocked.Read(ref plansFirstConsumed);
-            return "T34-C.6 Refuel Drift-Tolerant Kernel: feature=" + FeatureGate.IsEnabled(FeatureId) +
+            return "T34-C.7 Reuse-Gated Classification Kernel: feature=" + FeatureGate.IsEnabled(FeatureId) +
                 ", observed=" + Interlocked.Read(ref observed) +
                 ", kernels[resolved/unresolved/authorityBypass]=" + Interlocked.Read(ref kernelResolved) + "/" +
                 Interlocked.Read(ref kernelUnresolved) + "/" + Interlocked.Read(ref authorityBypass) +
@@ -749,6 +762,8 @@ namespace RimMT
                 Interlocked.Read(ref liveStateRevocations) +
                 ", planUse[firstConsumed/built/unconsumedUpper]=" + firstConsumed + "/" + built + "/" +
                 Math.Max(0L, built - firstConsumed) +
+                ", reuseGate[firstDeferred/repeatAdmitted]=" + Interlocked.Read(ref firstObservationDeferred) + "/" +
+                Interlocked.Read(ref repeatObservationAdmitted) +
                 ", kernelYield[observed/resolved/authorityBypass/hit/miss/consumed/rejected/parityChecks/parityFail/quarantine/liveStateRevoked]=" +
                 KernelYieldSummary() +
                 ", unresolved[scannerMiss/dropped/top]=" + Interlocked.Read(ref scannerResolveMisses) + "/" +
@@ -829,7 +844,7 @@ namespace RimMT
             }
         }
         private struct CandidateFact { internal readonly int Flags; internal CandidateFact(int flags) { Flags = flags; } }
-        private sealed class ClassificationSlot { internal ClassificationPlan Plan; internal int Scheduled; internal int Ready; internal int Quarantined; internal int FirstRootX; internal int FirstRootZ; }
+        private sealed class ClassificationSlot { internal ClassificationPlan Plan; internal int Scheduled; internal int Ready; internal int Quarantined; internal int Observations; internal int FirstRootX; internal int FirstRootZ; }
         private sealed class SnapshotPlans { internal readonly ConcurrentDictionary<long, ClassificationSlot> Slots = new ConcurrentDictionary<long, ClassificationSlot>(); }
 
         private sealed class ScannerAccessor

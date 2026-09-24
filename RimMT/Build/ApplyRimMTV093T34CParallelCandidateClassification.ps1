@@ -99,7 +99,7 @@ Set-Content $scannerPath $scanner -Encoding UTF8
 
 $bootPath=Join-Path $root 'RimMT/Source/RimMT/Bootstrap/RimMTBootstrap.cs'
 $boot=Get-Content $bootPath -Raw
-$boot=Replace-OrThrow $boot '0.9.3-t34b-scanner-parallel-fabric' '0.9.3-t34c6-refuel-drift-tolerant-kernel' 'bootstrap version'
+$boot=Replace-OrThrow $boot '0.9.3-t34b-scanner-parallel-fabric' '0.9.3-t34c7-reuse-gated-classification-kernel' 'bootstrap version'
 Set-Content $bootPath $boot -Encoding UTF8
 
 $runtimePath=Join-Path $root 'RimMT/Source/RimMT/Core/RimMTRuntime.cs'
@@ -114,25 +114,25 @@ Set-Content $runtimePath $runtime -Encoding UTF8
 
 $reportPath=Join-Path $root 'RimMT/Source/RimMT/Diagnostics/RimMTDiagnostics.cs'
 $report=Get-Content $reportPath -Raw
-$report=$report.Replace('V0.9.3-T34B Scanner Parallel Fabric','V0.9.3-T34C.6 Refuel Drift-Tolerant Kernel')
+$report=$report.Replace('V0.9.3-T34B Scanner Parallel Fabric','V0.9.3-T34C.7 Reuse-Gated Classification Kernel')
 $anchor='            sb.AppendLine(ScannerParallelFabric093T34B.Summary());'
 $report=Replace-OrThrow $report $anchor ($anchor + [Environment]::NewLine +
   '            sb.AppendLine(CandidateClassificationFabric093T34C.Summary());') 'production summary'
 $report=$report.Replace(
   'T34-B scanner parallel planning=ACTIVE(HIGH priority, same-package overlap); T34-A persistent candidate fabric remains synchronous fallback; fabric mutations are tick-coalesced + dirty-source-only rebuilt.',
-  'T34-C.6 candidate classification=ACTIVE(root-independent SourceSnapshot+Kernel plans indexed by stable SourceIndex + live parity + authority-safe Refuel/Refuel_Turret full-negative kernel + volatile-state revocation); full state is rechecked live before any skip; normal fuel consumption resumes live validation without quarantining the reusable plan; structural mismatches, invalid/duplicate indices and unknown Harmony owners fail open; T34-B distance planning and T34-A synchronous fallback remain active.')
+  'T34-C.7 candidate classification=ACTIVE(reuse-gated SourceSnapshot+Kernel plans indexed by stable SourceIndex + live parity + authority-safe Refuel/Refuel_Turret full-negative kernel + volatile-state revocation); the first observation runs live without fact capture or worker scheduling, repeated snapshots may build; normal fuel consumption resumes live validation without quarantining the reusable plan; structural mismatches, invalid/duplicate indices and unknown Harmony owners fail open; T34-B distance planning and T34-A synchronous fallback remain active.')
 Set-Content $reportPath $report -Encoding UTF8
 
 $aboutPath=Join-Path $root 'RimMT/About/About.xml'
 $about=Get-Content $aboutPath -Raw
-$about=[regex]::Replace($about,'<name>.*?</name>','<name>RimMT V0.9.3-T34C.6 Refuel Drift-Tolerant Kernel</name>',1)
+$about=[regex]::Replace($about,'<name>.*?</name>','<name>RimMT V0.9.3-T34C.7 Reuse-Gated Classification Kernel</name>',1)
 $about=[regex]::Replace($about,'(?s)<description>.*?</description>',
-  '<description>RimMT T34-C.6 for RimWorld 1.5. Keeps the authority-safe Refuel and Refuel_Turret full-fuel negative kernel while distinguishing normal volatile fuel-state changes from structural parity failures. Full state is captured on the main thread and rechecked live before any skip. If fuel is consumed between capture and use, that candidate resumes ordinary live Reachability and validator checks without quarantining the reusable source plan. Structural mismatches, foreign Harmony authority, invalid indices and missing plans still fail open; FullParallel remains HARD_OFF.</description>')
+  '<description>RimMT T34-C.7 for RimWorld 1.5. Adds reuse-gated candidate classification after runtime evidence showed that most classification plans were never consumed. The first observation of a source snapshot and kernel performs no fact capture or worker scheduling; only a repeated observation may build a plan. The authority-safe Refuel full-negative kernel, live state revocation, structural quarantine and Vanilla final authority remain unchanged. FullParallel remains HARD_OFF.</description>')
 Set-Content $aboutPath $about -Encoding UTF8
 
 $diagPatchPath=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticsPatches.cs'
 $diag=Get-Content $diagPatchPath -Raw
-$diag=Replace-OrThrow $diag 'internal const string Version = "0.18.0";' 'internal const string Version = "0.19.6";' 'diagnostics version'
+$diag=Replace-OrThrow $diag 'internal const string Version = "0.18.0";' 'internal const string Version = "0.19.7";' 'diagnostics version'
 Set-Content $diagPatchPath $diag -Encoding UTF8
 
 $diagReportPath=Join-Path $root 'RimMTDiagnostics/Source/RimMTDiagnostics/DiagnosticReport.cs'
@@ -143,9 +143,9 @@ Set-Content $diagReportPath $diagReport -Encoding UTF8
 
 $diagAboutPath=Join-Path $root 'RimMTDiagnostics/About/About.xml'
 $diagAbout=Get-Content $diagAboutPath -Raw
-$diagAbout=[regex]::Replace($diagAbout,'<name>.*?</name>','<name>RimMT Diagnostics v0.19.6 - T34C.6 Refuel Drift-Tolerant Kernel</name>',1)
+$diagAbout=[regex]::Replace($diagAbout,'<name>.*?</name>','<name>RimMT Diagnostics v0.19.7 - T34C.7 Reuse-Gated Classification Kernel</name>',1)
 $diagAbout=[regex]::Replace($diagAbout,'(?s)<description>.*?</description>',
-  '<description>Optional diagnostics companion for RimMT T34-C.6. Separately reports volatile Refuel state revocations, structural parity failures and quarantines alongside full-negative capture, consumption, plan yield and foreign-patch authority evidence.</description>')
+  '<description>Optional diagnostics companion for RimMT T34-C.7. Reports first-observation deferrals and repeat admissions alongside volatile Refuel state revocations, structural parity failures, plan consumption and foreign-patch authority evidence.</description>')
 Set-Content $diagAboutPath $diagAbout -Encoding UTF8
 
-Write-Host 'Applied RimMT T34-C.6 Refuel Drift-Tolerant Kernel + Diagnostics v0.19.6.'
+Write-Host 'Applied RimMT T34-C.7 Reuse-Gated Classification Kernel + Diagnostics v0.19.7.'
