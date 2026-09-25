@@ -22,12 +22,13 @@ namespace RimMT.Diagnostics
     {
         private const long SlowDetermineUs = 20000L;
         private const int RecentCapacity = 32;
-        private const int MaxMethodsPerDetermine = 96;
-        private const int TopMethodsPerBurst = 12;
+        private const int MaxMethodsPerDetermine = 256;
+        private const int TopMethodsPerBurst = 16;
         private const int PostSlowDetailPackages = 24;
 
         private static readonly FieldInfo JobTrackerPawnField = AccessTools.Field(typeof(Pawn_JobTracker), "pawn");
         private static readonly SlowDetermineRecord[] Recent = new SlowDetermineRecord[RecentCapacity];
+        private static readonly List<SlowDetermineRecord> Worst = new List<SlowDetermineRecord>(16);
 
         [ThreadStatic] private static DetermineContext current;
         [ThreadStatic] private static int detailPackagesRemaining;
@@ -199,9 +200,11 @@ namespace RimMT.Diagnostics
                     .Select(kv => kv.Key + "[calls=" + kv.Value.Calls + ",totalMs=" + (kv.Value.TotalUs / 1000.0).ToString("F2") + ",maxMs=" + (kv.Value.MaxUs / 1000.0).ToString("F2") + "]")
                     .ToArray());
             }
-            Recent[recentPos] = new SlowDetermineRecord(tick, pawn, totalUs, resultJob, source, top);
+            SlowDetermineRecord record = new SlowDetermineRecord(tick, pawn, totalUs, resultJob, source, top);
+            Recent[recentPos] = record;
             recentPos = (recentPos + 1) % RecentCapacity;
             if (recentCount < RecentCapacity) recentCount++;
+            AddWorst(record);
         }
 
         internal static string BuildSummary()
@@ -237,12 +240,43 @@ namespace RimMT.Diagnostics
                   .Append(", top=").Append(string.IsNullOrEmpty(e.TopMethods) ? "none" : e.TopMethods)
                   .AppendLine();
             }
+            sb.AppendLine("WorstSlowDNJ=");
+            if (Worst.Count == 0) sb.AppendLine("none");
+            else
+            {
+                for (int i = 0; i < Worst.Count; i++) AppendRecord(sb, Worst[i]);
+            }
             return sb.ToString();
+        }
+
+        private static void AddWorst(SlowDetermineRecord record)
+        {
+            if (Worst.Count < 16)
+            {
+                Worst.Add(record);
+                Worst.Sort((a,b) => b.TotalUs.CompareTo(a.TotalUs));
+                return;
+            }
+            if (record.TotalUs <= Worst[Worst.Count - 1].TotalUs) return;
+            Worst[Worst.Count - 1] = record;
+            Worst.Sort((a,b) => b.TotalUs.CompareTo(a.TotalUs));
+        }
+
+        private static void AppendRecord(StringBuilder sb, SlowDetermineRecord e)
+        {
+            sb.Append(" - tick=").Append(e.Tick)
+              .Append(", pawn=").Append(e.Pawn)
+              .Append(", totalMs=").Append((e.TotalUs / 1000.0).ToString("F2"))
+              .Append(", result=").Append(e.ResultJob)
+              .Append(", source=").Append(e.Source)
+              .Append(", top=").Append(string.IsNullOrEmpty(e.TopMethods) ? "none" : e.TopMethods)
+              .AppendLine();
         }
 
         internal static void Reset()
         {
             Array.Clear(Recent, 0, Recent.Length);
+            Worst.Clear();
             recentPos = recentCount = 0;
             determines = slowDetermines = detailedDetermines = slowDetailed = slowUndetailed = 0L;
             workGiverCallsInsideDetermine = workGiverUsInsideDetermine = contextReentry = failures = 0L;
