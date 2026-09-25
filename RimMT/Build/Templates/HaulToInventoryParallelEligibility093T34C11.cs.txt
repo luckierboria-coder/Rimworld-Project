@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -41,6 +42,8 @@ namespace RimMT
         private static long captureSlices;
         private static long capturedCandidates;
         private static long capturedAcceptanceCells;
+        private static long captureTotalUs;
+        private static long captureMaxUs;
         private static long scheduled;
         private static long schedulerRejected;
         private static long built;
@@ -120,12 +123,14 @@ namespace RimMT
             int take = Math.Min(CaptureSlice, count);
             int start = state.Cursor;
             int destinationCount = destinations.Count;
+            take = Math.Min(take, Math.Max(8, 4096 / destinationCount));
             int[] ids = new int[take];
             int[] currentPriorities = new int[take];
             byte[] valid = new byte[take];
             int[] destinationPriorities = new int[destinationCount];
             byte[] accepts = new byte[take * destinationCount];
 
+            long captureStart = Stopwatch.GetTimestamp();
             try
             {
                 for (int d = 0; d < destinationCount; d++)
@@ -155,9 +160,11 @@ namespace RimMT
             }
             catch
             {
+                RecordCaptureTime(captureStart);
                 Interlocked.Increment(ref captureFailures);
                 return;
             }
+            RecordCaptureTime(captureStart);
 
             state.LastCaptureTick = tick;
             state.Cursor = (start + take) % count;
@@ -300,6 +307,21 @@ namespace RimMT
             catch { return false; }
         }
 
+        private static void RecordCaptureTime(long started)
+        {
+            long elapsed = Stopwatch.GetTimestamp() - started;
+            if (elapsed <= 0L) return;
+            long us = (long)(elapsed * (1000000.0 / Stopwatch.Frequency));
+            Interlocked.Add(ref captureTotalUs, us);
+            long prior = Interlocked.Read(ref captureMaxUs);
+            while (us > prior)
+            {
+                long observed = Interlocked.CompareExchange(ref captureMaxUs, us, prior);
+                if (observed == prior) break;
+                prior = observed;
+            }
+        }
+
         private static bool AuditAuthority(MethodBase method)
         {
             if (method == null) return false;
@@ -332,6 +354,7 @@ namespace RimMT
                 Interlocked.Read(ref authoritativeRejects) + "/" + Interlocked.Read(ref liveRevocations) +
                 ", capture[slices/candidates/cells]=" + Interlocked.Read(ref captureSlices) + "/" +
                 Interlocked.Read(ref capturedCandidates) + "/" + Interlocked.Read(ref capturedAcceptanceCells) +
+                ", captureUs[total/max]=" + Interlocked.Read(ref captureTotalUs) + "/" + Interlocked.Read(ref captureMaxUs) +
                 ", worker[scheduled/rejected/built/published/candidates/failures]=" + Interlocked.Read(ref scheduled) + "/" +
                 Interlocked.Read(ref schedulerRejected) + "/" + Interlocked.Read(ref built) + "/" +
                 Interlocked.Read(ref published) + "/" + Interlocked.Read(ref workerCandidates) + "/" +
