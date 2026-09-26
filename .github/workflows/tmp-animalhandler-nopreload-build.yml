@@ -1,0 +1,25 @@
+name: Temporary AnimalHandlerNoPreload build
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ tmp-animalhandler-nopreload-build ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build
+        run: dotnet build tools/AnimalHandlerNoPreloadBuild/AnimalHandlerNoPreload.csproj -c Release --nologo
+      - name: Verify DLL
+        run: |
+          test -f tools/AnimalHandlerNoPreloadBuild/bin/Release/net472/AnimalHandlerNoPreload.dll
+          ls -lh tools/AnimalHandlerNoPreloadBuild/bin/Release/net472/AnimalHandlerNoPreload.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AnimalHandlerNoPreload-dll
+          path: tools/AnimalHandlerNoPreloadBuild/bin/Release/net472/AnimalHandlerNoPreload.dll
+          if-no-files-found: error
