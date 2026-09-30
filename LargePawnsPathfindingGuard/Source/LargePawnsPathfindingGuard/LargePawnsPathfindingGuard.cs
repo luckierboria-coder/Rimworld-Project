@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using RimWorld;
 using Verse;
 using Verse.AI;
 
