@@ -151,8 +151,8 @@ $mod=$mod.Replace('Standalone diagnostics companion v0.3. Disable the entire mod
   'T35-B low-overhead diagnostics companion. High-frequency probes are normally absent and are armed only after >=100 ms game ticks.')
 $mod=$mod.Replace('v0.3 adds per-DetermineNextJob WorkGiver correlation for >=20 ms calls and detailed HaulMerge/Pather Harmony authority audit.',
   'Burst policy: 6 detailed ticks after a >=100 ms tick, then probes are removed; re-arm cooldown is 120 game ticks.')
-$mod=$mod.Replace('Deep sample cadence: every " + RimMTDiagnosticsSettings.SampleEveryTicks + " game ticks',
-  'Legacy sample cadence setting (ignored by T35-B burst mode): " + RimMTDiagnosticsSettings.SampleEveryTicks')
+$mod=$mod.Replace('            list.Label("Deep sample cadence: every " + RimMTDiagnosticsSettings.SampleEveryTicks + " game ticks");',
+  '            list.Label("T35-B burst mode: high-frequency probes arm only after >=100 ms game ticks.");')
 $mod=$mod.Replace('v0.3 slow-DNJ correlation timestamps WorkGiver methods only while DetermineNextJob is active; this is diagnostics-only overhead.',
   'Broad WorkGiver method timing is disabled in T35-B. Slow DetermineNextJob envelopes remain available with near-zero idle overhead.')
 Set-Content $modPath $mod -Encoding UTF8
