@@ -1,0 +1,51 @@
+name: Build RimMT V0.9.3-T35A Production Safety Split
+
+on:
+  push:
+    branches:
+      - rimmt-v0.9.3-t35a-production-safety-split
+    paths:
+      - 'RimMT/**'
+      - 'RimMTDiagnostics/**'
+      - '.github/workflows/build-rimmt-v093-t35a.yml'
+      - 'NuGet.Config'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rimmt-t35a-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use GitHub-hosted .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore existing projects
+        shell: pwsh
+        run: |
+          dotnet restore RimMT/Source/RimMT/RimMT.csproj
+          dotnet restore RimMTDiagnostics/Source/RimMTDiagnostics/RimMTDiagnostics.csproj
+
+      - name: Build and verify T35-A
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTT35A.ps1
+
+      - name: Upload RimMT + Diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-T35A-Production-Safety-Split
+          path: |
+            build/RimMT_V0.9.3_T35A_ProductionSafetySplit.zip
+            build/RimMT_Diagnostics_v0.21.0_T35A.zip
+            build/RimMT_T35A_ProductionSafetySplit_Bundle.zip
+          if-no-files-found: error
