@@ -13,7 +13,7 @@ namespace RimMT.Diagnostics
     internal static class DiagnosticsBootstrap
     {
         internal const string HarmonyId = "allen.rimmt.diagnostics";
-        internal const string Version = "0.20.4";
+        internal const string Version = "0.3.0";
         private static int patched;
         private static int missing;
 
@@ -31,12 +31,9 @@ namespace RimMT.Diagnostics
                 Patch(harmony, AccessTools.Method(typeof(World), "WorldTick"), nameof(DiagnosticsPatches.WorldPrefix), nameof(DiagnosticsPatches.WorldPostfix));
                 Patch(harmony, AccessTools.Method(typeof(Storyteller), "StorytellerTick"), nameof(DiagnosticsPatches.StorytellerPrefix), nameof(DiagnosticsPatches.StorytellerPostfix));
 
-                if (RimMTDiagnosticsSettings.EnableSearchTiming)
-                {
-                    PatchNamedMethods(harmony, typeof(GenClosest), "ClosestThingReachable", nameof(DiagnosticsPatches.GenClosestPrefix), nameof(DiagnosticsPatches.GenClosestPostfix));
-                    PatchNamedMethods(harmony, typeof(GenClosest), "ClosestThing_Global", nameof(DiagnosticsPatches.GenClosestPrefix), nameof(DiagnosticsPatches.GenClosestPostfix));
-                    PatchNamedMethods(harmony, typeof(Reachability), "CanReach", nameof(DiagnosticsPatches.ReachPrefix), nameof(DiagnosticsPatches.ReachPostfix));
-                }
+                PatchNamedMethods(harmony, typeof(GenClosest), "ClosestThingReachable", nameof(DiagnosticsPatches.GenClosestPrefix), nameof(DiagnosticsPatches.GenClosestPostfix));
+                PatchNamedMethods(harmony, typeof(GenClosest), "ClosestThing_Global", nameof(DiagnosticsPatches.GenClosestPrefix), nameof(DiagnosticsPatches.GenClosestPostfix));
+                PatchNamedMethods(harmony, typeof(Reachability), "CanReach", nameof(DiagnosticsPatches.ReachPrefix), nameof(DiagnosticsPatches.ReachPostfix));
 
                 DiagnosticsV02.Apply(harmony);
                 DiagnosticsV03.Apply(harmony);
