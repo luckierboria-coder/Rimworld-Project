@@ -1,0 +1,58 @@
+name: Build RimMT T35B + LargePawns Path Guard
+
+on:
+  push:
+    branches:
+      - rimmt-v0.9.3-t35b-burst-diagnostics-largepawns-guard
+    paths:
+      - 'RimMT/**'
+      - 'RimMTDiagnostics/**'
+      - 'LargePawnsPathfindingGuard/**'
+      - '.github/workflows/build-rimmt-t35b-largepawns-guard.yml'
+      - 'NuGet.Config'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rimmt-t35b-largepawns-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use GitHub-hosted .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore projects
+        shell: pwsh
+        run: |
+          dotnet restore RimMT/Source/RimMT/RimMT.csproj
+          dotnet restore RimMTDiagnostics/Source/RimMTDiagnostics/RimMTDiagnostics.csproj
+          dotnet restore LargePawnsPathfindingGuard/Source/LargePawnsPathfindingGuard/LargePawnsPathfindingGuard.csproj
+
+      - name: Build RimMT T35B pair
+        shell: pwsh
+        run: ./RimMT/Build/BuildRimMTT35B.ps1
+
+      - name: Build LargePawns Pathfinding Guard
+        shell: pwsh
+        run: ./LargePawnsPathfindingGuard/Build/BuildLargePawnsPathfindingGuard.ps1
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimMT-T35B-LargePawns-Guard
+          path: |
+            build/RimMT_V0.9.3_T35B_BurstDiagnosticsPair.zip
+            build/RimMT_Diagnostics_v0.22.0_T35B_Burst.zip
+            build/RimMT_T35B_BurstDiagnostics_Bundle.zip
+            build/LargePawns_PathfindingGuard_1.5_V1.0.zip
+          if-no-files-found: error
