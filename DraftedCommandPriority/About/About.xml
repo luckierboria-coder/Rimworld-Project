@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Drafted Command Priority</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.draftedcommandpriority</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>Drafted Command Priority makes the player's drafted command chain authoritative until it has actually finished. Ordinary autonomous AI cannot take over while a player command is still active or queued. Optional Melee Pawn Auto Attack gives each drafted melee pawn a Fire-at-will-style toggle and a configurable 1-20 cell acquisition radius (default 4). Automatic melee is allowed to start only after player commands have finished and the pawn has returned to drafted idle / Wait_Combat; it never interrupts an already-running movement, rescue, hauling, attack, or other job. Downed, mental-state, and undrafted pawns are not locked. RimWorld 1.5.</description>
+</ModMetaData>
