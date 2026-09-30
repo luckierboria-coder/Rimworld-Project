@@ -48,6 +48,7 @@ namespace RimMT.Diagnostics
         {
             if (harmony == null) return;
             PatchPatherChildren(harmony);
+            PatchWorkGiverMethods(harmony);
             PatchReachProfileCapture(harmony);
             PatchKnownWorldCatastrophic(harmony);
         }
@@ -316,7 +317,7 @@ namespace RimMT.Diagnostics
             sb.Append("LiveWaitCensus: censuses=").Append(waitCensuses).Append(", pawnSamples=").Append(waitPawnSamples).Append(", activeIdle=").Append(LiveWait.Values.Count(s => s.IdleSince >= 0)).AppendLine();
             sb.AppendLine("LongestCurrentWait=" + LongestCurrentWait());
             AppendTop(sb, "PatherChildren", PatherChildren);
-            sb.AppendLine("WorkGiverSampled=RETIRED in Diagnostics v0.4; SlowDNJCorrelation is the sole WorkGiver timing path.");
+            AppendTop(sb, "WorkGiverSampled", WorkGivers);
             AppendTop(sb, "ReachCaptureRegionAllows", ReachCaptureMethods);
             AppendTop(sb, "WorldCatastrophic", WorldCatastrophic);
             sb.Append("Install: workGiverPatched=").Append(workGiverPatched).Append(", patherChildPatched=").Append(patherChildPatched)
