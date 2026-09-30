@@ -8,6 +8,7 @@ on:
       - 'RimMT/**'
       - 'RimMTDiagnostics/**'
       - 'LargePawnsPathfindingGuard/**'
+      - 'LargePawnsCaiStartupHotfix/**'
       - '.github/workflows/build-rimmt-t35b-largepawns-guard.yml'
       - 'NuGet.Config'
   workflow_dispatch:
@@ -37,6 +38,7 @@ jobs:
           dotnet restore RimMT/Source/RimMT/RimMT.csproj
           dotnet restore RimMTDiagnostics/Source/RimMTDiagnostics/RimMTDiagnostics.csproj
           dotnet restore LargePawnsPathfindingGuard/Source/LargePawnsPathfindingGuard/LargePawnsPathfindingGuard.csproj
+          dotnet restore LargePawnsCaiStartupHotfix/Source/LargePawnsCaiStartupHotfix/LargePawnsCaiStartupHotfix.csproj
 
       - name: Build RimMT T35B pair
         shell: pwsh
@@ -45,6 +47,10 @@ jobs:
       - name: Build LargePawns Pathfinding Guard
         shell: pwsh
         run: ./LargePawnsPathfindingGuard/Build/BuildLargePawnsPathfindingGuard.ps1
+
+      - name: Build LargePawns CAI Startup Hotfix
+        shell: pwsh
+        run: ./LargePawnsCaiStartupHotfix/Build/BuildLargePawnsCaiStartupHotfix.ps1
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -55,4 +61,5 @@ jobs:
             build/RimMT_Diagnostics_v0.22.0_T35B_Burst.zip
             build/RimMT_T35B_BurstDiagnostics_Bundle.zip
             build/LargePawns_PathfindingGuard_1.5_V1.0.zip
+            build/LargePawns_CAI_Startup_Hotfix_1.5_V1.0.zip
           if-no-files-found: error
