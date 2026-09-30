@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34B Scanner Parallel Fabric</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T34-B for RimWorld 1.5. General scanner parallel fabric: hot WorkGiver candidate sources are learned from real GenClosest traffic and their exact distance/source-order plans are computed on HIGH-priority worker tasks in parallel with the current TryIssueJobPackage. Plans are consumed only when the exact immutable source snapshot and root still match; membership, spawn and position are revalidated before live Reachability and validator calls. The main thread never waits. T34-A remains as a synchronous spatial fallback. Persistent-map mutation events are coalesced to logical tick boundaries and only dirty source snapshots are rebuilt, preserving unchanged snapshot identity for cross-package plan reuse. No worker runs WorkGiver callbacks, Reachability, reservations, Rand, Unity, Job creation or gameplay commits. FullParallel remains HARD_OFF.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

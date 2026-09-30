@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34A Async Candidate Fabric</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T34-A for RimWorld 1.5. First production step of the no-wait async candidate architecture. A worker-maintained persistent spatial fabric now covers both ThingRequest-backed ListerThings sources and supported custom static candidate lists inside JobGiver_Work. First observations and stale/missing publications always fall through; the main thread never waits. Workers never run live validators, Reachability, reservations, Job creation or gameplay commits. Live Reachability and validators remain final authority. T21/T32 package-local replay remains retained; S4/S5.1 remain conservative tail fallbacks. ReachProfile, RC2 Stage3 and DoBill worker-tail are retired on this test line.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

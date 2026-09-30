@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T32C.1 Positive CanReserve Replay</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T32-C.1 for RimWorld 1.5. Verified T32-C shadow evidence (716,201/716,201 authority-eligible repeat positives matched in the test workload) graduates to conservative package-local positive CanReserve replay. Every exact key is first observed live=true. Independent positive trust requires 32 live repeat matches in the current JobGiver_Work package, then 1/64 candidates remain live parity samples. Any positive parity mismatch clears positive entries and quarantines positive replay for the runtime without altering T32-A negative trust. Reservation mutations and authority loss clear package positive state. T32-B.1 adaptive Forbidden, zero-wait and FullParallel HARD_OFF remain unchanged.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

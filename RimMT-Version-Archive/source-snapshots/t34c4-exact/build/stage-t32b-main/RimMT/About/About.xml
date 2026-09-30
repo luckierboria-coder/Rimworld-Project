@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T32B Lazy Forbidden Fingerprint</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T32-B for RimWorld 1.5. T32-A Reservation Transaction remains active. T32-B reduces T21 validator fingerprint self-overhead without weakening its false-only authority boundary: first negative stores capture only cheap Thing facts; the first revisit stays live, samples Forbidden before and after the live validator, and becomes Primed only when the live result is false and both cheap facts and Forbidden remain stable. Existing scanner/method trust, warmup, sampled parity and mismatch quarantine remain unchanged after priming. No global forbidden cache, Job mutation, reservation mutation, worker wait or cross-package result is introduced.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

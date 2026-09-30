@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T32A Reservation Transaction</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T32-A for RimWorld 1.5. The verified T28/T21/T22 production paths remain intact. T32-A adds a bounded package-local false-only memo for exact ReservationManager.CanReserve queries by the current JobGiver_Work pawn. First observations stay live; repeated negatives use warmup and sampled parity before authoritative replay. Any ReservationManager reserve/release mutation clears the package memo; target mutation bypasses the entry; mismatches quarantine the runtime. No positive reservation result, Job, priority, reachability or cross-package result is cached.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

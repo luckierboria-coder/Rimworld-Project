@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT Clean Pathfinding A2.6 - Region Link Guard</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt.cleanpathfinding.d22a2</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>allen.rimmt</li>
+    <li>owlchemist.cleanpathfinding</li>
+    <li>pathfinding.framework</li>
+    <li>allen.rimmt.diagnostics</li>
+  </loadAfter>
+  <description>Preserves the exact FinishFrame Touch endpoint correction and repairs RegionCostCalculator at its source: a RegionLink whose opposite Region is null is rejected before Region.Allows can dereference it. Four exact RegionCostCalculator methods are guarded; if Clean Pathfinding's native region-distance fix is already installed, this guard yields to it. PathFinder, StartPath, Root_Play, Diagnostics, caches, queues and per-frame code are untouched.</description>
+</ModMetaData>

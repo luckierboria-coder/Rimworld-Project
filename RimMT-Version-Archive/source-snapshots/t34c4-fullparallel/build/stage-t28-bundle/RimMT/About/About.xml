@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T28 Unified Job Search Transaction</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T28 for RimWorld 1.5. One unified synchronous JobGiver_Work package boundary coordinates the validated T20/T21 validator-reach transaction, T22 repeated-IList GenClosest index, GlobalNearest plans and DoBill false-only readiness proof. The zero-yield persistent-fabric GenClosest consumer and ReachProfile runtime path are retired. No Job, reservation, priority or cross-package gameplay result is cached; final gameplay decisions remain Vanilla-authoritative and uncertain cases fail open.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

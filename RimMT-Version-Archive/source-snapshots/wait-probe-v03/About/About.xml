@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT Wait Root Cause Probe v0.3</name>
+  <author>Allen / OpenAI</author>
+  <packageId>allen.rimmt.waitprobe</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>allen.rimmt</li>
+    <li>allen.rimmt.diagnostics</li>
+  </loadAfter>
+  <description>Minimal diagnostic probe for unexpected player-colonist drafting. Records false-to-true draft transitions with their caller stack and confirms Wait_Combat results without changing gameplay state.</description>
+</ModMetaData>

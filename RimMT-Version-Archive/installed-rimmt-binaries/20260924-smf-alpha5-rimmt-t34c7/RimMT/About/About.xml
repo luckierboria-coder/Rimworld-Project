@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34C.7 Reuse-Gated Classification Kernel</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T34-C.7 for RimWorld 1.5. Adds reuse-gated candidate classification after runtime evidence showed that most classification plans were never consumed. The first observation of a source snapshot and kernel performs no fact capture or worker scheduling; only a repeated observation may build a plan. The authority-safe Refuel full-negative kernel, live state revocation, structural quarantine and Vanilla final authority remain unchanged. FullParallel remains HARD_OFF.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

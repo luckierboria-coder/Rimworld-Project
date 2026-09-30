@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT D.2.2 - Clean Pathfinding A2.1</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt.cleanpathfinding.d22a2</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>allen.rimmt</li>
+    <li>owlchemist.cleanpathfinding</li>
+    <li>pathfinding.framework</li>
+    <li>allen.rimmt.diagnostics</li>
+  </loadAfter>
+  <description>D.2.2 companion patch for Clean Pathfinding 2. Keeps the cached per-cell cost kernel and bounded door-topology queue, and restores vanilla StartPath reachability parameters for player-human FinishFrame jobs when Pathfinding Framework would substitute pawn-specific fence blocking.</description>
+</ModMetaData>

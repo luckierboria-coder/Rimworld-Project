@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T32C Positive CanReserve Shadow</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T32-C for RimWorld 1.5. Verified T32-B.1 adaptive Forbidden fingerprints and T32-A false-only CanReserve replay remain unchanged. T32-C adds a bounded package-local measurement-only shadow for exact live-positive ReservationManager.CanReserve queries. Repeated positive candidates always execute the original live chain; the final result is compared under the same exact key, target fingerprint and reservation-mutation epoch. Reservation mutations clear shadows. Positive-to-false flips are measured and then flow into the existing T32-A negative-store path. No positive result is replayed, no reservation/Job/priority/reachability/cross-package result is created, and zero-wait/FullParallel HARD_OFF remain unchanged.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

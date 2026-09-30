@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT Path Endpoint Compatibility A1.1</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt.cleanpathfinding.d22a1</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+    <li><packageId>allen.rimmt</packageId><displayName>RimMT</displayName></li>
+    <li><packageId>Owlchemist.CleanPathfinding</packageId><displayName>Clean Pathfinding 2</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>allen.rimmt</li>
+    <li>Owlchemist.CleanPathfinding</li>
+    <li>allen.rimmt.diagnostics</li>
+  </loadAfter>
+  <description>Narrow path endpoint compatibility for FinishFrame jobs. When a construction job requests OnCell for an unwalkable frame cell, StartPath uses Touch so the pawn can work from an adjacent cell. The former per-cell glow Harmony cache is retired.</description>
+</ModMetaData>

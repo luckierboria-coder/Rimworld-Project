@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Trade Caravan Lord Integrity Fix 1.5</name>
+  <author>Allen</author>
+  <packageId>allen.tradecaravanlordintegrityfix15</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+  </loadAfter>
+  <description>Prevents trade caravan incidents from reusing pawns that already belong to another Lord. A TradeWithColony Lord is created only when it contains a live, spawned trader. Existing trader-less trade Lords are removed or converted to a normal exit Lord before they can generate a repeating exception storm.</description>
+</ModMetaData>

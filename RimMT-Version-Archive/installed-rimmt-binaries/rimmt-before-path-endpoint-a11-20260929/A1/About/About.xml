@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT D.2.2 - Clean Pathfinding A1</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt.cleanpathfinding.d22a1</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+    <li><packageId>allen.rimmt</packageId><displayName>RimMT</displayName></li>
+    <li><packageId>Owlchemist.CleanPathfinding</packageId><displayName>Clean Pathfinding 2</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>allen.rimmt</li>
+    <li>Owlchemist.CleanPathfinding</li>
+    <li>allen.rimmt.diagnostics</li>
+  </loadAfter>
+  <description>D.2.2 companion patch for Clean Pathfinding 2. Adds a bounded 30-tick per-map glow-cost cache and appends counters to RimMT Diagnostics reports. The D.2.2 core DLL remains unchanged.</description>
+</ModMetaData>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3 Consolidated Stable</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT V0.9.3 Consolidated Stable for RimWorld 1.5. Rollback build using the last consolidated stable production source before the V0.9.4-V0.9.12 continuation and predictive-admission experiments. Keeps the validated JobGiver, DoBill, ReachProfile, haul and topology production paths; resident hot-path profilers, PathSnapshot shadow validation, SafePath telemetry and WorkPrefilter are excluded. Final gameplay decisions remain Vanilla-authoritative and acceleration paths fail closed.</description>
+</ModMetaData>

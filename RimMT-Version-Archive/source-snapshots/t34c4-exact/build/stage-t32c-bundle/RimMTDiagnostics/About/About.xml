@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT Diagnostics v0.13</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt.diagnostics</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li>
+    <li><packageId>allen.rimmt</packageId><displayName>RimMT</displayName></li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li><li>allen.rimmt</li></loadAfter>
+  <description>Optional diagnostics companion for RimMT T32-C. v0.13 surfaces T32-C positive CanReserve shadow stores, exact-repeat candidates, live matches/mismatches, authority-safe evidence, fingerprint bypass and mutation invalidation alongside retained T32-B.1/T32-A counters. Positive replay remains OFF.</description>
+</ModMetaData>
+
+
+
+
+
+
+

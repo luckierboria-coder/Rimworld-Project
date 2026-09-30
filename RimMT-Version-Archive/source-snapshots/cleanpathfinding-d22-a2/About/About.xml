@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT Clean Pathfinding A2.4 - Endpoint Only</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt.cleanpathfinding.d22a2</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>allen.rimmt</li>
+    <li>owlchemist.cleanpathfinding</li>
+    <li>pathfinding.framework</li>
+    <li>allen.rimmt.diagnostics</li>
+  </loadAfter>
+  <description>Narrow endpoint compatibility only. FinishFrame attachment Toils use Touch consistently for movement and construction checks. The former PathFinder cost kernel, glow and terrain caches, room queue, per-cell telemetry, and Root_Play update patch are retired.</description>
+</ModMetaData>

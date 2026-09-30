@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34C.11 Haul-to-Inventory Parallel Eligibility</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T34-C.11 for RimWorld 1.5. Adds a targeted Pick Up And Haul storage-eligibility fabric. Small main-thread slices capture primitive candidate IDs, priorities and destination-acceptance bytes; workers compile structural negatives; every rejection is proved again against live storage settings before the expensive original storage-cell search may be skipped. Reservations, forbidden state, reachability, Job creation and final storage selection remain live and Vanilla-authoritative. T34-C.10 target-count aggregation remains active.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34D.1 Validator Parallel Kernel</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T34-D.1 for RimWorld 1.5, based directly on the measured T34-C.4 baseline. Large JobGiver GenClosest scans are divided across the persistent RimMT worker pool. Worker threads execute overridden live HasJobOnThing validators while the caller joins the current batch. Reachability, priority callbacks and default JobOnThing-backed validators remain on the main thread after the T34-D playtest demonstrated Region/BFS and shared-cache corruption. A failed custom scanner silently falls back for the current call and is quarantined for the runtime.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

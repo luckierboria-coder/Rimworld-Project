@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT Diagnostics v0.3</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt.diagnostics</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName><steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl></li>
+    <li><packageId>allen.rimmt</packageId><displayName>RimMT</displayName></li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li><li>allen.rimmt</li></loadAfter>
+  <description>Optional diagnostics companion for RimMT. v0.3 adds per-DetermineNextJob WorkGiver correlation for >=20 ms calls plus detailed HaulMerge and Pather Harmony authority audit, on top of live current-Wait census, sampled Pather/WorkGiver attribution, ReachProfile Region.Allows capture timing, pause/resume markers and world-component timing. Measurement-only: disable this mod for normal gameplay when diagnostics are not needed.</description>
+</ModMetaData>

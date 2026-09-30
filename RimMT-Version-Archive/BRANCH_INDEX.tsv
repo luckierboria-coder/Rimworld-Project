@@ -1,0 +1,127 @@
+origin/rimmt-rc2-t3-lean`tc87aab8ff8608df6b60446bbc70aeff7afcd3283`tBump RC2-T3 Lean after Stage4D path cleanup
+origin/rimmt-rollback-v0.9.3-consolidated-stable`taf2458b1bee55bdf9c7cdc0a73bded05fbc46918`tBuild exact RimMT V0.9.3 Consolidated Stable rollback package
+origin/rimmt-v0.10.0-lean-mt-rebase`t1f20c0adf00fb7b410d4587efff1725435a69a0a`tRimMT v0.10: update mod metadata for Lean MT Rebase
+origin/rimmt-v0.4.10-singlecall-partition`t7cc3a9d1bb5eb6acfc5163d0991355ffb4d9f5ef`tRimMT V0.4.10: document single-call partition test goals
+origin/rimmt-v0.4.10.1-worker-threshold-setting`teff667c978f37cef4107ab3abe30559f0a3ce584`tRimMT V0.4.10.1: trigger settings UI fix build
+origin/rimmt-v0.4.10.2-mediumset-prescan`t79bd63e65d07caa9d1544512d4dfbf1e74fe4b20`tRimMT V0.4.10.2: add playtest notes
+origin/rimmt-v0.4.11-expanded-jobpartition`tb282ce77c16511167a286e7b5cab4965128a2143`tPackage RimMT V0.4.11 playtest artifact
+origin/rimmt-v0.4.11`t2c7e9c53fa81f7db7f3cb5315f0bc165e84292e2`tRimMT V0.4.11 add playtest notes
+origin/rimmt-v0.4.12-expanded-coarse-partition`t6d92204c6adec7c507771fb34e9d9d3d6963fe53`tPackage RimMT V0.4.12 playtest artifact
+origin/rimmt-v0.4.12-stutter-first`t6f610c6445e04effc315b8d7232be4c61fabce67`tDocument stutter-first RimMT policy
+origin/rimmt-v0.4.13-true-offload`ta2c01b70834d7138c073115116ab1c17295e71d5`tRimMT V0.4.13: add playtest notes
+origin/rimmt-v0.4.14-map-fabric`tbeff9ec1e52c32785c742e9e7e8456056d21b6da`tRimMT V0.4.14: update CI artifact packaging
+origin/rimmt-v0.4.15-parallel-region`t4e9c322446c16c9f598609b5d7baacb2e4b08f21`tAdd immutable zero-allocation V0.4.15 parallel connectivity
+origin/rimmt-v0.4.16-aggressive-parallel-ai-clean`t9af15958ea3fc449a88d66b690ed92427890a54b`tFix current VEF Phasing Harmony owner whitelist
+origin/rimmt-v0.4.16-aggressive-parallel-ai`t228016833707c91ed685f44e7f8d6f32b1b00f0a`tPackage RimMT V0.4.16 playtest in CI
+origin/rimmt-v0.4.16.1-pathfinding-framework`td1ba592c5cc3dd93e729847d3296bdf4e4af293f`tAdd V0.4.16.1 compatibility notes
+origin/rimmt-v0.4.16.2-hospitality`t2c77e9ef65a7cb41759df175e2c8407049839b10`tDocument RimMT V0.4.16.2 Hospitality coexistence
+origin/rimmt-v0.4.16.3-reachability-census`tbfab0a8d2afa6c809afc142de89429652c14f5bb`tFix Reachability census PathEndMode namespace
+origin/rimmt-v0.4.17-work-prefilter`t0ed3122d38c6c837b6290bf5d65aa7333876fb09`tDocument RimMT V0.4.17 architecture
+origin/rimmt-v0.4.17.1-work-compat`t5458470dc5b8da807137cf6abea166d5a42fe768`tRimMT V0.4.17.1: add playtest notes
+origin/rimmt-v0.4.17.2-parityfix`t9ffac278ac6fc40ae995d8f8e3bf1137e268812c`tRimMT V0.4.17.2 repair Work sampled parity state
+origin/rimmt-v0.4.17.2-regrowth`t45f76f3a4d38c176a40ac72b3d19f9ae7032181e`tRimMT 0.4.17.2 avoid out-state Harmony wrappers
+origin/rimmt-v0.4.18-dev`t295063907be37d44a4f92567a4c0397bdb9163de`tRimMT 0.4.18.3.2: restore ReachProfile compatibility readiness
+origin/rimmt-v0.4.18.2-jobgiver-autotrace`td43797c65872797a84ca307c5d1c2e2c8549762b`tRimMT JT1: package minimal JobGiver autotrace build
+origin/rimmt-v0.4.18.2-profiler`t42fd0b20f143f28f2bbff8038507006a238968be`tRimMT 0.4.18.2-P1: package diagnostic profiler artifact
+origin/rimmt-v0.4.19-jr1-regionallows-rolling-fuse`t3c0973aa2db0fc687fa92e9a5aa3e0b75c0eaaad`tAdd JR1 playtest marker
+origin/rimmt-v0.4.19-jr1.1-learned-bfs`ta38cdbd5bab727f9130022cf01dae187ede70202`tMark JR1 global Region.Allows memo as retired in JR1.1
+origin/rimmt-v0.4.19-js1.1-lean`tdb4dc1d702182f00666a5a8c2bf3b0f663994c97`tRimMT JS1.1 Lean: update CI artifact naming
+origin/rimmt-v0.4.19-js1.1r-rolling-fuse`t088c7e338c749e87a62487ed18e2fc8a1e938b6d`tRimMT JS1.1R: package rolling-fuse build
+origin/rimmt-v0.4.19-js1.1s-slow-search`t3515193b844be7f2d77296d418b4833d34d83ba3`tRimMT JS1.1S: add diagnostics metadata and packaging
+origin/rimmt-v0.4.19-js1.1s1-jd2-tailtrace`t94093bd1aff4f408dbaa6dc9632237a2993f0f3c`tRimMT JD2: package TailTrace playtest artifact
+origin/rimmt-v0.4.19-js1.1s1-threshold256`te5329e4d7013772afc8cbc5fc4ff27eff62e7303`tRimMT JS1.1S1: update playtest artifact name
+origin/rimmt-v0.4.19-js1.1s2-fanout-search`tabd95111edf2105215f8d7f0c8327fcf248198c2`tDescribe JS1.1S2 fanout feature gates
+origin/rimmt-v0.4.19-js1.1s3-learned-admission`t1cd0d1bc934716000690c0285fc5c628d3aa3c06`tRimMT S3: fix learned-admission state accessibility
+origin/rimmt-v0.4.19-js1.1s4-cd1-custom-ab`t8503e5cb97de8b6804a356ae0e8fae5122dd22b2`tPackage S4-CD1 CustomSet A/B diagnostic build
+origin/rimmt-v0.4.19-js1.1s4-tail-rescue`t3a3a72d1de586c399ba583e1313073bab5aaa218`tRimMT S4: package Tail Rescue build
+origin/rimmt-v0.4.19-js1.1s5-hybrid-tail-rescue`te27c86020cf41dc20ac7d007dc3c52a6701f1c5a`tRimMT S5: package Hybrid Tail Rescue build
+origin/rimmt-v0.4.19-js1.1s5.1-hybrid-tail-rescue`t09b09c092bf685e55cfec865dd09957504f3decc`tRimMT S5.1: package Hybrid Tail Rescue build
+origin/rimmt-v0.4.19-js1.1s5.1-td1-tick-tailtrace`tb1cb3c6f39ddfc30b8a41e2f2ea12f592a93d6a1`tFix TD1 temporary unpatch for Harmony 2.3.3
+origin/rimmt-v0.4.19-js1.2-lean-pool`ta2b3ccfef155a0a898650338ab04a7c4789897e5`tRemove superseded JS1.1 local search implementation
+origin/rimmt-v0.4.19-js1.2.1-jd1-autotrace`teda6538a044138b5a529bb16797e44a85fb3b1de`tRemove accidental JR1 placeholder from JD1
+origin/rimmt-v0.4.19-js1.2.1-lean-hybrid`t053a032983038382e08796bd6029831f2109c3bf`tPackage JS1.2.1 Lean Hybrid
+origin/rimmt-v0.4.19-js1`tba06c183a515452d01e390c12937a10c4222e079`tRimMT JS1: strip symbols and stale dev notes from playtest package
+origin/rimmt-v0.4.19-js2`t67da404867f7770f4571c360c9fa94d9c158d2f2`tRimMT 0.4.19-JS2: package JS2 artifact
+origin/rimmt-v0.4.7-production-haul`t5fa380dbeb08bfd8e41590a02a5315bb669855c9`tCI: build and package RimMT
+origin/rimmt-v0.4.8-jobgiver-trace`tf1fb28118c69d7877a1c4fa11087e29bac451d10`tRimMT V0.4.10: single-call JobGiver candidate partition
+origin/rimmt-v0.4.9-jobgiver-candidates`t1ff326077af4c4f55ef2f2e37de3db1eb06bcefd`tRimMT V0.4.9: package playtest artifact
+origin/rimmt-v0.9.0-rc1`t03c6ad667c7edde3d2a8cb326e14397c28101b5e`tAdd temporary RimWorld reference export workflow
+origin/rimmt-v0.9.1-baseline-b1`td289149aa46f7b3021fdb6cb12a60f84c9424a86`tBuild RimMT stable baseline B1 guard
+origin/rimmt-v0.9.1-rc2-t2-build`t449efc4be3483423249bb3e084794e776800edd9`tBuild S5.3 hotfix on RC2 branch
+origin/rimmt-v0.9.1-rc2-t2-final`t752cd52b1fb896c7ca1c52f4d9efab0d72a0ba84`tRemove accidental noop
+origin/rimmt-v0.9.1-rc2-t2-prod`t449efc4be3483423249bb3e084794e776800edd9`tBuild S5.3 hotfix on RC2 branch
+origin/rimmt-v0.9.1-rc2-t2-prod2`t449efc4be3483423249bb3e084794e776800edd9`tBuild S5.3 hotfix on RC2 branch
+origin/rimmt-v0.9.1-rc2-t2-production-redesign`t47be7948bcbbab1c71ebcef60482fb4dcc76ae42`tComplete integrated Common Sense accelerator
+origin/rimmt-v0.9.1-rc2-t2-production`t449efc4be3483423249bb3e084794e776800edd9`tBuild S5.3 hotfix on RC2 branch
+origin/rimmt-v0.9.1-rc2-t2-release`t449efc4be3483423249bb3e084794e776800edd9`tBuild S5.3 hotfix on RC2 branch
+origin/rimmt-v0.9.1-rc2-t2`t614fa5cd63afb5b6560a129d2b5b1b9282bfb5a4`tDocument RimMT baseline policy
+origin/rimmt-v0.9.1-rc2`t449efc4be3483423249bb3e084794e776800edd9`tBuild S5.3 hotfix on RC2 branch
+origin/rimmt-v0.9.2-reach-budget-v171`t406b9310423db11c840cfbdc33fa9193aa1a8ee5`tReachProfile: retain bounded search for another legal touch endpoint
+origin/rimmt-v0.9.2-unified-lean`t8f65fe896fb0fbe36caf211c104317613d94d3f8`tPublish Processor Framework Hotfix 1.5 v0.1.3 Reservation Safe build
+origin/rimmt-v0.9.3-ab1-s4-s51-off`ta47d919da262f2f9de175f195d6f3fd01369b5fb`tAdd A/B1 CI workflow
+origin/rimmt-v0.9.3-ab2-genclosest-off`t3f7da06fd53c82ff639bbb764735ddb66adc758a`tTrigger A/B2 dedicated CI
+origin/rimmt-v0.9.3-job-authority-safe`t6c65578948f8a3c2c2cef590c8e970c902d161a0`tBuild Job Authority SAFE diagnostics bundle
+origin/rimmt-v0.9.3-job-correctness-r1`t5ba0f9355084bdce3cfe485def05f2a4c1963598`tAdd Job Correctness R1 authority rollback transform
+origin/rimmt-v0.9.3-t0-tail-observatory`t643e8cdcd4bbdb99603e7c404ff8432ae76d5218`tBuild V0.9.3-T0 Tail Observatory
+origin/rimmt-v0.9.3-t1-tail-attribution`tecac3dde47357669431750466f9f0ee3f312e4f1`tBuild V0.9.3-T1 Tail Attribution
+origin/rimmt-v0.9.3-t10-tryenter-foreign-attribution`t1c8fa438be8b7839835ac2cedc4ae0b10a3f0631`tClean T10 safety-check comment markers
+origin/rimmt-v0.9.3-t11-generatenewpath-attribution`t3223c3176ae17218a398c857d5509ed423986ee9`tFix T11 Verse logging namespace
+origin/rimmt-v0.9.3-t12-clean-tryenter-attribution`taa8664d3a4503da238a7af2cf6410263f6d98531`tBuild T12.1 clean TryEnter hotfix
+origin/rimmt-v0.9.3-t13-pawntick-aggregate-attribution`tf9f64ea954487cb33ac291427b37798d8d7b64af`tFix T13 safety gate false positive
+origin/rimmt-v0.9.3-t14-playerhuman-residual-attribution`t9b6fe0c379cd89da5021aa42c60e842498b672cb`tBuild V0.9.3-T14 PlayerHuman residual attribution
+origin/rimmt-v0.9.3-t15-workgiver-deep-attribution`t8d2295bce961da7b9062757632bcecfea61bbfcd`tVerify T15 bounded diagnostic sources are compiled
+origin/rimmt-v0.9.3-t16-genclosest-deep-attribution`t281d03d7b44b1d74d9e3605d0dce21c2cae1797d`tAdd T16 GenClosest attribution CI
+origin/rimmt-v0.9.3-t17-haulurgently-dynamic-rescue`t378c5bee27a7a0ea20328b74accc3c6398041843`tAdd T17 build and safety workflow
+origin/rimmt-v0.9.3-t18-mobile-source-rescue-storyteller-deep`t8ee8eb518a91303096077a9e2b6150746a17bd79`tAdd T18 build and safety workflow
+origin/rimmt-v0.9.3-t19-quest-deep-mobile-global-rescue`t22c7abd4742fff7c7d3ea98120a8cc7f8a97d575`tAdd T19 build and safety workflow
+origin/rimmt-v0.9.3-t1a-no-global-fuse`t4db068045da804a1827e2e3eddc2da4d821e75ec`tFix T1A no-fuse transform duplicate anchor
+origin/rimmt-v0.9.3-t2-pawn-tail-attribution`t65af9d37515e1d8bd4ce2bde0ede02b9e4947682`tBuild V0.9.3-T2 Pawn Tail Attribution
+origin/rimmt-v0.9.3-t20-foundation-transaction-core`ta6c88c264fd3e2415a2a040e24ee8ef0234e2e26`tAlign T20 safety marker with generated core
+origin/rimmt-v0.9.3-t21-foundation-reach-chain`t2c580207c4f4ccc5308de4030a7a4b118e730ca8`tFix T21 safety marker after successful compile
+origin/rimmt-v0.9.3-t22-foundation-genclosest-smf`t6116794d003d0b16d1a29b65cb6d77395687a632`tSimplify T22 CI and fix generated Verse.AI import
+origin/rimmt-v0.9.3-t22-foundation-worldtick`t2c580207c4f4ccc5308de4030a7a4b118e730ca8`tFix T21 safety marker after successful compile
+origin/rimmt-v0.9.3-t22-worldtick-root-attribution`t55a335898a985e3e504489824585f4382d4fb520`tFix T22 Stopwatch conversion compile constant
+origin/rimmt-v0.9.3-t23-tail-containment`t7af2e0ec0a923a8bb2dd2c70cc2974697c905483`tAvoid T23 safety false positive from explanatory comment
+origin/rimmt-v0.9.3-t24-stutter-first`t008e4b2003d422a406434823c71faf4f9d6486a9`tAdd T24.1 hotfix build workflow
+origin/rimmt-v0.9.3-t25-job-decision-root`te5b09f941802f3cceaf1379143dd07b4745abe92`tCompile async candidate plan in T25
+origin/rimmt-v0.9.3-t26-1-zero-wait-fightfires`tc2c743cdfabc32105d0444bbfd1a2508faaea71f`tHarden T26.1 build assertions
+origin/rimmt-v0.9.3-t26-engine-parallel-epoch`t19e7368a344d20f1b4e9f74190d9cab4729dd8c8`tAdd T26 Engine Parallel Epoch build workflow
+origin/rimmt-v0.9.3-t26-engine-parallel`t67c5095971f8e871844894eadf2e760a48f91d21`tFix T26 behavioral safety assertions
+origin/rimmt-v0.9.3-t27-parallel-work-kernel`t887bd764ef805a40732fbb03e6999fa4c09fb9c5`tFix T27 zero-wait CI assertion
+origin/rimmt-v0.9.3-t27.1-work-plan-window`t63ddd7cf5f2e26775cd538e69b6eb531a15ffa37`tAdd T27.1 CI workflow
+origin/rimmt-v0.9.3-t27.2-safety-layer-reset`t52001d75a36883d21d9162c5845c19226e60fa1a`tFix T27.2 CI Join false positive
+origin/rimmt-v0.9.3-t27.3-wait-stall-trace`t12189d2e3ab64f81a12210d6c44e92a4163b85a9`tAdd temporary branch anchor
+origin/rimmt-v0.9.3-t27.4-diagnostics-split`ta60db38690c516ec9f5998bab1bb9d307bd4d0f1`tFix RimWorld message namespace and avoid per-frame settings writes
+origin/rimmt-v0.9.3-t27.5-diagnostics-v02`tfd987651f288e5f8a76cbb0dc8df8a83da9932e3`tAdd T27.5 and Diagnostics v0.2 CI workflow
+origin/rimmt-v0.9.3-t27.5-hard-budget-diag-v02`ta60db38690c516ec9f5998bab1bb9d307bd4d0f1`tFix RimWorld message namespace and avoid per-frame settings writes
+origin/rimmt-v0.9.3-t27.5-hard-budget-diagnostics-v02`t50de61fdb04db3f2f6090f0df2062852ae3f8e8d`tAdd T27.5 production and Diagnostics v0.2 build
+origin/rimmt-v0.9.3-t27.5-stutter-foundation`t9c8f02cbe13d6095c7d443b0e2029aa7ff82100e`tAdd T27.5 Stutter Foundation CI workflow
+origin/rimmt-v0.9.3-t27.6-production-lean`tc6c954e37724a404b73a1b1ae67cd1fdf97c0abd`tImport System.Threading for T27.6 HaulMerge authority counters
+origin/rimmt-v0.9.3-t27.7-dead-path-retirement`t976604ff2e33b406378ed7cf4a43fcd84215ba37`tAdd T27.8 job search foundation transform
+origin/rimmt-v0.9.3-t27.8-job-search-foundation`t3c2676355cb8aa934c7ccc4bcf74f3543afa2d75`tMake T27.8 readiness summary insertion format-independent
+origin/rimmt-v0.9.3-t27.9-package-context`t6a573de48847342d82a6d57abf5e1dd518ad0197`tRemove overbroad duplicate closed-generic assertion
+origin/rimmt-v0.9.3-t28-unified-job-search-transaction`t29fafa41b5e9241be0a46c143a2e06eaa3246d43`tClean T28 metadata and retired-path labels
+origin/rimmt-v0.9.3-t29-source-metadata-foundation`t2c9fac76bdca0d4de8d98c00bf7404f3515866f2`tMake T29 report transform newline-agnostic
+origin/rimmt-v0.9.3-t3-heavy-workgiver-early-rescue`ta6ac9e54e7634a32f99956fee2edba7e18d5b31f`tFix T3 transform summary anchor and use committed PathFinder sources
+origin/rimmt-v0.9.3-t30-job-search-redundancy-census`t176bc634efa3f501daebe5ad2c84b185a92f385d`tMake T30 S4 source hooks generated-code tolerant
+origin/rimmt-v0.9.3-t31-shared-eligibility-census`t6ea8a69f6c0591faeaa5e885ca6c343b3c8257d0`tAdd CI for RimMT T31 shared eligibility census
+origin/rimmt-v0.9.3-t32a-reservation-transaction`t0f4b02132a33e3ca0786f1204645dc30f524cd66`tFix T32-A CallState constructor naming
+origin/rimmt-v0.9.3-t32b-lazy-forbidden-fingerprint`tb6d732a782078bc0434edfdf1054d4cccf07b919`tRestore generated T21 ForStore helper in T32-B
+origin/rimmt-v0.9.3-t32b-lazy-validator-fingerprint`ta64c45dd140ea27fed08905cdb08c69ed2658752`tUpdate T32-B lazy-prime assertion
+origin/rimmt-v0.9.3-t32b1-adaptive-forbidden-fingerprint`t0523a5b2ab6eb56103ed54c0e30d357970bb32a7`tFix T32-B.1 summary transform anchor
+origin/rimmt-v0.9.3-t32c-positive-canreserve-shadow`t4e665951154f67b66e0cb9daa0a90810661ae344`tAdd T32-C CI workflow
+origin/rimmt-v0.9.3-t32c1-positive-canreserve-replay`ta9ec7901a224337d2ce4f246325bf2991d8a6a83`tAdd T32-C.1 CI workflow
+origin/rimmt-v0.9.3-t33a-candidate-admission-shadow`t98a971970767784e507cdc3677a232a5a7b9a420`tFix T33-A safety-check comment collision
+origin/rimmt-v0.9.3-t33a-candidate-rejection-census`t54edb65a88fc17cade2eae3b822b34122dbf8337`tFix T33-A measurement-only static guard
+origin/rimmt-v0.9.3-t33b-rejection-family-census`t60f42fdb3a2b21d3485985a850adfff1331db555`tAlign T33-B nested census accessibility
+origin/rimmt-v0.9.3-t34a-async-candidate-fabric`tbe78d5796df112a45c916731cadf9ea1f487d96b`tFix T34-A bootstrap transform anchor
+origin/rimmt-v0.9.3-t34b-scanner-parallel-fabric`t7f7b6fe72f4c1595bf051c0c1d7889794f595552`tFix T34-B build safety check syntax
+origin/rimmt-v0.9.3-t4-haulmerge-partner-index`t9152fb6fca8afb7002591602fd1c85546d85c634`tBuild V0.9.3-T4 HaulMerge partner index
+origin/rimmt-v0.9.3-t5-haulmerge-patch-census`tcb2b82c6ab6af71943591136f96baef28a26b573`tBuild V0.9.3-T5 HaulMerge patch census
+origin/rimmt-v0.9.3-t6-commonsense-haulmerge-coexist`t1659b8dd8948ba304b4103db680aa6a509800590`tBuild V0.9.3-T6 CommonSense HaulMerge coexistence
+origin/rimmt-v0.9.3-t7-carrier-pruners`taba5579e26db80ea434aa31841070a150b888257`tBuild V0.9.3-T7 carrier pruners
+origin/rimmt-v0.9.3-t8-t5-carrier-pruners`t47b1302ba990de9df4842a0f9fa62c687e89ac28`tBuild V0.9.3-T8 clean T5 carrier pruners
+origin/rimmt-v0.9.3-t9-pather-internal-attribution`t64480627f5e52d218e244bfbfaf73c56b87d0c77`tBuild V0.9.3-T9 Pather internal attribution
+rimmt-t34c10-validation`t9abce19325ca6d68919de4db6692ce9500c2f51c`tAdd T34-C.9 parallel DoBill readiness fabric
+rimmt-v0.9.3-t34c-parallel-candidate-classification`t09cfcff0b54feaf7a515a7907fe01ebefc48c0f2`tAdd T34-C.10 target count parallel fabric
+rimmt-v0.9.3-t34c11-haul-candidate-fabric`t38806ee43933176ce3480ea6c98589c3c70b1ed8`tFix diagnostics startup type initialization

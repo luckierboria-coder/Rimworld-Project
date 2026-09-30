@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T32B.1 Adaptive Forbidden Fingerprint</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T32-B.1 for RimWorld 1.5. T32-A Reservation Transaction remains active. T21 Forbidden fingerprint capture is now adaptive per validator method+scanner trust state: cold/low-reuse validators keep T32-B Lazy stores, while already-trusted validators with sustained first-repeat rate >=12.5% switch to Eager capture so first repeats retain the original T21 replay opportunity. Eager returns to Lazy below 6.25% after sufficient evidence. Hysteresis and bounded evidence prevent flapping. False-only authority, live parity, mismatch quarantine, package-local lifetime, T32-A and zero-wait remain unchanged. No WorkGiver/mod-name specialization is used.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

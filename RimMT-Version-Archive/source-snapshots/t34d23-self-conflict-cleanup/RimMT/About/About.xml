@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34D.2.3 Self-Conflict Cleanup</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T34-D.2.3 for RimWorld 1.5. Retires the near-zero-yield T34-A gameplay prefix and Global Haul consumer while retaining T34-B snapshot publication, proven job-search filters, reservation/reachability transactions, and T34-D worker validation. Scanner types that produce a completed worker wait above 8ms are quarantined. Includes one-shot cleanup of the retired WaitProbe save component and coalesces one redundant post-load Unity asset cleanup after an entry cleanup.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

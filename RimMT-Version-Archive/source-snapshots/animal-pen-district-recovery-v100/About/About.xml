@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Animal Pen District Recovery 1.5</name>
+  <author>Allen</author>
+  <packageId>allen.animalpendistrictrecovery15</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>fishery.performancefish</li>
+    <li>pathfinding.framework</li>
+    <li>allen.rimmt</li>
+  </loadAfter>
+  <description>Repairs map cells whose Region has lost its District before vanilla animal pen calculations use that null District as a dictionary key. It tries a targeted region rebuild first, performs at most one full rebuild per 600 ticks when needed, and records the exact bad cell and Region state.</description>
+</ModMetaData>

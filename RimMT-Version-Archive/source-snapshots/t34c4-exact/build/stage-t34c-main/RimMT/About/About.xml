@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34C.4 Refuel Eligibility Shadow Census</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T34-C.4 for RimWorld 1.5. Adds measurement-only Refuel and Refuel_Turret eligibility shadows to the root-independent candidate classification fabric. Refuelable presence, full state and automatic-refuel state are captured on the main thread, classified from primitive rows on workers and correlated with the live original validator, but never reject a candidate in this version. Bounded scanner-closure failure evidence and first-consumption plan yield expose the remaining coverage and build waste. Existing authoritative negatives retain live parity checks and fail-open quarantine; FullParallel remains HARD_OFF.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

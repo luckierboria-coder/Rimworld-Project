@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT Wait/DCP Deep Diagnostics v0.4.2</name>
+  <author>Allen / OpenAI</author>
+  <packageId>allen.rimmt.waitprobe</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+  </modDependencies>
+  <loadAfter>
+    <li>allen.rimmt</li>
+    <li>allen.rimmt.diagnostics</li>
+    <li>allen.draftedcommandpriority</li>
+  </loadAfter>
+  <description>Read-only deep diagnostics for repeated Wait and unexpected drafted-command authority. Records draft transitions, direct field drift, job lifecycle, player-forced queues, DCP authority gates and Harmony owners. Automatically writes a bounded report when suspicious waits appear. It does not change pawns, jobs, queues or gameplay results.</description>
+</ModMetaData>

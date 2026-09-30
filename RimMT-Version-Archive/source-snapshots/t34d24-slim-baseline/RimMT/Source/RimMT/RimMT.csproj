@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>RimMT</AssemblyName>
+    <RootNamespace>RimMT</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>..\..\1.5\Assemblies\</OutputPath>
+    <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <!--
+    V0.9.3-T16 keeps superseded experiments and resident deep profilers out of the assembly.
+    The bounded WorkGiver/T16 search diagnostic components are compiled because they
+    remain inert at startup and are installed only for one bounded 64-package on-demand burst,
+    after which their temporary Harmony detours are removed.
+  -->
+  <ItemGroup>
+    <Compile Include="Bootstrap\RimMTBootstrap.cs" />
+    <Compile Include="Compatibility\FeatureGate.cs" />
+    <Compile Include="Core\RimMTRuntime.cs" />
+    <Compile Include="Core\RimMTThreadGuard.cs" />
+    <Compile Include="AI\CarrierMechCheapNegative093T8.cs" />
+    <Compile Include="AI\GenClosestTransactionIndex093T22.cs" />
+    <Compile Include="AI\JobGiverSlowSearch0419S.cs" />
+    <Compile Include="AI\JobSearchPackageContext093T28.cs" />
+    <Compile Include="AI\JobSearchTransaction093T20.cs" />
+    <Compile Include="AI\ReservationTransaction093T32A.cs" />
+    <Compile Include="AI\WorkGiverMergePartnerIndex093T4.cs" />
+    <Compile Include="Diagnostics\RimMTDiagnostics.cs" />
+    <Compile Include="Patches\RimMTPatches.cs" />
+    <Compile Include="Patches\TextMetricCache.cs" />
+    <Compile Include="Settings\RimMTMod.cs" />
+    <Compile Include="Settings\RimMTMonitorWindow.cs" />
+    <Compile Include="Settings\RimMTSettings.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4063" />
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
+
+
+

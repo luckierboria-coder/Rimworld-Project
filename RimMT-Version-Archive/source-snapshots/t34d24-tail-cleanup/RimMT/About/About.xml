@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34D.2.4 Tail Cleanup</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T34-D.2.4 for RimWorld 1.5. Keeps the D.2.3 self-conflict cleanup, gates T34-B speculative prefetch by measured candidate yield, and identifies the first Unity cleanup from the exact Game.LoadGame/InitNewGame boundary so one following redundant cleanup can be skipped. Proven job-search filters, reservation/reachability transactions, T34-D worker validation, and retired WaitProbe save migration remain active.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

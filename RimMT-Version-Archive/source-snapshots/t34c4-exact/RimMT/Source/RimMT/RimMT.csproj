@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>RimMT</AssemblyName>
+    <RootNamespace>RimMT</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>..\..\1.5\Assemblies\</OutputPath>
+    <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
+  </PropertyGroup>
+
+  <!--
+    V0.9.3-T16 keeps superseded experiments and resident deep profilers out of the assembly.
+    The bounded WorkGiver/T16 search diagnostic components are compiled because they
+    remain inert at startup and are installed only for one bounded 64-package on-demand burst,
+    after which their temporary Harmony detours are removed.
+  -->
+  <ItemGroup>
+    <Compile Remove="AI\AsyncJobCandidatePlan04182.cs" />
+    <Compile Remove="AI\JobPackageLocalSearch0419.cs" />
+    <Compile Remove="AI\ParallelRegionConnectivity.cs" />
+    <Compile Remove="AI\ParallelWorkPrefilter.cs" />
+    <Compile Remove="AI\PathSnapshotWorker.cs" />
+    <Compile Remove="AI\SafePathClassTelemetry0418.cs" />
+    <Compile Remove="AI\SingleCallCandidatePartition.cs" />
+    <Compile Remove="Compatibility\WorkPrefilterCompatibility04171.cs" />
+    <Compile Remove="Compatibility\WorkPrefilterCompatibility04172.cs" />
+    <Compile Remove="Diagnostics\HotPathProfiler.cs" />
+    <Compile Remove="Diagnostics\ReachabilityPatchCensus.cs" />
+    <Compile Remove="Diagnostics\WaitStallTrace093T27_3.cs" />
+    <Compile Remove="Patches\WaitStallPatches093T27_3.cs" />
+    <Compile Remove="Patches\HotPathPatches.cs" />
+    <Compile Remove="Patches\PathSnapshotSafetyPatches.cs" />
+    <Compile Remove="Patches\ThingOverlayCache.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4063" />
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
+
+
+

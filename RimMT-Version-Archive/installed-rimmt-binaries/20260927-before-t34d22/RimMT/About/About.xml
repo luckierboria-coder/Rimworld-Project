@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34D.2.1 DoBill Worker Admission Fix</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>RimMT T34-D.2.1 for RimWorld 1.5. Fixes D.2 worker admission: the DoBill readiness feature is registered, batch admission is atomic, partitions are sized from unknown live checks, and rejected calls return directly to the original serial path. Large live unknown BillStack readiness sets execute across the persistent worker pool. The main thread commits ordered results and package-local false memo state after worker completion; any worker exception falls back the complete call to the existing serial path. T34-D.1.3 Reachability and MapPawns shared-cache guards remain active.</description>
+</ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
