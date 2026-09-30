@@ -7,10 +7,10 @@ $ErrorActionPreference='Stop'
 $RimMTDotnetRoot='E:\Codex\toolchains\dotnet-sdk-8.0.425'
 $RimMTNugetRoot='E:\Codex\caches\nuget-packages'
 $RimMTDotnetHome='E:\Codex\caches\dotnet-home'
-$RimMTDotnetExe=Join-Path $RimMTDotnetRoot 'dotnet.exe'
+$RimMTDotnetExe=$RimMTDotnetRoot + '\dotnet.exe'
 
-$localReady=(Test-Path -LiteralPath $RimMTDotnetExe) -and
-  (Test-Path -LiteralPath $RimMTNugetRoot)
+$localReady=(Test-Path -LiteralPath $RimMTDotnetExe -ErrorAction SilentlyContinue) -and
+  (Test-Path -LiteralPath $RimMTNugetRoot -ErrorAction SilentlyContinue)
 
 if($localReady){
   New-Item -ItemType Directory -Force -Path $RimMTDotnetHome | Out-Null
@@ -34,7 +34,7 @@ if($null -eq $hostDotnet){
   throw 'No existing RimMT local SDK and no host-provided dotnet SDK. Per project policy the build will not install or bootstrap a toolchain.'
 }
 
-# Host-provided environment (e.g. GitHub Actions setup-dotnet / runner image).
+# Host-provided environment (e.g. GitHub Actions runner / setup-dotnet).
 # Do not override DOTNET_ROOT/NUGET_PACKAGES unless the host already supplied them.
 $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1'
 $env:NuGetAudit='false'
