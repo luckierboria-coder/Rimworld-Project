@@ -11,7 +11,7 @@ if(-not (Test-Path $dll)){ throw 'LargePawns Pathfinding Guard DLL missing' }
 
 $src=Get-Content (Join-Path $root 'LargePawnsPathfindingGuard/Source/LargePawnsPathfindingGuard/LargePawnsPathfindingGuard.cs') -Raw
 foreach($required in @(
-  'BodySize >= 2',
+  'LargeBodySize = 2.0f',
   'StormScore = 3',
   'RetryIntervalTicks = 600',
   'TryForceExit',
