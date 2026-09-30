@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>LargePawns Pathfinding Guard 1.5</name>
+  <author>Allen / OpenAI</author>
+  <packageId>allen.largepawns.pathfindingguard</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>neku.largepawns</li>
+    <li>pathfinding.framework</li>
+  </loadAfter>
+  <description>Compatibility/performance guard for RimWorld 1.5 Large Pawns + Pathfinding Framework. It does not replace normal pathfinding. It watches only non-player large pawns (BodySize >= 2) already executing edge/ExitMap Goto jobs. After repeated slow/failing path attempts it throttles expensive StartPath/TryEnterNextPathCell retries; if an NPC is already within 64 cells of the map edge and repeatedly proves unable to exit, it completes the already-requested exit as a narrow fail-safe. Normal pawn paths, player pawns and non-exit jobs are untouched.</description>
+</ModMetaData>
