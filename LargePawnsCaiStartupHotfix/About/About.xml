@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>LargePawns CAI Startup Hotfix 1.5</name>
+  <author>Allen / OpenAI</author>
+  <packageId>allen.largepawns.caistartuphotfix</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadBefore><li>neku.largepawns</li></loadBefore>
+  <description>Startup-only hotfix for the RimWorld 1.5 LargePawns backport. It bypasses only LargePawns.Patches.CaiCompatHelper.EnsureApplied, avoiding its startup-time full type scan. No other LargePawns patches are changed.</description>
+</ModMetaData>
