@@ -32,7 +32,6 @@ namespace RimMT.Diagnostics
             sb.Append(DiagnosticsHub.BuildSummary());
             sb.Append(DiagnosticsV02.BuildSummary());
             sb.Append(DiagnosticsV03.BuildSummary());
-            sb.Append(MapPostTickComponentCensus.Summary());
             sb.AppendLine("------------------------------------------------------------");
             sb.AppendLine("[RimMT production summaries via reflection]");
             sb.Append(RimMTBridge.BuildSummary());
@@ -48,19 +47,9 @@ namespace RimMT.Diagnostics
     {
         private static readonly string[] SummaryTypes = new string[]
         {
-            "RimMT.HaulToInventoryParallelEligibility093T34C11",
-            "RimMT.TargetCountParallelFabric093T34C10",
-            "RimMT.DoBillParallelReadinessFabric093T34C9",
-            "RimMT.RootFrameStallCensus093T34C8",
-            "RimMT.CandidateClassificationFabric093T34C",
-            "RimMT.ScannerParallelFabric093T34B",
-            "RimMT.CandidateFabric093T34A",
-            "RimMT.PersistentMapSearchFabric",
-            "RimMT.GlobalHaulAccelerator",
-            "RimMT.JobSearchPackageContext093T28",
-            "RimMT.ReservationTransaction093T32A",
             "RimMT.JobSearchTransaction093T20",
             "RimMT.GenClosestTransactionIndex093T22",
+            "RimMT.AggressiveReachabilityProfilesV17",
             "RimMT.SimulationEpochCoordinator093T26",
             "RimMT.WorkGiverParallelSafety093T27_2",
             "RimMT.JobGiverSlowSearch0419S",
@@ -124,7 +113,6 @@ namespace RimMT.Diagnostics
         internal static string BuildSummary()
         {
             StringBuilder sb = new StringBuilder(16384);
-            AuditOne(sb, AccessTools.Method(typeof(Root_Play), "Update"), "Root_Play.Update");
             AuditOne(sb, AccessTools.Method(typeof(TickManager), "DoSingleTick"), "TickManager.DoSingleTick");
             AuditOne(sb, AccessTools.Method(typeof(Pawn), "Tick"), "Pawn.Tick");
             AuditOne(sb, AccessTools.Method(typeof(Pawn_JobTracker), "JobTrackerTick"), "Pawn_JobTracker.JobTrackerTick");
@@ -137,13 +125,6 @@ namespace RimMT.Diagnostics
             AuditNamed(sb, typeof(Reachability), "CanReach", "Reachability.CanReach");
             AuditNamed(sb, typeof(GenClosest), "ClosestThingReachable", "GenClosest.ClosestThingReachable");
             AuditNamed(sb, typeof(GenClosest), "ClosestThing_Global", "GenClosest.ClosestThing_Global");
-
-            Type pua = AccessTools.TypeByName("PickUpAndHaul.WorkGiver_HaulToInventory");
-            if (pua != null)
-            {
-                AuditOne(sb, AccessTools.Method(pua, "PotentialWorkThingsGlobal"), "PickUpAndHaul.WorkGiver_HaulToInventory.PotentialWorkThingsGlobal");
-                AuditOne(sb, AccessTools.Method(pua, "HasJobOnThing"), "PickUpAndHaul.WorkGiver_HaulToInventory.HasJobOnThing");
-            }
 
             sb.AppendLine("-- HaulMerge authority chain --");
             AuditOne(sb, AccessTools.Method(typeof(WorkGiver_Merge), "JobOnThing", new Type[] { typeof(Pawn), typeof(Thing), typeof(bool) }), "WorkGiver_Merge.JobOnThing");
