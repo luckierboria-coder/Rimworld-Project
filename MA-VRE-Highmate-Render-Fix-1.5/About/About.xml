@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>MA - VRE Highmate Render Fix 1.5</name>
+  <author>Allen / ShangRuo</author>
+  <packageId>Allen.MAVREHighmateRenderFix15</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>co.uk.epicguru.meleeanimation</packageId>
+      <displayName>Melee Animation</displayName>
+    </li>
+    <li>
+      <packageId>vanillaracesexpanded.highmate</packageId>
+      <displayName>Vanilla Races Expanded - Highmate</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>co.uk.epicguru.meleeanimation</li>
+    <li>vanillaracesexpanded.highmate</li>
+  </loadAfter>
+  <description>RimWorld 1.5 compatibility hotfix for Melee Animation and Vanilla Races Expanded - Highmate. Guards the Highmate HeadgearVisible postfix against incomplete PawnDrawParms used by temporary Melee Animation render passes, and suppresses only NullReferenceException thrown by that specific Highmate postfix while inside Melee Animation DrawPawns. Other render exceptions remain visible.</description>
+</ModMetaData>
