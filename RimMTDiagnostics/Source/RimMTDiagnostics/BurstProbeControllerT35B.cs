@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using HarmonyLib;
 using RimWorld;
@@ -33,6 +34,7 @@ namespace RimMT.Diagnostics
         private static long removes;
         private static long installFailures;
         private static long hotTicks;
+        [ThreadStatic] private static long tickStarted;
 
         internal static bool DeepActive { get { return deepActive; } }
 
@@ -45,13 +47,17 @@ namespace RimMT.Diagnostics
 
         internal static void OnTickBegin()
         {
+            tickStarted = Stopwatch.GetTimestamp();
             deepActive = hotInstalled && burstRemaining > 0;
             if (deepActive) hotTicks++;
         }
 
         internal static void OnTickEnd()
         {
-            long us = DiagnosticsHub.LastTickUs;
+            long started = tickStarted;
+            tickStarted = 0L;
+            long dt = started == 0L ? 0L : Stopwatch.GetTimestamp() - started;
+            long us = dt <= 0L ? 0L : dt * 1000000L / Stopwatch.Frequency;
 
             if (deepActive && burstRemaining > 0)
             {
