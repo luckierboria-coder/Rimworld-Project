@@ -1,0 +1,52 @@
+name: Build Clean Pathfinding Glow Cache Optimizer
+
+on:
+  push:
+    branches:
+      - cleanpathfinding-glowcache-optimizer-standalone
+    paths:
+      - 'CleanPathfinding-GlowCache-Optimizer-1.5/**'
+      - '.github/workflows/build-cleanpathfinding-glowcache-optimizer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore CleanPathfinding-GlowCache-Optimizer-1.5/Source/CleanPathfindingGlowCacheOptimizer/CleanPathfindingGlowCacheOptimizer.csproj
+
+      - name: Build
+        shell: pwsh
+        run: dotnet build CleanPathfinding-GlowCache-Optimizer-1.5/Source/CleanPathfindingGlowCacheOptimizer/CleanPathfindingGlowCacheOptimizer.csproj -c Release --no-restore
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $src = "CleanPathfinding-GlowCache-Optimizer-1.5"
+          $dst = "build/CleanPathfinding_GlowCache_Optimizer_1.5"
+          New-Item -ItemType Directory -Force "$dst/About" | Out-Null
+          New-Item -ItemType Directory -Force "$dst/1.5/Assemblies" | Out-Null
+          Copy-Item "$src/About/About.xml" "$dst/About/About.xml"
+          Copy-Item "$src/README.txt" "$dst/README.txt"
+          Copy-Item "$src/1.5/Assemblies/CleanPathfinding.GlowCacheOptimizer.dll" "$dst/1.5/Assemblies/CleanPathfinding.GlowCacheOptimizer.dll"
+          Compress-Archive -Path "$dst" -DestinationPath "build/CleanPathfinding_GlowCache_Optimizer_1.5.zip" -Force
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: CleanPathfinding-GlowCache-Optimizer-1.5
+          path: build/CleanPathfinding_GlowCache_Optimizer_1.5.zip
+          if-no-files-found: error
