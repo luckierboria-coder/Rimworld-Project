@@ -19,7 +19,7 @@ namespace RimMT
         {
             Listing_Standard listing = new Listing_Standard();
             listing.Begin(inRect);
-            listing.Label("RimMT V0.9.3-T34D.2.3 Lean Live V2");
+            listing.Label("RimMT V0.9.3-T34D.2.3 Lean Live V2.1");
             listing.Label("Only runtime-verified synchronous modules are present in this DLL.");
             listing.GapLine();
 

@@ -1,4 +1,4 @@
-# RimMT Lean Live V2 module audit
+# RimMT Lean Live V2/V2.1 module audit
 
 Audit date: 2026-10-01
 
@@ -45,7 +45,16 @@ Runtime counters are cumulative and sessions have different lengths, so raw maxi
 - The project now uses `EnableDefaultCompileItems=false` and lists every production source file explicitly.
 - 74 retired C# files, about 26,000 lines, were removed from the active source tree. Their history remains available in Git and the version archive.
 - The old nearest-first implementation was reduced to a small synchronous scope timer; its candidate plan cache and Harmony hooks were deleted.
-- The final DLL contains 18 explicitly listed source files and no scheduler, dispatcher, tick sampler, T34 fabric, reachability cache, reservation cache, Clean Pathfinding hook or resident profiler.
+- V2 originally contained 18 explicitly listed source files. V2.1 consolidates S5.1 into S4 and reduces that list to 17 files, with no scheduler, dispatcher, tick sampler, T34 fabric, reachability cache, reservation cache, Clean Pathfinding hook or resident profiler.
+
+## V2.1 current-log follow-up
+
+The 2026-10-01 V2 runtime report confirmed that the cleaned DLL was loaded. In 1,133 synchronous work packages it recorded 667,443 live validator calls. The heaviest remaining WorkGivers were HaulMerge, Train and Repair. The retained filters were productive: 69,361 T4 merge negatives, 144,190 carrier/mech negatives, 298,731 S4 prefilter negatives, 5,932,665 DoBill false-memo hits and 466,360 Common Sense memo hits, all with zero recorded module failures.
+
+V2.1 therefore makes two bounded changes:
+
+- S5.1 no longer installs a second Harmony prefix on the same `ClosestThingReachable` overload. Its 16 ms known-small-set route is part of the single S4 prefix.
+- Exact vanilla `WorkGiver_Train` and `WorkGiver_Repair` receive cheap negative pruning only when their concrete runtime type matches and their `HasJobOnThing`/`JobOnThing` hierarchy has no Harmony patches. Survivors still execute the original validator and live `CanReach`; no positive, Job, reservation or reachability result is cached.
 
 ## Validation status
 

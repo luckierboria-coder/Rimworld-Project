@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
@@ -23,6 +24,8 @@ namespace RimMT
         private const int LargeSearchThreshold = 256;
         private const int TailMinSourceCount = 16;
         private const int TailRescueThresholdMs = 32;
+        private const int KnownSmallThresholdMs = 16;
+        private const int KnownSmallMax = 127;
         private const int EarlyKnownHeavyThresholdMs = 8;
         private const int TargetedEarlyThresholdMs = 8;
         private const long EarlyKnownHeavyMinCalls = 2;
@@ -32,6 +35,7 @@ namespace RimMT
         private const int MaxHeavyValidatorKeys = 24;
         private const int MaxHeavyWorkGiverKeys = 64;
         private static readonly long TailRescueThresholdTicks = Math.Max(1L, Stopwatch.Frequency * TailRescueThresholdMs / 1000L);
+        private static readonly long KnownSmallThresholdTicks = Math.Max(1L, Stopwatch.Frequency * KnownSmallThresholdMs / 1000L);
         private static readonly long EarlyKnownHeavyThresholdTicks = Math.Max(1L, Stopwatch.Frequency * EarlyKnownHeavyThresholdMs / 1000L);
         private static readonly long TargetedEarlyThresholdTicks = Math.Max(1L, Stopwatch.Frequency * TargetedEarlyThresholdMs / 1000L);
 
@@ -46,6 +50,7 @@ namespace RimMT
         private static long staticLargeEligible;
         private static long tailEligible;
         private static long customTailEligible;
+        private static long knownSmallEligible;
         private static long accelerated;
         private static long acceleratedNull;
         private static long validatorRejected;
@@ -73,6 +78,8 @@ namespace RimMT
         private static long targetedFeedHemogenRejected;
         private static long targetedVisitSickRejected;
         private static long targetedFightFiresRejected;
+        private static long targetedTrainRejected;
+        private static long targetedRepairRejected;
         private static long targetedPrefilterAuthorityBypass;
         private static long targetedEarlyChecks;
         private static long targetedEarlyHits;
@@ -147,8 +154,18 @@ namespace RimMT
                 long elapsedScope = Stopwatch.GetTimestamp() - scopeStart;
                 if (elapsedScope < TailRescueThresholdTicks)
                 {
-                    if (elapsedScope < TargetedEarlyThresholdTicks || !CanUseTargetedEarly(__6)) return true;
-                    targetedEarlyCustomAdmissions++;
+                    if (elapsedScope >= TargetedEarlyThresholdTicks && CanUseTargetedEarly(__6))
+                    {
+                        targetedEarlyCustomAdmissions++;
+                    }
+                    else
+                    {
+                        int knownCount;
+                        if (elapsedScope < KnownSmallThresholdTicks || !TryKnownCount(__7, out knownCount) ||
+                            knownCount <= 0 || knownCount > KnownSmallMax)
+                            return true;
+                        knownSmallEligible++;
+                    }
                 }
                 customTailEligible++;
                 return TryAccelerateCustom(__7, __0, map, __3, __4, __5, __6, RescueRoute.CustomTail, ref __result);
@@ -176,6 +193,16 @@ namespace RimMT
 
             tailEligible++;
             return TryAccelerateList(source, count, __0, map, __3, __4, __5, __6, RescueRoute.TailList, ref __result);
+        }
+
+        private static bool TryKnownCount(IEnumerable<Thing> source, out int count)
+        {
+            ICollection<Thing> generic = source as ICollection<Thing>;
+            if (generic != null) { count = generic.Count; return true; }
+            ICollection nongeneric = source as ICollection;
+            if (nongeneric != null) { count = nongeneric.Count; return true; }
+            count = -1;
+            return false;
         }
 
         private static bool TryAccelerateList(List<Thing> source, int count, IntVec3 root, Map map,
@@ -283,6 +310,8 @@ namespace RimMT
                             else if (targetedKind == TargetedPrefilterKind.FeedHemogen) targetedFeedHemogenRejected++;
                             else if (targetedKind == TargetedPrefilterKind.VisitSickPawn) targetedVisitSickRejected++;
                             else if (targetedKind == TargetedPrefilterKind.FightFires) targetedFightFiresRejected++;
+                            else if (targetedKind == TargetedPrefilterKind.Train) targetedTrainRejected++;
+                            else if (targetedKind == TargetedPrefilterKind.Repair) targetedRepairRejected++;
                             continue;
                         }
                         candidates[write++] = candidate;
@@ -436,6 +465,8 @@ namespace RimMT
                 return TargetedPrefilterKind.VisitSickPawn;
             if (type.FullName == "RimWorld.WorkGiver_FightFires")
                 return TargetedPrefilterKind.FightFires;
+            if (type == typeof(WorkGiver_Train)) return TargetedPrefilterKind.Train;
+            if (type == typeof(WorkGiver_Repair)) return TargetedPrefilterKind.Repair;
             return TargetedPrefilterKind.None;
         }
 
@@ -570,6 +601,29 @@ namespace RimMT
                     }
                     if (worker.WorkTagIsDisabled(WorkTags.Firefighting)) return false;
                     if (!worker.Map.areaManager.Home[fire.Position]) return false;
+                    return true;
+                }
+
+                if (kind == TargetedPrefilterKind.Train)
+                {
+                    Pawn animal = thing as Pawn;
+                    if (animal == null || !animal.IsNonMutantAnimal || animal.RaceProps == null) return false;
+                    if (animal.RaceProps.animalType == AnimalType.Dryad) return false;
+                    if (worker == null || animal.Faction != worker.Faction || animal.training == null) return false;
+                    if (animal.training.NextTrainableToTrain() == null) return false;
+                    return true;
+                }
+
+                if (kind == TargetedPrefilterKind.Repair)
+                {
+                    Building building = thing as Building;
+                    if (building == null || worker == null || worker.Map == null || building.Map != worker.Map) return false;
+                    Map map = worker.Map;
+                    if (worker.Faction == Faction.OfPlayer && !map.areaManager.Home[building.Position]) return false;
+                    if (map.designationManager.DesignationOn(building, DesignationDefOf.Deconstruct) != null) return false;
+                    if (building.def.mineable && map.designationManager.DesignationAt(building.Position, DesignationDefOf.Mine) != null) return false;
+                    if (building.def.mineable && map.designationManager.DesignationAt(building.Position, DesignationDefOf.MineVein) != null) return false;
+                    if (building.IsBurning()) return false;
                     return true;
                 }
 
@@ -748,6 +802,7 @@ namespace RimMT
                    ", staticLargeEligible=" + staticLargeEligible +
                    ", tailEligible=" + tailEligible +
                    ", customTailEligible=" + customTailEligible +
+                   ", knownSmallIntegratedEligible=" + knownSmallEligible +
                    ", accelerated=" + accelerated +
                    ", acceleratedNull=" + acceleratedNull +
                    ", validatorCallsActual=" + actualValidatorCalls +
@@ -773,7 +828,8 @@ namespace RimMT
                    ", targetedPrefilterRejected=" + targetedPrefilterRejected +
                    " [haulCorpses=" + targetedHaulCorpsesRejected + ", holdingPlatform=" + targetedHoldingPlatformRejected +
                    ", feedHemogen=" + targetedFeedHemogenRejected + ", visitSick=" + targetedVisitSickRejected +
-                   ", fightFires=" + targetedFightFiresRejected + "]" +
+                   ", fightFires=" + targetedFightFiresRejected + ", train=" + targetedTrainRejected +
+                   ", repair=" + targetedRepairRejected + "]" +
                    ", targetedAuthorityBypass=" + targetedPrefilterAuthorityBypass +
                    ", targetedEarly=" + (targetedEarlyListAdmissions + targetedEarlyCustomAdmissions) +
                    " [checks=" + targetedEarlyChecks + ", hits=" + targetedEarlyHits +
@@ -822,7 +878,7 @@ namespace RimMT
 
         private enum RescueRoute { StaticLarge, TailList, CustomTail }
         private enum PenPrefilterKind { None, TakeToPen, TakeRoamingAnimalsToPen, DerivedTakeToPen }
-        private enum TargetedPrefilterKind { None, HaulCorpses, TakeEntityToHoldingPlatform, FeedHemogen, VisitSickPawn, FightFires }
+        private enum TargetedPrefilterKind { None, HaulCorpses, TakeEntityToHoldingPlatform, FeedHemogen, VisitSickPawn, FightFires, Train, Repair }
 
         private sealed class HeavyValidatorStats
         {

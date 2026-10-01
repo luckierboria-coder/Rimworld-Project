@@ -25,7 +25,6 @@
     <Compile Include="AI\JobGiverGlobalNearest04181.cs" />
     <Compile Include="AI\JobSearchPackageContext093T28.cs" />
     <Compile Include="AI\JobGiverSlowSearch0419S.cs" />
-    <Compile Include="AI\JobGiverHybridTailS51.cs" />
     <Compile Include="AI\CarrierMechCheapNegative093T8.cs" />
     <Compile Include="AI\WorkGiverMergePartnerIndex093T4.cs" />
     <Compile Include="AI\PersistentDoBillIndex092.cs" />
