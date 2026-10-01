@@ -1,148 +1,30 @@
 using System;
-using System.Threading;
-using Verse;
 
 namespace RimMT
 {
     internal static class RimMTRuntime
     {
-        private const string RetiredRegionFeature = "parallel.regionHint";
-        private const string RetiredWorkPrefilterFeature = "parallel.workPrefilter";
-
         private static bool initialized;
-        private static bool compatibilityChecked;
-        private static JobScheduler scheduler;
-        private static long mainThreadFrames;
-        private static long butterLogicalTickDrainDeferrals;
-        private static long butterProbeFailureDrainDeferrals;
-        private static int detectedProcessorCount;
 
-        internal static JobScheduler Scheduler { get { return scheduler; } }
         internal static bool Initialized { get { return initialized; } }
-        internal static int DetectedProcessorCount { get { return detectedProcessorCount; } }
-        internal static long MainThreadFrames { get { return Interlocked.Read(ref mainThreadFrames); } }
-        internal static long ButterLogicalTickDrainDeferrals { get { return Interlocked.Read(ref butterLogicalTickDrainDeferrals); } }
-        internal static long ButterProbeFailureDrainDeferrals { get { return Interlocked.Read(ref butterProbeFailureDrainDeferrals); } }
+        internal static int DetectedProcessorCount { get { return Math.Max(1, Environment.ProcessorCount); } }
 
         internal static void Initialize()
         {
             if (initialized) return;
             initialized = true;
-            RuntimeCompatibility.Initialize();
 
-            detectedProcessorCount = Math.Max(1, Environment.ProcessorCount);
-            int workers = Math.Max(1, Math.Min(detectedProcessorCount - 1, 8));
-            scheduler = new JobScheduler(workers, 100000);
-
-            FeatureGate.Register("runtime.scheduler", true, "Core bounded worker scheduler");
-            FeatureGate.Register("runtime.dispatcher", true, "Worker-to-main-thread dispatcher");
-            FeatureGate.Register("runtime.adaptiveBurst", true, "Rolling pressure-aware scheduler with hysteresis and worker budgets");
-            FeatureGate.Register("diagnostics.selfTest", true, "On-demand pure CPU worker self-test; excluded from production utilization counters");
-            FeatureGate.Register("ui.textCache", true, "Text metric result cache");
-            FeatureGate.Register("ai.pathTopology", true, "PathGrid topology invalidation generation");
-            FeatureGate.Register("parallel.jobScan", true, "Production haul/work scanner accelerator");
-            FeatureGate.Register("parallel.haulGlobal", true, "Direct JobGiver_Haul global accelerator");
-            FeatureGate.Register("parallel.jobPartition", true, "Legacy synchronous candidate/search helpers retained for fallback paths");
-            FeatureGate.Register(CandidateFabric093T34A.FeatureId, true, "T34-A no-wait worker-maintained candidate spatial fabric");
-            FeatureGate.Register(ScannerParallelFabric093T34B.FeatureId, true, "T34-B same-package scanner candidate parallel planning");
-            FeatureGate.Register(CandidateClassificationFabric093T34C.FeatureId, true, "T34-C primitive-only parallel candidate classification");
-            FeatureGate.Register(ParallelWorkKernel093T27.FeatureId, false, "T27/T27.1 speculative source reordering retired in T27.2 after behavior-risk evidence");
-            FeatureGate.Register(JobGiverSlowSearch0419S.FeatureId, true, "Validated slow-search tail rescue");
-            FeatureGate.Register(RetiredRegionFeature, false, "Retired: insufficient production yield");
-            FeatureGate.Register("parallel.pawnTick", false, "Unsafe / not implemented");
-            FeatureGate.Register("parallel.reservations", false, "Unsafe / not implemented");
-            FeatureGate.Register("parallel.thingTick", false, "Not implemented");
-
-            FeatureGate.Register("diagnostics.hotPaths", false, "External diagnostic layer only in Unified Lean");
-            FeatureGate.Register("diagnostics.pathFinder", false, "External diagnostic layer only");
-            FeatureGate.Register("diagnostics.jobGiver", false, "External diagnostic layer only");
-            FeatureGate.Register("diagnostics.jobGiverDetail", false, "External diagnostic layer only");
-            FeatureGate.Register("parallel.pathSnapshot", false, "Retired from production: validation-only shadow path");
-            FeatureGate.Register(RetiredWorkPrefilterFeature, false, "Retired from production: measured negative ROI");
-            FeatureGate.Register("ui.overlayCache", false, "Retired from Unified Lean production path");
-            FeatureGate.Register("ai.reachNoCache", false, "Retired; ReachProfile is the production reachability accelerator");
-
+            FeatureGate.Register("ui.textCache", true, "Validated text measurement cache");
+            FeatureGate.Register(JobGiverSlowSearch0419S.FeatureId, true, "Validated synchronous slow-search rescue");
             ApplySettings(RimMTMod.Settings);
         }
 
         internal static void ApplySettings(RimMTSettings settings)
         {
             if (!initialized || settings == null) return;
-            FeatureGate.SetEnabled("runtime.adaptiveBurst", settings.AdaptiveBurst);
             FeatureGate.SetEnabled("ui.textCache", settings.TextCache);
-
-            bool work = settings.WorkScanAcceleration;
-            FeatureGate.SetEnabled("parallel.jobScan", work);
-            FeatureGate.SetEnabled("parallel.haulGlobal", work);
-            FeatureGate.SetEnabled("parallel.jobPartition", work);
-            FeatureGate.SetEnabled(CandidateFabric093T34A.FeatureId, work);
-            FeatureGate.SetEnabled(ScannerParallelFabric093T34B.FeatureId, work);
-            FeatureGate.SetEnabled(CandidateClassificationFabric093T34C.FeatureId, work);
-            FeatureGate.SetEnabled(ParallelWorkKernel093T27.FeatureId, false);
-            FeatureGate.SetEnabled(JobGiverSlowSearch0419S.FeatureId, work);
-            JobGiverSlowSearch0419S.SetEnabled(work);
-
-            FeatureGate.SetEnabled("diagnostics.hotPaths", false);
-            FeatureGate.SetEnabled("diagnostics.pathFinder", false);
-            FeatureGate.SetEnabled("diagnostics.jobGiver", false);
-            FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
-            FeatureGate.SetEnabled("parallel.pathSnapshot", false);
-            FeatureGate.SetEnabled(RetiredWorkPrefilterFeature, false);
-            FeatureGate.SetEnabled("ui.overlayCache", false);
-            FeatureGate.SetEnabled("ai.reachNoCache", false);
-            FeatureGate.SetEnabled(RetiredRegionFeature, false);
-        }
-
-        internal static void OnMainThreadFrame()
-        {
-            if (!initialized) return;
-            Interlocked.Increment(ref mainThreadFrames);
-            if (scheduler != null) scheduler.SampleProductionConcurrency();
-            StorytellerDeepAttribution093T18.OnMainThreadFrame();
-
-            bool logicalTickBoundary = true;
-            bool butterProbeReadable = true;
-            if (RuntimeCompatibility.ButterPlusPlusActive)
-            {
-                bool logicalTickInProgress;
-                butterProbeReadable = RuntimeCompatibility.TryGetButterLogicalTickInProgress(out logicalTickInProgress);
-                if (!butterProbeReadable)
-                {
-                    logicalTickBoundary = false;
-                    Interlocked.Increment(ref butterProbeFailureDrainDeferrals);
-                }
-                else if (logicalTickInProgress)
-                {
-                    logicalTickBoundary = false;
-                    Interlocked.Increment(ref butterLogicalTickDrainDeferrals);
-                }
-            }
-
-            if (logicalTickBoundary && FeatureGate.IsEnabled("runtime.dispatcher"))
-                MainThreadDispatcher.Drain(256);
-
-            if (!compatibilityChecked && Current.ProgramState == ProgramState.Playing &&
-                (logicalTickBoundary || (RuntimeCompatibility.ButterPlusPlusActive && !butterProbeReadable)))
-            {
-                compatibilityChecked = true;
-                CompatibilityGuard.RunBaselineScan();
-                HaulWorkAccelerator.MarkCompatibilityReady();
-                GlobalHaulAccelerator.MarkCompatibilityReady();
-                CandidateFabric093T34A.MarkCompatibilityReady();
-                AdaptiveGenClosestAssist.MarkCompatibilityReady();
-                Log.Message("[RimMT] Unified Lean compatibility scan complete. Runtime profiling remains external/on-demand.");
-
-                RimMTDiagnostics.LogRuntimeReport();
-            }
+            FeatureGate.SetEnabled(JobGiverSlowSearch0419S.FeatureId, settings.WorkScanAcceleration);
+            JobGiverSlowSearch0419S.SetEnabled(settings.WorkScanAcceleration);
         }
     }
 }
-
-
-
-
-
-
-
-
-

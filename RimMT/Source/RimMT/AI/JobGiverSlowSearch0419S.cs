@@ -62,8 +62,6 @@ namespace RimMT
         private static long heavyWorkGiverUnresolved;
         private static long earlyKnownChecks;
         private static long earlyKnownHits;
-        private static long earlyKnownListAdmissions;
-        private static long earlyKnownCustomAdmissions;
         private static long penPrefilterCalls;
         private static long penPrefilterRejected;
         private static long penPrefilterTakeToPenRejected;
@@ -766,8 +764,7 @@ namespace RimMT
                    ", heavyWorkGiverUnresolved=" + heavyWorkGiverUnresolved +
                    ", earlyKnownChecks=" + earlyKnownChecks +
                    ", earlyKnownHits=" + earlyKnownHits +
-                   ", earlyKnownAdmissions=" + (earlyKnownListAdmissions + earlyKnownCustomAdmissions) +
-                   " [list=" + earlyKnownListAdmissions + ", custom=" + earlyKnownCustomAdmissions + "]" +
+                   ", earlyKnownAdmissions=0 [policy=OFF]" +
                    ", earlyKnownPolicy=OFF" +
                    ", penPrefilterCalls=" + penPrefilterCalls +
                    ", penPrefilterRejected=" + penPrefilterRejected +

@@ -5,42 +5,34 @@
     <Nullable>disable</Nullable>
     <AssemblyName>RimMT</AssemblyName>
     <RootNamespace>RimMT</RootNamespace>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>..\..\1.5\Assemblies\</OutputPath>
     <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
-  <!--
-    V0.9.3-T16 keeps superseded experiments and resident deep profilers out of the assembly.
-    The bounded WorkGiver/T16 search diagnostic components are compiled because they
-    remain inert at startup and are installed only for one bounded 64-package on-demand burst,
-    after which their temporary Harmony detours are removed.
-  -->
+  <!-- Lean Live V2 is an explicit production whitelist. Retired experiments stay in the
+       historical source tree, but cannot enter the shipped DLL through wildcard compilation. -->
   <ItemGroup>
-    <Compile Remove="AI\AggressiveParallelScanner093T34D.cs" />
-    <Compile Remove="AI\GenClosestTransactionIndex093T22.cs" />
-    <Compile Remove="AI\JobSearchTransaction093T20.cs" />
-    <Compile Remove="AI\ReservationTransaction093T32A.cs" />
-    <Compile Remove="AI\WorkGiverParallelSafety093T27_2.cs" />
-    <Compile Remove="Scheduling\SimulationEpochCoordinator093T26.cs" />
-    <Compile Remove="Compatibility\CleanPathfindingRegionCensus093T34D32.cs" />
-    <Compile Remove="AI\AsyncJobCandidatePlan04182.cs" />
-    <Compile Remove="AI\JobPackageLocalSearch0419.cs" />
-    <Compile Remove="AI\ParallelRegionConnectivity.cs" />
-    <Compile Remove="AI\ParallelWorkPrefilter.cs" />
-    <Compile Remove="AI\PathSnapshotWorker.cs" />
-    <Compile Remove="AI\SafePathClassTelemetry0418.cs" />
-    <Compile Remove="AI\SingleCallCandidatePartition.cs" />
-    <Compile Remove="Compatibility\WorkPrefilterCompatibility04171.cs" />
-    <Compile Remove="Compatibility\WorkPrefilterCompatibility04172.cs" />
-    <Compile Remove="Diagnostics\HotPathProfiler.cs" />
-    <Compile Remove="Diagnostics\ReachabilityPatchCensus.cs" />
-    <Compile Remove="Diagnostics\WaitStallTrace093T27_3.cs" />
-    <Compile Remove="Patches\WaitStallPatches093T27_3.cs" />
-    <Compile Remove="Patches\HotPathPatches.cs" />
-    <Compile Remove="Patches\PathSnapshotSafetyPatches.cs" />
-    <Compile Remove="Patches\ThingOverlayCache.cs" />
+    <Compile Include="Bootstrap\RimMTBootstrap.cs" />
+    <Compile Include="Core\RimMTRuntime.cs" />
+    <Compile Include="Core\RimMTThreadGuard.cs" />
+    <Compile Include="Compatibility\FeatureGate.cs" />
+    <Compile Include="Compatibility\CommonSenseIngredientExpand092.cs" />
+    <Compile Include="Patches\RimMTPatches.cs" />
+    <Compile Include="Patches\TextMetricCache.cs" />
+    <Compile Include="AI\JobGiverGlobalNearest04181.cs" />
+    <Compile Include="AI\JobSearchPackageContext093T28.cs" />
+    <Compile Include="AI\JobGiverSlowSearch0419S.cs" />
+    <Compile Include="AI\JobGiverHybridTailS51.cs" />
+    <Compile Include="AI\CarrierMechCheapNegative093T8.cs" />
+    <Compile Include="AI\WorkGiverMergePartnerIndex093T4.cs" />
+    <Compile Include="AI\PersistentDoBillIndex092.cs" />
+    <Compile Include="Diagnostics\RimMTDiagnostics.cs" />
+    <Compile Include="Settings\RimMTMod.cs" />
+    <Compile Include="Settings\RimMTSettings.cs" />
+    <Compile Include="Settings\RimMTMonitorWindow.cs" />
   </ItemGroup>
 
   <ItemGroup>
