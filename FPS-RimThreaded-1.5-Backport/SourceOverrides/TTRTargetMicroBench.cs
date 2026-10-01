@@ -70,7 +70,7 @@ namespace RimThreadedTTR
         private void Run(Map map)
         {
             scoreList = AccessTools.MethodDelegate<ScoreListDelegate>(
-                AccessTools.Method(typeof(AttackTargetFinder), "GetAvailableShootingTargetsByScore"), null, true, null);
+                AccessTools.Method(typeof(AttackTargetFinder), "GetAvailableShootingTargetsByScore"));
 
             Faction hostile = null;
             List<Faction> all = Find.FactionManager.AllFactionsListForReading;
