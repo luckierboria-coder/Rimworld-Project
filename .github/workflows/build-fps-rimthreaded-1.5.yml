@@ -1,0 +1,74 @@
+name: Build FPS RimThreaded 1.5.4063 Backport
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'FPS-RimThreaded-1.5-Backport/**'
+      - '.github/workflows/build-fps-rimthreaded-1.5.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout build harness
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned upstream
+        uses: actions/checkout@v4
+        with:
+          repository: LuniX000000000001/FPS-RimThreaded---Continued-
+          ref: 79681946aab1cca55a9cce0e388a7caabce6a6b0
+          path: upstream
+
+      - name: Stage 1.5 source
+        shell: pwsh
+        run: |
+          $dst = 'FPS-RimThreaded-1.5-Backport\Source'
+          Get-ChildItem "$dst\*.cs" -ErrorAction SilentlyContinue | Remove-Item -Force
+          Copy-Item 'upstream\Source_1.5\*.cs' $dst -Force
+          if (Test-Path 'FPS-RimThreaded-1.5-Backport\SourceOverrides') {
+            Copy-Item 'FPS-RimThreaded-1.5-Backport\SourceOverrides\*.cs' $dst -Force -ErrorAction SilentlyContinue
+          }
+          if (Test-Path "$dst\MultiMapPatches.cs") { throw '1.6 MultiMapPatches leaked into 1.5 source.' }
+          if (!(Test-Path "$dst\FleckPatches.cs")) { throw 'FleckPatches.cs missing.' }
+          Write-Host "Staged $((Get-ChildItem "$dst\*.cs").Count) C# source files."
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore exact 1.5.4063 references
+        run: dotnet restore FPS-RimThreaded-1.5-Backport/Source/RimThreadedTTR.csproj
+
+      - name: Build Release
+        run: dotnet build FPS-RimThreaded-1.5-Backport/Source/RimThreadedTTR.csproj --configuration Release --no-restore
+
+      - name: Verify assembly
+        shell: pwsh
+        run: |
+          $dll = 'FPS-RimThreaded-1.5-Backport\1.5\Assemblies\RimThreadedTTR.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+          $item = Get-Item $dll
+          Write-Host "DLL: $($item.FullName)"
+          Write-Host "Size: $($item.Length)"
+          $hash = Get-FileHash $dll -Algorithm SHA256
+          Write-Host "SHA256: $($hash.Hash)"
+
+      - name: Package build output
+        shell: pwsh
+        run: |
+          $stage = 'build\FPS_RimThreaded_1.5.4063_Backport'
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          Copy-Item 'FPS-RimThreaded-1.5-Backport\1.5\Assemblies\RimThreadedTTR.dll' "$stage\1.5\Assemblies\RimThreadedTTR.dll"
+          Copy-Item 'FPS-RimThreaded-1.5-Backport\README.md' "$stage\BUILD_INFO.md"
+          Compress-Archive -Path $stage -DestinationPath 'build\FPS_RimThreaded_1.5.4063_Backport_DLL.zip' -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FPS-RimThreaded-1.5.4063-Backport-DLL
+          path: build/FPS_RimThreaded_1.5.4063_Backport_DLL.zip
+          if-no-files-found: error
