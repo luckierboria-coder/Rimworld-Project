@@ -79,7 +79,7 @@ namespace RimMT
                     { priority = Priority.Last - 400 });
 
                 installed = true;
-                Log.Message("[RimMT] T28 unified Job Search transaction boundary installed. One Harmony package wrapper now coordinates T20/T21, T22, GlobalNearest and shared false-only package state.");
+                Log.Message("[RimMT] T28 lean Job Search scope installed. It coordinates GlobalNearest/T34-B only; validator, Reachability and reservation results are never replayed.");
             }
             catch (Exception ex)
             {
@@ -114,10 +114,6 @@ namespace RimMT
                 Interlocked.Increment(ref nestedPackages);
             }
 
-            // Preserve the already-validated module semantics, but run their package lifecycle
-            // through this single bottom-layer Harmony wrapper in the same logical nesting.
-            JobSearchTransaction093T20.PackagePrefix(__0, ref __state.T20);
-            GenClosestTransactionIndex093T22.PackagePrefix(ref __state.T22);
             JobGiverGlobalNearest04181.JobGiverPrefix(__0);
             __state.GlobalNearestEntered = true;
         }
@@ -126,12 +122,8 @@ namespace RimMT
         {
             if (!__state.Entered) return __exception;
 
-            // Reverse the logical enter order. Each legacy finalizer only tears down its own
-            // package-local state; no gameplay result is changed here.
             if (__state.GlobalNearestEntered)
                 __exception = JobGiverGlobalNearest04181.JobGiverFinalizer(__exception);
-            __exception = GenClosestTransactionIndex093T22.PackageFinalizer(__exception, __state.T22);
-            __exception = JobSearchTransaction093T20.PackageFinalizer(__exception, __state.T20);
 
             if (depth > 0) depth--;
             if (__state.Outermost)
@@ -248,7 +240,7 @@ namespace RimMT
                 Interlocked.Read(ref genericNegativeStores) + "/" +
                 Interlocked.Read(ref genericNegativeCapacityBypass) +
                 ", currentGeneration=" + CurrentGeneration +
-                ". One synchronous TryIssueJobPackage boundary only; no Job/reservation/priority/cross-package result is cached.";
+                ". Lean scope only; validator, Reachability, reservation, Job and priority results are never cached or replayed.";
         }
 
         private static void UpdateMax(ref long field, long value)
@@ -267,8 +259,6 @@ namespace RimMT
             internal bool Outermost;
             internal bool GlobalNearestEntered;
             internal PackageContext Shared;
-            internal JobSearchTransaction093T20.PackageState T20;
-            internal GenClosestTransactionIndex093T22.PackageState T22;
         }
 
         internal sealed class PackageContext
@@ -302,3 +292,4 @@ namespace RimMT
         }
     }
 }
+

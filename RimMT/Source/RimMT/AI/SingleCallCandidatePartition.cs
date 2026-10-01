@@ -28,11 +28,11 @@ namespace RimMT
     // pure integer ring keys. No live Verse object is dereferenced by the worker.
     internal static class SingleCallCandidatePartition
     {
-        private const string FeatureId = "parallel.jobPartition";
-        private const int MinCandidateCount = 96;
-        private const int WorkerAssistMinCount = 512;
+        private const string FeatureId = "parallel.engineStage";
+        private const int MinCandidateCount = 256;
+        private const int WorkerAssistMinCount = 256;
         private const int RingSize = 16;
-        private const double WorkerAssistBudgetMs = 0.20;
+        private static readonly long TailAdmissionTicks = Math.Max(1L, Stopwatch.Frequency * 8L / 1000L);
 
         private static volatile bool compatibilityReady;
         private static long observedCalls;
@@ -75,7 +75,7 @@ namespace RimMT
                 if (target == null)
                 {
                     FeatureGate.Suppress(FeatureId, "GenClosest.ClosestThingReachable target not found");
-                    Log.Warning("[RimMT] parallel.jobPartition V0.4.10 unavailable: GenClosest.ClosestThingReachable target not found.");
+                    Log.Warning("[RimMT] T26 parallel.engineStage candidate partition unavailable: GenClosest.ClosestThingReachable target not found.");
                     return;
                 }
 
@@ -83,12 +83,12 @@ namespace RimMT
                 HarmonyMethod prefix = new HarmonyMethod(typeof(SingleCallCandidatePartition), nameof(Prefix));
                 prefix.priority = Priority.First + 50;
                 harmony.Patch(target, prefix: prefix);
-                Log.Message("[RimMT] parallel.jobPartition V0.4.10 installed. Supported custom global Work searches are reordered nearest-first per call; Vanilla Reachability/validator/final selection remain authoritative.");
+                Log.Message("[RimMT] T26 parallel.engineStage candidate partition installed. Supported custom global Work searches are reordered nearest-first per call; Vanilla Reachability/validator/final selection remain authoritative.");
             }
             catch (Exception ex)
             {
                 FeatureGate.Suppress(FeatureId, "single-call partition patch failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] parallel.jobPartition V0.4.10 patch failed; Vanilla candidate order remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] T26 parallel.engineStage candidate partition patch failed; Vanilla candidate order remains authoritative. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -112,6 +112,11 @@ namespace RimMT
 
             if (!compatibilityReady || !FeatureGate.IsEnabled(FeatureId) ||
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return;
+
+            // T26 is a stutter-tail stage, not a permanent tax on ordinary WorkGiver scans.
+            long packageStart = JobGiverGlobalNearest04181.CurrentScopeStartTicks;
+            if (packageStart <= 0L || Stopwatch.GetTimestamp() - packageStart < TailAdmissionTicks)
                 return;
 
             if (map == null || map.Disposed || !root.IsValid || !root.InBounds(map) || customGlobalSearchSet == null)
@@ -189,7 +194,7 @@ namespace RimMT
             {
                 Interlocked.Increment(ref failures);
                 CircuitBreaker.RecordFailure(FeatureId, ex);
-                Log.Warning("[RimMT] parallel.jobPartition V0.4.10 runtime failure; this call keeps Vanilla candidate order. " + ex.GetType().Name + ": " + ex.Message);
+                Log.Warning("[RimMT] T26 parallel.engineStage candidate partition runtime failure; this call keeps Vanilla candidate order. " + ex.GetType().Name + ": " + ex.Message);
             }
         }
 
@@ -227,50 +232,14 @@ namespace RimMT
 
         private static bool TryWorkerRingKeys(int rootX, int rootZ, int[] xs, int[] zs, int[] ringKeys)
         {
-            JobScheduler scheduler = RimMTRuntime.Scheduler;
-            if (scheduler == null || scheduler.Pending > 0 || scheduler.ActiveWorkers >= scheduler.WorkerCount)
-                return false;
-
             Interlocked.Increment(ref workerAssistAttempts);
-            ManualResetEventSlim done = new ManualResetEventSlim(false);
-            bool accepted = scheduler.TryEnqueue(FeatureId, JobPriority.High, delegate
-            {
-                try
-                {
-                    ComputeRingKeys(rootX, rootZ, xs, zs, ringKeys);
-                }
-                finally
-                {
-                    done.Set();
-                }
-            });
-
-            if (!accepted)
-            {
-                done.Dispose();
-                Interlocked.Increment(ref workerAssistRejected);
-                return false;
-            }
-
-            long budgetTicks = Math.Max(1L, (long)(Stopwatch.Frequency * WorkerAssistBudgetMs / 1000.0));
-            long started = Stopwatch.GetTimestamp();
-            SpinWait spinner = new SpinWait();
-            while (!done.IsSet && Stopwatch.GetTimestamp() - started < budgetTicks)
-                spinner.SpinOnce();
-
-            if (done.IsSet)
-            {
-                done.Dispose();
+            bool completed = SimulationEpochCoordinator093T26.TryComputeRingKeys(rootX, rootZ, RingSize, xs, zs, ringKeys);
+            if (completed)
                 Interlocked.Increment(ref workerAssistCompleted);
-                return true;
-            }
-
-            Interlocked.Increment(ref workerAssistTimeouts);
-            done.Wait();
-            done.Dispose();
-            return true;
+            else
+                Interlocked.Increment(ref workerAssistTimeouts);
+            return completed;
         }
-
         private static void ComputeRingKeys(int rootX, int rootZ, int[] xs, int[] zs, int[] ringKeys)
         {
             for (int i = 0; i < ringKeys.Length; i++)
@@ -337,7 +306,7 @@ namespace RimMT
                 ", invalid=" + Interlocked.Read(ref nullOrInvalidFallbacks) +
                 ", workerAttempts=" + Interlocked.Read(ref workerAssistAttempts) +
                 ", workerImmediate=" + Interlocked.Read(ref workerAssistCompleted) +
-                ", workerWaits=" + Interlocked.Read(ref workerAssistTimeouts) +
+                ", workerFallbacks=" + Interlocked.Read(ref workerAssistTimeouts) +
                 ", workerRejected=" + Interlocked.Read(ref workerAssistRejected) +
                 ", candidatesSeen=" + Interlocked.Read(ref candidatesSeen) +
                 ", candidatesReordered=" + candidates +
@@ -348,3 +317,4 @@ namespace RimMT
         }
     }
 }
+

@@ -72,47 +72,12 @@ namespace RimMT
         {
             if (harmony == null) return;
 
-            // The fabric owns only ThingGrid observation + worker snapshot publication.
-            // CandidateFabric owns the gameplay-facing GenClosest prefix.
+            // T34-B still consumes the primitive snapshot helpers and persistent publication
+            // owned by this type. The gameplay-facing T34-A prefix is deliberately retired:
+            // the latest runtime produced only 2 accelerations from 59,192 observations.
             PersistentMapSearchFabric.Apply(harmony);
-
-            try
-            {
-                MethodBase target = AccessTools.Method(
-                    typeof(GenClosest),
-                    nameof(GenClosest.ClosestThingReachable),
-                    new Type[]
-                    {
-                        typeof(IntVec3), typeof(Map), typeof(ThingRequest), typeof(PathEndMode), typeof(TraverseParms),
-                        typeof(float), typeof(Predicate<Thing>), typeof(IEnumerable<Thing>), typeof(int), typeof(int),
-                        typeof(bool), typeof(RegionType), typeof(bool)
-                    });
-
-                if (target == null)
-                {
-                    FeatureGate.Suppress(FeatureId, "GenClosest.ClosestThingReachable 13-arg target not found");
-                    patchFailures++;
-                    return;
-                }
-
-                CompatibilityGuard.RegisterTarget(FeatureId, target);
-                HarmonyMethod prefix = new HarmonyMethod(typeof(CandidateFabric093T34A), nameof(Prefix));
-                // Run before legacy S4/S5.1/Stage3. If T34-A proves a complete result,
-                // downstream boolean prefixes observe a skipped original. On every miss,
-                // the legacy/Vanilla chain remains untouched.
-                prefix.priority = Priority.First + 320;
-                harmony.Patch(target, prefix: prefix);
-                installed = true;
-
-                Log.Message("[RimMT] T34-A Async Candidate Fabric installed. ThingRequest-backed and custom static candidate sources may use worker-maintained spatial buckets; main thread never waits and live Reachability/validator remain authoritative.");
-            }
-            catch (Exception ex)
-            {
-                patchFailures++;
-                installed = false;
-                FeatureGate.Suppress(FeatureId, "T34-A candidate fabric install failed: " + ex.GetType().Name);
-                Log.Warning("[RimMT] T34-A candidate fabric failed closed: " + ex.GetType().Name + ": " + ex.Message);
-            }
+            installed = false;
+            Log.Message("[RimMT] T34-A gameplay consumer retired; T34-B snapshot support remains active without an additional GenClosest prefix.");
         }
 
         internal static void MarkCompatibilityReady()
@@ -452,6 +417,131 @@ namespace RimMT
             }
         }
 
+
+        // T34-B bridge: reuse T34-A's proven source membership + persistent fabric ownership
+        // without duplicating mutable-world tracking. These methods are main-thread only.
+        internal static bool TryEnsureSourceSnapshotT34B(
+            Map map,
+            object source,
+            int minCount,
+            int maxCount,
+            out PersistentMapSearchFabric.SourceSnapshot snapshot,
+            out int sourceId,
+            out int count)
+        {
+            snapshot = null;
+            sourceId = 0;
+            count = 0;
+
+            if (map == null || map.Disposed || source == null ||
+                !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return false;
+
+            SourceKind kind;
+            if (!TryGetSourceShape(source, out kind, out count) ||
+                kind == SourceKind.Pawn ||
+                count < minCount || count > maxCount)
+                return false;
+
+            SourceState state = States.GetValue(source, CreateState);
+            if (state.MapId != map.uniqueID)
+            {
+                state.MapId = map.uniqueID;
+                state.Members = null;
+            }
+
+            if (!MembershipMatches(source, kind, count, state.Members))
+            {
+                Thing[] members;
+                CaptureFailure failure;
+                if (!TryCaptureMembers(source, kind, count, map, out members, out failure))
+                    return false;
+
+                state.Members = members;
+                if (!PersistentMapSearchFabric.RegisterOrUpdateSource(
+                    map, state.SourceId, members))
+                    return false;
+
+                // Publication is asynchronous. T34-B never waits for this first observation.
+                return false;
+            }
+
+            PersistentMapSearchFabric.SourceSnapshot current;
+            if (!PersistentMapSearchFabric.TryGetSourceSnapshot(
+                map, state.SourceId, out current) ||
+                current == null || current.Count != count)
+                return false;
+
+            sourceId = state.SourceId;
+            snapshot = current;
+            return true;
+        }
+
+        // Package-start prefetch intentionally skips O(N) membership revalidation. A stale
+        // prefetch is harmless because consumption always calls TryValidateSourceSnapshotT34B.
+        internal static bool TryGetKnownSourceSnapshotFastT34B(
+            Map map,
+            object source,
+            out PersistentMapSearchFabric.SourceSnapshot snapshot,
+            out int sourceId,
+            out int count)
+        {
+            snapshot = null;
+            sourceId = 0;
+            count = 0;
+
+            if (map == null || map.Disposed || source == null ||
+                !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return false;
+
+            SourceState state;
+            if (!States.TryGetValue(source, out state) ||
+                state == null || state.MapId != map.uniqueID ||
+                state.Members == null)
+                return false;
+
+            count = state.Members.Length;
+            PersistentMapSearchFabric.SourceSnapshot current;
+            if (!PersistentMapSearchFabric.TryGetSourceSnapshot(
+                map, state.SourceId, out current) ||
+                current == null || current.Count != count)
+                return false;
+
+            sourceId = state.SourceId;
+            snapshot = current;
+            return true;
+        }
+
+        internal static bool TryValidateSourceSnapshotT34B(
+            Map map,
+            object source,
+            PersistentMapSearchFabric.SourceSnapshot expected,
+            out int count)
+        {
+            count = 0;
+            if (map == null || map.Disposed || source == null || expected == null ||
+                !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
+                return false;
+
+            SourceKind kind;
+            if (!TryGetSourceShape(source, out kind, out count) ||
+                kind == SourceKind.Pawn)
+                return false;
+
+            SourceState state;
+            if (!States.TryGetValue(source, out state) ||
+                state == null || state.MapId != map.uniqueID ||
+                !MembershipMatches(source, kind, count, state.Members))
+                return false;
+
+            PersistentMapSearchFabric.SourceSnapshot current;
+            if (!PersistentMapSearchFabric.TryGetSourceSnapshot(
+                map, state.SourceId, out current) ||
+                current == null || current.Count != count)
+                return false;
+
+            return ReferenceEquals(current, expected);
+        }
         internal static string Summary()
         {
             long accelerated = Interlocked.Read(ref acceleratedCalls);
@@ -464,6 +554,7 @@ namespace RimMT
             double avgAvoided = accelerated <= 0 ? 0.0 : avoided / (double)accelerated;
 
             return "T34-A async candidate fabric: installed=" + installed +
+                ", consumerRetired=True" +
                 ", compatibilityReady=" + compatibilityReady +
                 ", observed=" + Interlocked.Read(ref observedCalls) +
                 ", inScope=" + Interlocked.Read(ref inScopeCalls) +
@@ -521,3 +612,4 @@ namespace RimMT
         }
     }
 }
+

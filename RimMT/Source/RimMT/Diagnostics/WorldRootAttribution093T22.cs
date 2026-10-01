@@ -20,7 +20,7 @@ namespace RimMT
     /// </summary>
     internal static class WorldRootAttribution093T22
     {
-        private const double TickToMs = 1000.0 / Stopwatch.Frequency;
+        private static readonly double TickToMs = 1000.0 / Stopwatch.Frequency;
         private const double CatastropheMs = 50.0;
         private const int RecentCapacity = 12;
         private const int WarningKeyCapacity = 32;
@@ -107,7 +107,7 @@ namespace RimMT
                 PatchWorldComponentOverrides(harmony);
                 PatchPawnGenerator(harmony);
                 PatchWarningAggregator(harmony);
-                PatchTraitDefDatabaseSignals(harmony);
+                // T24.1: closed-generic DefDatabase<TraitDef> Harmony hooks are forbidden on Mono. genericHarmony=OFF.
                 PatchWorldTechLevel(harmony);
 
                 Log.Message("[RimMT] T22 world-root attribution active. Direct WorldTick/world-component timing installed; " +
@@ -189,11 +189,30 @@ namespace RimMT
         private static void PatchTraitDefDatabaseSignals(Harmony harmony)
         {
             Type db = typeof(DefDatabase<TraitDef>);
-            PatchOptionalNoArgOrAny(harmony, AccessTools.Method(db, "SetIndices"), nameof(TraitSetIndicesPrefix), nameof(TraitSetIndicesPostfix));
-            PatchOptionalNoArgOrAny(harmony, AccessTools.Method(db, "Add"), nameof(TraitAddPrefix), null);
-            PatchOptionalNoArgOrAny(harmony, AccessTools.Method(db, "Remove"), nameof(TraitRemovePrefix), null);
+            // T23: resolve exact overloads inside isolated try/catch blocks. The previous
+            // AccessTools.Method(db, "Add") could throw AmbiguousMatchException before the
+            // helper's catch and abort the later WorldTechLevel setup entirely.
+            TryPatchTraitSignal(harmony, db, "SetIndices", Type.EmptyTypes,
+                nameof(TraitSetIndicesPrefix), nameof(TraitSetIndicesPostfix));
+            TryPatchTraitSignal(harmony, db, "Add", new Type[] { typeof(TraitDef) },
+                nameof(TraitAddPrefix), null);
+            TryPatchTraitSignal(harmony, db, "Remove", new Type[] { typeof(TraitDef) },
+                nameof(TraitRemovePrefix), null);
         }
 
+        private static void TryPatchTraitSignal(Harmony harmony, Type db, string name, Type[] args,
+            string prefixName, string postfixName)
+        {
+            try
+            {
+                MethodBase method = AccessTools.Method(db, name, args);
+                PatchOptionalNoArgOrAny(harmony, method, prefixName, postfixName);
+            }
+            catch
+            {
+                installFailures++;
+            }
+        }
         private static void PatchOptionalNoArgOrAny(Harmony harmony, MethodBase method, string prefixName, string postfixName)
         {
             if (method == null) return;
@@ -210,26 +229,19 @@ namespace RimMT
         {
             try
             {
-                Type genericDb = AccessTools.TypeByName("WorldTechLevel.TechLevelDatabase`1");
+                // T24.1: do not Harmony-patch WorldTechLevel.TechLevelDatabase<TraitDef> either.
+                // Closed generic methods can share Mono/JIT code across T and are not a safe patch
+                // boundary in this runtime. Keep only the non-generic global initializer timer.
                 Type global = AccessTools.TypeByName("WorldTechLevel.DefTechLevels");
-                if (genericDb == null || global == null) return;
+                if (global == null) return;
                 wtlDetected = true;
+                wtlNarrowAuthoritySafe = false;
+                wtlEnsurePatched = false;
+                wtlTraitInitialize = null;
+                wtlTraitApplyOverrides = null;
+                wtlTraitLevels = null;
 
-                Type traitDb = genericDb.MakeGenericType(typeof(TraitDef));
-                MethodInfo ensure = AccessTools.Method(traitDb, "EnsureInitialized");
-                wtlTraitInitialize = AccessTools.Method(traitDb, "Initialize");
-                wtlTraitApplyOverrides = AccessTools.Method(traitDb, "ApplyOverrides");
-                wtlTraitLevels = AccessTools.Field(traitDb, "Levels");
                 MethodInfo globalInit = AccessTools.Method(global, "Initialize");
-
-                if (ensure != null && wtlTraitInitialize != null && wtlTraitApplyOverrides != null && wtlTraitLevels != null)
-                {
-                    wtlNarrowAuthoritySafe = IsAuthoritySafeForNarrowWtl(ensure);
-                    harmony.Patch(ensure,
-                        prefix: new HarmonyMethod(typeof(WorldRootAttribution093T22), nameof(WtlTraitEnsurePrefix)) { priority = Priority.First });
-                    wtlEnsurePatched = true;
-                }
-
                 if (globalInit != null)
                 {
                     harmony.Patch(globalInit,
@@ -244,7 +256,6 @@ namespace RimMT
                 installFailures++;
             }
         }
-
         private static bool IsAuthoritySafeForNarrowWtl(MethodBase ensure)
         {
             try
@@ -657,3 +668,5 @@ namespace RimMT
         }
     }
 }
+
+

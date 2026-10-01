@@ -25,6 +25,9 @@ namespace RimMT
 
         private const int MaxSnapshotCells = 160000;
         private const long MaxProfileAgeFrames = 180;
+        private const long LeaseExtensionFrames = 180;
+        private const long HardMaxProfileAgeFrames = 720;
+        private const int LeaseProbeSamplesRequired = 4;
         private const long BuildCooldownFrames = 12;
         private const long MismatchCooldownFrames = 600;
         private const int WarmupSamples = 8;
@@ -38,10 +41,17 @@ namespace RimMT
         private const int EmergencyWindowSamples = 256;
         private const int EmergencyMismatchLimit = 16;
 
-        private const int SliceCheckMask = 63;
+        private const int SliceCheckMask = 15;
+        private const int CaptureCheckMask = 3;
+        private const long MaxCaptureQueueAgeFrames = 8;
+        private const int CaptureWatchdogMicroseconds = 5000;
+        private const long CaptureMapQuarantineFrames = 3600;
 
         private static readonly ConditionalWeakTable<Map, MapState> MapStates =
             new ConditionalWeakTable<Map, MapState>();
+        // Main-thread only. A pending capture never publishes partial data; stale work is dropped.
+        private static readonly Queue<ProfileCaptureState> PendingProfileCaptures =
+            new Queue<ProfileCaptureState>();
 
         private static readonly bool[] GlobalMismatchWindow = new bool[GlobalWindowSamples];
         private static readonly ProfileSlot[] GlobalMismatchSlotWindow = new ProfileSlot[GlobalWindowSamples];
@@ -73,6 +83,18 @@ namespace RimMT
         private static long profileCaptures;
         private static long profileCaptureTicks;
         private static long profileCaptureTicksMax;
+        private static long profileCaptureQueued;
+        private static long profileCaptureSlices;
+        private static long profileCaptureAborted;
+        private static long profileCaptureWatchdogTrips;
+        private static long profileCapturePressureBypass;
+        private static long profileCaptureMapQuarantines;
+        private static long profileCapturePairs;
+        private static long profileCapturePairTicksMax;
+        private static long admissionCompatibilityBypass;
+        private static long admissionFeatureGateBypass;
+        private static long admissionThreadBypass;
+        private static long admissionProgramStateBypass;
         private static long buildsScheduled;
         private static long buildsPublished;
         private static long buildsRejected;
@@ -95,6 +117,11 @@ namespace RimMT
         private static long queryTicksMax;
         private static long localSlotQuarantines;
         private static long localOnlyFuseDeferrals;
+        private static long leaseProbeCalls;
+        private static long leaseProbeMatches;
+        private static long leaseRenewals;
+        private static long leaseFailures;
+        private static long forcedRefreshes;
 
         // Rolling-fuse state is main-thread owned.
         private static ReachFuseMode reachFuseMode;
@@ -121,6 +148,7 @@ namespace RimMT
             if (harmony == null) return;
 
             PatchRegionDirtySignals(harmony);
+            PatchProfileCaptureDrain(harmony);
             try
             {
                 MethodBase target = AccessTools.Method(
@@ -142,7 +170,7 @@ namespace RimMT
                 postfix.priority = Priority.First;
                 harmony.Patch(target, prefix: prefix, postfix: postfix);
 
-                Log.Message("[RimMT] parallel.reachProfile V0.4.17 installed: topology capture is frame-sliced with adaptive budgets; mismatch handling is local-slot-first with multi-slot global soft fuse; emergency hard fuse remains 16/256.");
+                Log.Message("[RimMT] parallel.reachProfile V0.4.18-T1A installed: topology capture remains frame-sliced; expired profiles still require four clean forced-live lease probes; global soft/probation/hard fuse is disabled; mismatch handling is local-slot quarantine only.");
             }
             catch (Exception ex)
             {
@@ -175,18 +203,27 @@ namespace RimMT
                 return true;
             }
 
-            if (!compatibilityReady || !FeatureGate.IsEnabled(FeatureId) ||
-                !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
-                return true;
-
-            UpdateRollingFuseMode();
-            if (reachFuseMode == ReachFuseMode.Cooldown)
+            if (!compatibilityReady)
             {
-                cooldownLiveBypass++;
+                Interlocked.Increment(ref admissionCompatibilityBypass);
                 return true;
             }
-            if (reachFuseMode == ReachFuseMode.HardFused)
+            if (!FeatureGate.IsEnabled(FeatureId))
+            {
+                Interlocked.Increment(ref admissionFeatureGateBypass);
                 return true;
+            }
+            if (!RimMTThreadGuard.IsMainThread)
+            {
+                Interlocked.Increment(ref admissionThreadBypass);
+                return true;
+            }
+            if (Current.ProgramState != ProgramState.Playing)
+            {
+                Interlocked.Increment(ref admissionProgramStateBypass);
+                return true;
+            }
+
 
             Pawn pawn = traverseParams.pawn;
             Map map = ___map;
@@ -251,10 +288,36 @@ namespace RimMT
                     return true;
                 }
 
-                if (now - profile.CaptureFrame > MaxProfileAgeFrames)
+                long profileAge = now - profile.CaptureFrame;
+                long leaseUntil = Interlocked.Read(ref slot.LeaseUntilFrame);
+                if (profileAge > HardMaxProfileAgeFrames)
                 {
                     Interlocked.Increment(ref profileExpired);
+                    Interlocked.Increment(ref forcedRefreshes);
+                    Interlocked.Exchange(ref slot.LeaseProbeMatches, 0);
+                    Interlocked.Exchange(ref slot.LeaseUntilFrame, 0L);
                     EnsureProfileScheduled(map, mapState, pawn, traverseParams, key, slot);
+                    return true;
+                }
+
+                if (profileAge > MaxProfileAgeFrames && leaseUntil <= now)
+                {
+                    Interlocked.Increment(ref profileExpired);
+                    Prediction leasePrediction = profile.Classify(start, dest, peMode, map, traverseParams);
+                    if (leasePrediction == Prediction.Unknown)
+                    {
+                        Interlocked.Increment(ref queriesUnknown);
+                        Interlocked.Exchange(ref slot.LeaseProbeMatches, 0);
+                        EnsureProfileScheduled(map, mapState, pawn, traverseParams, key, slot);
+                        return true;
+                    }
+
+                    bool leasePredicted = leasePrediction == Prediction.Reachable;
+                    if (leasePredicted) Interlocked.Increment(ref predictedReachable);
+                    else Interlocked.Increment(ref predictedUnreachable);
+                    __state = new ReachSampleState(true, leasePredicted, slot, profile.RegionGeneration, true);
+                    Interlocked.Increment(ref shadowSamples);
+                    Interlocked.Increment(ref leaseProbeCalls);
                     return true;
                 }
 
@@ -272,13 +335,11 @@ namespace RimMT
 
                 int validated = Volatile.Read(ref slot.ValidatedMatches);
                 int serial = Interlocked.Increment(ref slot.PredictionSerial);
-                bool probation = reachFuseMode == ReachFuseMode.Probation;
-                bool sample = probation || validated < WarmupSamples || (serial & SampleMask) == 0;
+                bool sample = validated < WarmupSamples || (serial & SampleMask) == 0;
                 if (sample)
                 {
                     __state = new ReachSampleState(true, predicted, slot, profile.RegionGeneration);
                     Interlocked.Increment(ref shadowSamples);
-                    if (probation) probationForcedShadow++;
                     return true;
                 }
 
@@ -304,11 +365,32 @@ namespace RimMT
             if (!__state.Active || __state.Slot == null) return;
 
             bool mismatch = __result != __state.Predicted;
+            if (__state.LeaseProbe && !mismatch)
+            {
+                Interlocked.Increment(ref shadowMatches);
+                Interlocked.Increment(ref leaseProbeMatches);
+
+                int clean = Interlocked.Increment(ref __state.Slot.LeaseProbeMatches);
+                if (clean >= LeaseProbeSamplesRequired)
+                {
+                    Interlocked.Exchange(ref __state.Slot.LeaseProbeMatches, 0);
+                    Interlocked.Exchange(ref __state.Slot.LeaseUntilFrame, RimMTRuntime.MainThreadFrames + LeaseExtensionFrames);
+                    Interlocked.Exchange(ref __state.Slot.ValidatedMatches, LeaseProbeSamplesRequired);
+                    Interlocked.Increment(ref leaseRenewals);
+                }
+                return;
+            }
+            if (__state.LeaseProbe)
+            {
+                Interlocked.Increment(ref leaseFailures);
+                Interlocked.Exchange(ref __state.Slot.LeaseProbeMatches, 0);
+                Interlocked.Exchange(ref __state.Slot.LeaseUntilFrame, 0L);
+            }
             if (!mismatch)
             {
                 Interlocked.Increment(ref shadowMatches);
                 Interlocked.Increment(ref __state.Slot.ValidatedMatches);
-                ObserveRollingSample(false, __state.Slot);
+
                 return;
             }
 
@@ -317,11 +399,13 @@ namespace RimMT
             else Interlocked.Increment(ref mismatchUnreachableToTrue);
 
             Interlocked.Exchange(ref __state.Slot.ValidatedMatches, 0);
+            Interlocked.Exchange(ref __state.Slot.LeaseProbeMatches, 0);
+            Interlocked.Exchange(ref __state.Slot.LeaseUntilFrame, 0L);
             Interlocked.Exchange(ref __state.Slot.DisabledUntilFrame, RimMTRuntime.MainThreadFrames + MismatchCooldownFrames);
             Volatile.Write(ref __state.Slot.Published, null);
             Interlocked.Increment(ref localSlotQuarantines);
 
-            ObserveRollingSample(true, __state.Slot);
+
         }
 
         private static void UpdateRollingFuseMode()
@@ -501,6 +585,17 @@ namespace RimMT
                 return;
 
             long now = RimMTRuntime.MainThreadFrames;
+            if (AdaptiveLoadBalancer.Pressure == LoadPressure.Critical)
+            {
+                Interlocked.Increment(ref profileCapturePressureBypass);
+                return;
+            }
+            long captureDisabledUntil = Interlocked.Read(ref mapState.CaptureDisabledUntilFrame);
+            if (captureDisabledUntil > now)
+            {
+                Interlocked.Increment(ref profileCapturePressureBypass);
+                return;
+            }
             long last = Interlocked.Read(ref slot.LastScheduleFrame);
             if (last != 0 && now - last < BuildCooldownFrames) return;
             if (Interlocked.CompareExchange(ref slot.BuildScheduled, 1, 0) != 0) return;
@@ -512,91 +607,257 @@ namespace RimMT
                 return;
             }
 
-            long generationBefore = Interlocked.Read(ref mapState.RegionGeneration);
-            if (topology.RegionGeneration != generationBefore)
-            {
-                Volatile.Write(ref slot.BuildScheduled, 0);
-                return;
-            }
-
-            long captureStart = Stopwatch.GetTimestamp();
-            bool[] traverseAllowed = new bool[topology.RegionRefs.Length];
-            bool[] destinationAllowed = new bool[topology.RegionRefs.Length];
-            try
-            {
-                for (int i = 0; i < topology.RegionRefs.Length; i++)
-                {
-                    Region region = topology.RegionRefs[i];
-                    if (region == null || !region.valid)
-                    {
-                        Volatile.Write(ref slot.BuildScheduled, 0);
-                        Interlocked.Increment(ref buildsStale);
-                        return;
-                    }
-                    traverseAllowed[i] = region.Allows(traverseParams, false);
-                    destinationAllowed[i] = region.Allows(traverseParams, true);
-                }
-            }
-            catch
-            {
-                Volatile.Write(ref slot.BuildScheduled, 0);
-                Interlocked.Increment(ref buildsRejected);
-                return;
-            }
-            finally
-            {
-                long elapsed = Stopwatch.GetTimestamp() - captureStart;
-                Interlocked.Increment(ref profileCaptures);
-                Interlocked.Add(ref profileCaptureTicks, elapsed);
-                UpdateMax(ref profileCaptureTicksMax, elapsed);
-            }
-
-            long generationAfter = Interlocked.Read(ref mapState.RegionGeneration);
-            if (generationAfter != generationBefore)
+            long generation = Interlocked.Read(ref mapState.RegionGeneration);
+            if (topology.RegionGeneration != generation)
             {
                 Volatile.Write(ref slot.BuildScheduled, 0);
                 Interlocked.Increment(ref buildsStale);
                 return;
             }
 
-            JobScheduler scheduler = RimMTRuntime.Scheduler;
-            if (scheduler == null)
+            // T23: do not execute region permission checks over every region from the CanReach hot path.
+            // Only allocate state and enqueue a main-thread capture. Root_Play.Update advances the
+            // queue under one global frame budget; Vanilla remains authoritative until publication.
+            try
+            {
+                ProfileCaptureState capture = new ProfileCaptureState(
+                    map, mapState, pawn, traverseParams, key, slot, topology, generation, now);
+                PendingProfileCaptures.Enqueue(capture);
+                Interlocked.Increment(ref profileCaptureQueued);
+            }
+            catch
             {
                 Volatile.Write(ref slot.BuildScheduled, 0);
                 Interlocked.Increment(ref buildsRejected);
-                return;
             }
-
-            ProfileBuildContext context = new ProfileBuildContext(
-                topology.MapId,
-                topology.Width,
-                topology.Height,
-                topology.RegionGeneration,
-                now,
-                key,
-                topology.CellRegion,
-                topology.DistrictByRegion,
-                topology.EdgeOffsets,
-                topology.Edges,
-                traverseAllowed,
-                destinationAllowed);
-
-            bool accepted = scheduler.TryEnqueue(FeatureId, AdaptiveLoadBalancer.RecommendedOffloadPriority, delegate
-            {
-                BuildAndPublishProfile(mapState, slot, context);
-            });
-
-            if (!accepted)
-            {
-                Volatile.Write(ref slot.BuildScheduled, 0);
-                Interlocked.Increment(ref buildsRejected);
-                return;
-            }
-
-            Interlocked.Exchange(ref slot.LastScheduleFrame, now);
-            Interlocked.Increment(ref buildsScheduled);
         }
 
+        private static void PatchProfileCaptureDrain(Harmony harmony)
+        {
+            try
+            {
+                MethodBase rootUpdate = AccessTools.Method(typeof(Root_Play), "Update");
+                if (rootUpdate == null) return;
+                HarmonyMethod postfix = new HarmonyMethod(
+                    typeof(AggressiveReachabilityProfilesV17), nameof(ProfileCaptureDrainPostfix));
+                postfix.priority = Priority.Last - 100;
+                harmony.Patch(rootUpdate, postfix: postfix);
+            }
+            catch (Exception ex)
+            {
+                // This is an optimization-only drain. Failure leaves Vanilla Reachability authoritative.
+                Log.Warning("[RimMT] T23 ReachProfile capture drain unavailable; profile misses remain Vanilla-authoritative. " +
+                    ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        public static void ProfileCaptureDrainPostfix()
+        {
+            if (!RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing) return;
+            if (PendingProfileCaptures.Count == 0) return;
+
+            if (!FeatureGate.IsEnabled(FeatureId))
+            {
+                while (PendingProfileCaptures.Count != 0)
+                    DropCurrentCapture(false, false);
+                return;
+            }
+
+            DrainProfileCaptureBudget();
+        }
+
+        private static void DrainProfileCaptureBudget()
+        {
+            long frame = RimMTRuntime.MainThreadFrames;
+            if (AdaptiveLoadBalancer.Pressure == LoadPressure.Critical)
+            {
+                while (PendingProfileCaptures.Count != 0)
+                {
+                    Interlocked.Increment(ref profileCapturePressureBypass);
+                    DropCurrentCapture(false, false);
+                }
+                return;
+            }
+            long globalStart = Stopwatch.GetTimestamp();
+            long budgetTicks = ProfileCaptureSliceBudgetTicks();
+            long watchdogTicks = Math.Max(1L,
+                Stopwatch.Frequency * CaptureWatchdogMicroseconds / 1000000L);
+
+            while (PendingProfileCaptures.Count != 0)
+            {
+                ProfileCaptureState capture = PendingProfileCaptures.Peek();
+                if (capture == null || capture.Slot == null || capture.MapState == null || capture.Topology == null)
+                {
+                    DropCurrentCapture(false, false);
+                    continue;
+                }
+
+                if (frame - capture.QueuedFrame > MaxCaptureQueueAgeFrames ||
+                    capture.Map == null || capture.Map.Disposed || capture.Pawn == null ||
+                    !capture.Pawn.Spawned || capture.Pawn.Map != capture.Map ||
+                    Interlocked.Read(ref capture.MapState.RegionGeneration) != capture.RegionGeneration ||
+                    capture.Topology.RegionGeneration != capture.RegionGeneration)
+                {
+                    DropCurrentCapture(true, false);
+                    continue;
+                }
+
+                long sliceStart = Stopwatch.GetTimestamp();
+                bool dropped = false;
+                while (capture.Cursor < capture.Topology.RegionRefs.Length)
+                {
+                    Region region = capture.Topology.RegionRefs[capture.Cursor];
+                    if (region == null || !region.valid)
+                    {
+                        RecordProfileCaptureSlice(sliceStart);
+                        DropCurrentCapture(true, false);
+                        dropped = true;
+                        break;
+                    }
+
+                    long pairStart = Stopwatch.GetTimestamp();
+                    try
+                    {
+                        capture.TraverseAllowed[capture.Cursor] = region.Allows(capture.TraverseParams, false);
+                        capture.DestinationAllowed[capture.Cursor] = region.Allows(capture.TraverseParams, true);
+                    }
+                    catch
+                    {
+                        RecordProfileCaptureSlice(sliceStart);
+                        DropCurrentCapture(false, false);
+                        dropped = true;
+                        break;
+                    }
+                    long pairTicks = Stopwatch.GetTimestamp() - pairStart;
+                    capture.Cursor++;
+                    Interlocked.Increment(ref profileCapturePairs);
+                    UpdateMax(ref profileCapturePairTicksMax, pairTicks);
+
+                    // One Region.Allows pair cannot be pre-empted. If it alone exceeds the watchdog,
+                    // stop creating extra profile work for this map for ~60 seconds. Vanilla/T21
+                    // remain authoritative; this prevents one pathological region/mod interaction
+                    // from being multiplied across many Pawn profile captures.
+                    if (pairTicks >= watchdogTicks)
+                    {
+                        Interlocked.Exchange(ref capture.Slot.DisabledUntilFrame, frame + CaptureMapQuarantineFrames);
+                        Interlocked.Exchange(ref capture.MapState.CaptureDisabledUntilFrame, frame + CaptureMapQuarantineFrames);
+                        Interlocked.Increment(ref profileCaptureMapQuarantines);
+                        RecordProfileCaptureSlice(sliceStart);
+                        DropCurrentCapture(false, true);
+                        dropped = true;
+                        break;
+                    }
+
+                    if ((capture.Cursor & CaptureCheckMask) == 0 && BudgetSpent(globalStart, budgetTicks))
+                    {
+                        RecordProfileCaptureSlice(sliceStart);
+                        return;
+                    }
+                }
+
+                if (dropped) continue;
+
+                RecordProfileCaptureSlice(sliceStart);
+                if (capture.Cursor < capture.Topology.RegionRefs.Length)
+                    return;
+
+                if (Interlocked.Read(ref capture.MapState.RegionGeneration) != capture.RegionGeneration)
+                {
+                    DropCurrentCapture(true, false);
+                    continue;
+                }
+
+                JobScheduler scheduler = RimMTRuntime.Scheduler;
+                if (scheduler == null)
+                {
+                    DropCurrentCapture(false, false);
+                    continue;
+                }
+
+                ProfileBuildContext context = new ProfileBuildContext(
+                    capture.Topology.MapId,
+                    capture.Topology.Width,
+                    capture.Topology.Height,
+                    capture.RegionGeneration,
+                    frame,
+                    capture.Key,
+                    capture.Topology.CellRegion,
+                    capture.Topology.DistrictByRegion,
+                    capture.Topology.EdgeOffsets,
+                    capture.Topology.Edges,
+                    capture.TraverseAllowed,
+                    capture.DestinationAllowed);
+
+                bool accepted;
+                try
+                {
+                    MapState mapState = capture.MapState;
+                    ProfileSlot slot = capture.Slot;
+                    accepted = scheduler.TryEnqueue(FeatureId, AdaptiveLoadBalancer.RecommendedOffloadPriority, delegate
+                    {
+                        BuildAndPublishProfile(mapState, slot, context);
+                    });
+                }
+                catch
+                {
+                    accepted = false;
+                }
+
+                PendingProfileCaptures.Dequeue();
+                if (!accepted)
+                {
+                    Volatile.Write(ref capture.Slot.BuildScheduled, 0);
+                    Interlocked.Increment(ref buildsRejected);
+                    Interlocked.Increment(ref profileCaptureAborted);
+                }
+                else
+                {
+                    Interlocked.Exchange(ref capture.Slot.LastScheduleFrame, frame);
+                    Interlocked.Increment(ref profileCaptures);
+                    Interlocked.Increment(ref buildsScheduled);
+                }
+
+                if (BudgetSpent(globalStart, budgetTicks)) return;
+            }
+        }
+
+        private static void DropCurrentCapture(bool stale, bool watchdog)
+        {
+            if (PendingProfileCaptures.Count == 0) return;
+            ProfileCaptureState capture = PendingProfileCaptures.Dequeue();
+            if (capture != null && capture.Slot != null)
+                Volatile.Write(ref capture.Slot.BuildScheduled, 0);
+            Interlocked.Increment(ref profileCaptureAborted);
+            if (stale) Interlocked.Increment(ref buildsStale);
+            else Interlocked.Increment(ref buildsRejected);
+            if (watchdog) Interlocked.Increment(ref profileCaptureWatchdogTrips);
+        }
+
+        private static void RecordProfileCaptureSlice(long started)
+        {
+            long elapsed = Stopwatch.GetTimestamp() - started;
+            if (elapsed < 0L) return;
+            Interlocked.Increment(ref profileCaptureSlices);
+            Interlocked.Add(ref profileCaptureTicks, elapsed);
+            UpdateMax(ref profileCaptureTicksMax, elapsed);
+        }
+
+        private static long ProfileCaptureSliceBudgetTicks()
+        {
+            int microseconds = ProfileCaptureSliceBudgetMicroseconds();
+            return Math.Max(1L, Stopwatch.Frequency * microseconds / 1000000L);
+        }
+
+        private static int ProfileCaptureSliceBudgetMicroseconds()
+        {
+            switch (AdaptiveLoadBalancer.Pressure)
+            {
+                case LoadPressure.Low: return 2000;
+                case LoadPressure.Normal: return 1500;
+                case LoadPressure.High: return 1000;
+                default: return 500;
+            }
+        }
         private static TopologySnapshot EnsureTopology(Map map, MapState state)
         {
             long generation = Interlocked.Read(ref state.RegionGeneration);
@@ -783,7 +1044,7 @@ namespace RimMT
                                     }
                                 }
                             }
-                            if ((build.RegionCursor & 15) == 0 && BudgetSpent(sliceStart, budgetTicks))
+                            if ((build.RegionCursor & 3) == 0 && BudgetSpent(sliceStart, budgetTicks))
                                 return TopologyAdvanceResult.Pending;
                         }
                         build.EdgeOffsets = new int[build.Regions.Count + 1];
@@ -922,6 +1183,8 @@ namespace RimMT
 
                 Interlocked.Exchange(ref slot.ValidatedMatches, 0);
                 Interlocked.Exchange(ref slot.PredictionSerial, 0);
+                Interlocked.Exchange(ref slot.LeaseProbeMatches, 0);
+                Interlocked.Exchange(ref slot.LeaseUntilFrame, 0L);
                 Volatile.Write(ref slot.Published, profile);
                 Interlocked.Increment(ref buildsPublished);
             }
@@ -979,11 +1242,12 @@ namespace RimMT
             Interlocked.Increment(ref regionDirtyEvents);
         }
 
-        private static void RecordElapsed(ref long total, ref long max, long started)
+        private static long RecordElapsed(ref long total, ref long max, long started)
         {
             long elapsed = Stopwatch.GetTimestamp() - started;
             Interlocked.Add(ref total, elapsed);
             UpdateMax(ref max, elapsed);
+            return elapsed;
         }
 
         private static void UpdateMax(ref long field, long value)
@@ -1012,8 +1276,9 @@ namespace RimMT
             double avgQueryUs = q == 0 ? 0.0 : (Interlocked.Read(ref queryTicks) * 1000000.0 / Stopwatch.Frequency) / q;
             double maxQueryUs = Interlocked.Read(ref queryTicksMax) * 1000000.0 / Stopwatch.Frequency;
 
-            return "Aggressive reachability profile V0.4.17 sliced/local-first: compatibilityReady=" + compatibilityReady +
+            return "Aggressive reachability profile V0.4.18-T1A sliced/local-first/lease/no-global-fuse: compatibilityReady=" + compatibilityReady +
                 ", observed=" + Interlocked.Read(ref observed) +
+                ", admissionBypass[compat/gate/thread/state]=" + Interlocked.Read(ref admissionCompatibilityBypass) + "/" + Interlocked.Read(ref admissionFeatureGateBypass) + "/" + Interlocked.Read(ref admissionThreadBypass) + "/" + Interlocked.Read(ref admissionProgramStateBypass) +
                 ", eligible=" + Interlocked.Read(ref eligible) +
                 ", priorPrefixOwned=" + Interlocked.Read(ref priorPrefixOwned) +
                 ", immediateHits=" + Interlocked.Read(ref immediateHits) +
@@ -1034,6 +1299,16 @@ namespace RimMT
                 ", maxTopologySliceUs=" + maxSliceUs.ToString("F2") +
                 ", regionDirtyEvents=" + Interlocked.Read(ref regionDirtyEvents) +
                 ", profileCaptures=" + captures +
+                ", captureQueued=" + Interlocked.Read(ref profileCaptureQueued) +
+                ", captureSlices=" + Interlocked.Read(ref profileCaptureSlices) +
+                ", captureAborted=" + Interlocked.Read(ref profileCaptureAborted) +
+                ", captureWatchdogTrips=" + Interlocked.Read(ref profileCaptureWatchdogTrips) +
+                ", capturePressureBypass=" + Interlocked.Read(ref profileCapturePressureBypass) +
+                ", captureMapQuarantines=" + Interlocked.Read(ref profileCaptureMapQuarantines) +
+                ", capturePairs=" + Interlocked.Read(ref profileCapturePairs) +
+                ", maxCapturePairUs=" + (Interlocked.Read(ref profileCapturePairTicksMax) * 1000000.0 / Stopwatch.Frequency).ToString("F2") +
+                ", capturePending=" + PendingProfileCaptures.Count +
+                ", captureBudgetUs=" + ProfileCaptureSliceBudgetMicroseconds() +
                 ", buildsScheduled=" + Interlocked.Read(ref buildsScheduled) +
                 ", buildsPublished=" + published +
                 ", buildsRejected=" + Interlocked.Read(ref buildsRejected) +
@@ -1049,33 +1324,27 @@ namespace RimMT
                 " (predTrue/liveFalse=" + Interlocked.Read(ref mismatchReachableToFalse) +
                 ", predFalse/liveTrue=" + Interlocked.Read(ref mismatchUnreachableToTrue) + ")" +
                 ", localSlotQuarantines=" + Interlocked.Read(ref localSlotQuarantines) +
-                ", rollingMode=" + reachFuseMode +
-                ", rollingSamples=" + rollingSamples +
-                ", rollingMismatches=" + rollingMismatches +
-                ", globalWindow=" + globalWindowMismatches + "/" + globalWindowCount +
-                ", globalDistinctMismatchSlots=" + GlobalMismatchSlotCounts.Count +
-                ", localOnlyFuseDeferrals=" + Interlocked.Read(ref localOnlyFuseDeferrals) +
-                ", emergencyWindow=" + emergencyWindowMismatches + "/" + emergencyWindowCount +
-                ", softFuses=" + softFuses +
-                ", cooldownUntilFrame=" + cooldownUntilFrame +
-                ", cooldownLiveBypass=" + cooldownLiveBypass +
-                ", probationRemaining=" + probationRemaining +
-                ", probationMatches=" + probationMatches +
-                ", probationForcedShadow=" + probationForcedShadow +
-                ", probationPasses=" + probationPasses +
-                ", probationFailures=" + probationFailures +
-                ", hardFuses=" + hardFuses +
+                ", leaseProbeCalls=" + Interlocked.Read(ref leaseProbeCalls) +
+                ", leaseProbeMatches=" + Interlocked.Read(ref leaseProbeMatches) +
+                ", leaseRenewals=" + Interlocked.Read(ref leaseRenewals) +
+                ", leaseFailures=" + Interlocked.Read(ref leaseFailures) +
+                ", forcedRefreshes=" + Interlocked.Read(ref forcedRefreshes) +
+                ", globalFuse=OFF" +
+                ", localSlotPolicy=quarantine-only" +
                 ", unknown=" + Interlocked.Read(ref queriesUnknown) +
                 ", warmupSamples=" + WarmupSamples +
                 ", sampleEvery=" + (SampleMask + 1) +
                 ", maxProfileAgeFrames=" + MaxProfileAgeFrames +
-                ", avgProfileCaptureUs=" + avgCaptureUs.ToString("F2") +
-                ", maxProfileCaptureUs=" + maxCaptureUs.ToString("F2") +
+                ", leaseExtensionFrames=" + LeaseExtensionFrames +
+                ", hardMaxProfileAgeFrames=" + HardMaxProfileAgeFrames +
+                ", leaseProbeRequired=" + LeaseProbeSamplesRequired +
+                ", avgProfileCaptureWorkUs=" + avgCaptureUs.ToString("F2") +
+                ", maxProfileCaptureSliceUs=" + maxCaptureUs.ToString("F2") +
                 ", avgWorkerBuildUs=" + avgBuildUs.ToString("F2") +
                 ", maxWorkerBuildUs=" + maxBuildUs.ToString("F2") +
                 ", avgQueryUs=" + avgQueryUs.ToString("F2") +
                 ", maxQueryUs=" + maxQueryUs.ToString("F2") +
-                ". Topology is captured incrementally on the main thread; workers consume primitive immutable arrays only. Vanilla remains authoritative during incomplete slices, local quarantine, global cooldown, misses and shadow validation.";
+                ". Topology and Region.Allows profile capture are frame-budgeted on the main thread; workers consume primitive immutable arrays only. Vanilla remains authoritative during incomplete slices, local quarantine, global cooldown, misses and shadow validation.";
         }
 
         internal struct ReachSampleState
@@ -1084,13 +1353,15 @@ namespace RimMT
             internal readonly bool Predicted;
             internal readonly ProfileSlot Slot;
             internal readonly long RegionGeneration;
+            internal readonly bool LeaseProbe;
 
-            internal ReachSampleState(bool active, bool predicted, ProfileSlot slot, long generation)
+            internal ReachSampleState(bool active, bool predicted, ProfileSlot slot, long generation, bool leaseProbe = false)
             {
                 Active = active;
                 Predicted = predicted;
                 Slot = slot;
                 RegionGeneration = generation;
+                LeaseProbe = leaseProbe;
             }
         }
 
@@ -1108,6 +1379,7 @@ namespace RimMT
             internal long RegionGeneration = 1;
             internal TopologySnapshot Topology;
             internal TopologyBuildState TopologyBuild;
+            internal long CaptureDisabledUntilFrame;
 
             internal MapState(int mapId, int width, int height)
             {
@@ -1139,6 +1411,8 @@ namespace RimMT
             internal long DisabledUntilFrame;
             internal int ValidatedMatches;
             internal int PredictionSerial;
+            internal int LeaseProbeMatches;
+            internal long LeaseUntilFrame;
             internal ProfileSnapshot Published;
         }
 
@@ -1241,6 +1515,39 @@ namespace RimMT
                 DistrictByRegion = districtByRegion;
                 EdgeOffsets = edgeOffsets;
                 Edges = edges;
+            }
+        }
+
+        private sealed class ProfileCaptureState
+        {
+            internal readonly Map Map;
+            internal readonly MapState MapState;
+            internal readonly Pawn Pawn;
+            internal readonly TraverseParms TraverseParams;
+            internal readonly TraverseKey Key;
+            internal readonly ProfileSlot Slot;
+            internal readonly TopologySnapshot Topology;
+            internal readonly long RegionGeneration;
+            internal readonly long QueuedFrame;
+            internal readonly bool[] TraverseAllowed;
+            internal readonly bool[] DestinationAllowed;
+            internal int Cursor;
+
+            internal ProfileCaptureState(Map map, MapState mapState, Pawn pawn, TraverseParms traverseParams,
+                TraverseKey key, ProfileSlot slot, TopologySnapshot topology, long generation, long queuedFrame)
+            {
+                Map = map;
+                MapState = mapState;
+                Pawn = pawn;
+                TraverseParams = traverseParams;
+                Key = key;
+                Slot = slot;
+                Topology = topology;
+                RegionGeneration = generation;
+                QueuedFrame = queuedFrame;
+                TraverseAllowed = new bool[topology.RegionRefs.Length];
+                DestinationAllowed = new bool[topology.RegionRefs.Length];
+                Cursor = 0;
             }
         }
 
@@ -1432,3 +1739,12 @@ namespace RimMT
         }
     }
 }
+
+
+
+
+
+
+
+
+

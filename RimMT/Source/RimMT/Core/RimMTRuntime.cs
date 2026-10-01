@@ -42,9 +42,12 @@ namespace RimMT
             FeatureGate.Register("ai.pathTopology", true, "PathGrid topology invalidation generation");
             FeatureGate.Register("parallel.jobScan", true, "Production haul/work scanner accelerator");
             FeatureGate.Register("parallel.haulGlobal", true, "Direct JobGiver_Haul global accelerator");
-            FeatureGate.Register("parallel.jobPartition", true, "Persistent-map search fabric / candidate partition production path");
+            FeatureGate.Register("parallel.jobPartition", true, "Legacy synchronous candidate/search helpers retained for fallback paths");
+            FeatureGate.Register(CandidateFabric093T34A.FeatureId, true, "T34-A no-wait worker-maintained candidate spatial fabric");
+            FeatureGate.Register(ScannerParallelFabric093T34B.FeatureId, true, "T34-B same-package scanner candidate parallel planning");
+            FeatureGate.Register(CandidateClassificationFabric093T34C.FeatureId, true, "T34-C primitive-only parallel candidate classification");
+            FeatureGate.Register(ParallelWorkKernel093T27.FeatureId, false, "T27/T27.1 speculative source reordering retired in T27.2 after behavior-risk evidence");
             FeatureGate.Register(JobGiverSlowSearch0419S.FeatureId, true, "Validated slow-search tail rescue");
-            FeatureGate.Register(AggressiveReachabilityProfiles.FeatureId, true, "ReachProfile V0.4.17 sliced topology + local-first mismatch fuse");
             FeatureGate.Register(RetiredRegionFeature, false, "Retired: insufficient production yield");
             FeatureGate.Register("parallel.pawnTick", false, "Unsafe / not implemented");
             FeatureGate.Register("parallel.reservations", false, "Unsafe / not implemented");
@@ -72,9 +75,12 @@ namespace RimMT
             FeatureGate.SetEnabled("parallel.jobScan", work);
             FeatureGate.SetEnabled("parallel.haulGlobal", work);
             FeatureGate.SetEnabled("parallel.jobPartition", work);
+            FeatureGate.SetEnabled(CandidateFabric093T34A.FeatureId, work);
+            FeatureGate.SetEnabled(ScannerParallelFabric093T34B.FeatureId, work);
+            FeatureGate.SetEnabled(CandidateClassificationFabric093T34C.FeatureId, work);
+            FeatureGate.SetEnabled(ParallelWorkKernel093T27.FeatureId, false);
             FeatureGate.SetEnabled(JobGiverSlowSearch0419S.FeatureId, work);
             JobGiverSlowSearch0419S.SetEnabled(work);
-            FeatureGate.SetEnabled(AggressiveReachabilityProfiles.FeatureId, work);
 
             FeatureGate.SetEnabled("diagnostics.hotPaths", false);
             FeatureGate.SetEnabled("diagnostics.pathFinder", false);
@@ -92,6 +98,7 @@ namespace RimMT
             if (!initialized) return;
             Interlocked.Increment(ref mainThreadFrames);
             if (scheduler != null) scheduler.SampleProductionConcurrency();
+            StorytellerDeepAttribution093T18.OnMainThreadFrame();
 
             bool logicalTickBoundary = true;
             bool butterProbeReadable = true;
@@ -121,8 +128,8 @@ namespace RimMT
                 CompatibilityGuard.RunBaselineScan();
                 HaulWorkAccelerator.MarkCompatibilityReady();
                 GlobalHaulAccelerator.MarkCompatibilityReady();
+                CandidateFabric093T34A.MarkCompatibilityReady();
                 AdaptiveGenClosestAssist.MarkCompatibilityReady();
-                AggressiveReachabilityProfilesV17.MarkCompatibilityReady();
                 Log.Message("[RimMT] Unified Lean compatibility scan complete. Runtime profiling remains external/on-demand.");
 
                 RimMTDiagnostics.LogRuntimeReport();
@@ -130,3 +137,12 @@ namespace RimMT
         }
     }
 }
+
+
+
+
+
+
+
+
+

@@ -23,6 +23,8 @@ namespace RimMT
         private static bool sourcePatched;
         private static bool shouldSkipPatched;
         private static int failureLogs;
+        [ThreadStatic] private static long packageStamp;
+        [ThreadStatic] private static Dictionary<WorkGiverDef, PackageReadiness> packageReadiness;
 
         private static long sourceLookups;
         private static long sourceIndexHits;
@@ -37,7 +39,11 @@ namespace RimMT
         private static long shouldSkipCalls;
         private static long shouldSkipNoWork;
         private static long shouldSkipContinue;
-
+        private static long readinessActualChecks;
+        private static long readinessFalseMemoHits;
+        private static long readinessFalseMemoStores;
+        private static long packageReadinessBuilds;
+        private static long packageReadinessReuses;
         static PersistentDoBillIndex092()
         {
             LongEventHandler.ExecuteWhenFinished(Install);
@@ -69,7 +75,7 @@ namespace RimMT
                 if (despawn != null)
                     harmony.Patch(despawn, prefix: new HarmonyMethod(typeof(PersistentDoBillIndex092), nameof(ThingDeSpawnPrefix)) { priority = Priority.First });
 
-                Log.Message("[RimMT] Unified persistent DoBill index active: source=" + sourcePatched + ", shouldSkip=" + shouldSkipPatched + ". Stable membership is incrementally maintained; inactive bill givers are removed by live AnyShouldDoNow before expensive JobOnThing.");
+                Log.Message("[RimMT] Unified persistent DoBill index active: source=" + sourcePatched + ", shouldSkip=" + shouldSkipPatched + ". Stable membership is incrementally maintained; live AnyShouldDoNow remains on the main thread with package-local false memo reuse.");
             }
             catch (Exception ex)
             {
@@ -91,36 +97,29 @@ namespace RimMT
                 if (things == null) return;
 
                 sourceIndexHits++;
-                int scanned = things.Count;
                 int localActive = 0;
                 int localInactive = 0;
-
-                // With the observed workload ~95% of represented benches are inactive, so reserve
-                // only a small active list up front instead of allocating capacity for the whole
-                // membership set. List<T> still grows normally if a rare call has more active benches.
+                int scanned = things.Count;
                 List<Thing> active = null;
                 for (int i = 0; i < things.Count; i++)
                 {
                     Thing thing = things[i];
                     IBillGiver billGiver = thing as IBillGiver;
                     BillStack stack = billGiver == null ? null : billGiver.BillStack;
-
-                    bool keep = stack == null || stack.AnyShouldDoNow;
-                    if (keep)
+                    bool keep = stack == null || PackageReadinessShouldDoNow(stack);
+                    if (!keep)
                     {
-                        localActive++;
-                        if (active != null) active.Add(thing);
+                        localInactive++;
+                        if (active == null)
+                        {
+                            active = new List<Thing>(Math.Min(things.Count, 32));
+                            for (int j = 0; j < i; j++) active.Add(things[j]);
+                        }
                         continue;
                     }
-
-                    localInactive++;
-                    if (active == null)
-                    {
-                        active = new List<Thing>(Math.Min(things.Count, 32));
-                        for (int j = 0; j < i; j++) active.Add(things[j]);
-                    }
+                    localActive++;
+                    if (active != null) active.Add(thing);
                 }
-
                 readinessScans += scanned;
                 activeReturned += localActive;
                 inactiveFiltered += localInactive;
@@ -146,14 +145,13 @@ namespace RimMT
                     Thing thing = things[i];
                     IBillGiver billGiver = thing as IBillGiver;
                     if (billGiver == null || ReferenceEquals(thing, pawn) || billGiver.BillStack == null) continue;
-                    if (billGiver.BillStack.AnyShouldDoNow)
+                    if (PackageReadinessShouldDoNow(billGiver.BillStack))
                     {
                         __result = false;
                         shouldSkipContinue++;
                         return false;
                     }
                 }
-
                 __result = true;
                 shouldSkipNoWork++;
                 return false;
@@ -205,6 +203,89 @@ namespace RimMT
             }
         }
 
+        private static PackageReadiness GetPackageReadiness(WorkGiver_DoBill giver, Map map, List<Thing> things)
+        {
+            if (giver == null || giver.def == null || map == null || things == null) return null;
+            long stamp = JobGiverGlobalNearest04181.CurrentScopeStartTicks;
+            if (stamp <= 0L)
+            {
+                // Outside a synchronous JobGiver package, do not retain readiness.
+                return BuildPackageReadiness(things);
+            }
+            if (packageReadiness == null) packageReadiness = new Dictionary<WorkGiverDef, PackageReadiness>();
+            if (packageStamp != stamp)
+            {
+                packageStamp = stamp;
+                packageReadiness.Clear();
+            }
+            PackageReadiness ready;
+            if (packageReadiness.TryGetValue(giver.def, out ready) && ready != null && ready.SourceCount == things.Count)
+            {
+                packageReadinessReuses++;
+                return ready;
+            }
+            ready = BuildPackageReadiness(things);
+            packageReadiness[giver.def] = ready;
+            packageReadinessBuilds++;
+            return ready;
+        }
+
+        private static PackageReadiness BuildPackageReadiness(List<Thing> things)
+        {
+            int scanned = things.Count;
+            int localActive = 0;
+            int localInactive = 0;
+            List<Thing> active = null;
+            for (int i = 0; i < things.Count; i++)
+            {
+                Thing thing = things[i];
+                IBillGiver billGiver = thing as IBillGiver;
+                BillStack stack = billGiver == null ? null : billGiver.BillStack;
+                bool keep = stack == null || PackageReadinessShouldDoNow(stack);
+                if (keep)
+                {
+                    localActive++;
+                    if (active != null) active.Add(thing);
+                    continue;
+                }
+                localInactive++;
+                if (active == null)
+                {
+                    active = new List<Thing>(Math.Min(things.Count, 32));
+                    for (int j = 0; j < i; j++) active.Add(things[j]);
+                }
+            }
+            readinessScans += scanned;
+            activeReturned += localActive;
+            inactiveFiltered += localInactive;
+            return new PackageReadiness(active == null ? (IEnumerable<Thing>)things : active, localActive > 0, things.Count);
+        }
+
+        private static bool PackageReadinessShouldDoNow(BillStack stack)
+        {
+            if (stack == null) return true;
+            if (!JobSearchPackageContext093T28.InScope)
+            {
+                readinessActualChecks++;
+                return stack.AnyShouldDoNow;
+            }
+
+            if (JobSearchPackageContext093T28.IsBillStackKnownInactive(stack))
+            {
+                readinessFalseMemoHits++;
+                return false;
+            }
+
+            readinessActualChecks++;
+            bool active = stack.AnyShouldDoNow;
+            if (!active)
+            {
+                JobSearchPackageContext093T28.MarkBillStackInactive(stack);
+                readinessFalseMemoStores++;
+            }
+            return active;
+        }
+
         private static bool HasUnsafeForeignPatch(MethodBase target)
         {
             Patches info = Harmony.GetPatchInfo(target);
@@ -242,7 +323,27 @@ namespace RimMT
                 ", fallbackClears=" + fallbackClears +
                 ", shouldSkipCalls=" + shouldSkipCalls +
                 ", shouldSkipNoWork=" + shouldSkipNoWork +
-                ", shouldSkipContinue=" + shouldSkipContinue + ".";
+                ", shouldSkipContinue=" + shouldSkipContinue +
+                ", readinessActualChecks=" + readinessActualChecks +
+                ", readinessFalseMemoHits=" + readinessFalseMemoHits +
+                ", readinessFalseMemoStores=" + readinessFalseMemoStores +
+                ", readinessAvoidRate=" + ((readinessActualChecks + readinessFalseMemoHits) <= 0 ? "0.00" : (readinessFalseMemoHits * 100.0 / (readinessActualChecks + readinessFalseMemoHits)).ToString("F2")) + "%" +
+                ", packageReadinessBuilds=" + packageReadinessBuilds +
+                ", packageReadinessReuses=" + packageReadinessReuses +
+                ", liveReadinessWorkers=RETIRED(T34-D.2.2 after D.2.1 measured 70.1% worker failure and 4.915ms average wait).";
+        }
+
+        private sealed class PackageReadiness
+        {
+            internal readonly IEnumerable<Thing> Active;
+            internal readonly bool HasActive;
+            internal readonly int SourceCount;
+            internal PackageReadiness(IEnumerable<Thing> active, bool hasActive, int sourceCount)
+            {
+                Active = active;
+                HasActive = hasActive;
+                SourceCount = sourceCount;
+            }
         }
 
         private sealed class BillMapCache
@@ -320,3 +421,7 @@ namespace RimMT
         }
     }
 }
+
+
+
+

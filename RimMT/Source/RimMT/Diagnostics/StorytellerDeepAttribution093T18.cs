@@ -61,7 +61,8 @@ namespace RimMT
         internal static void Initialize()
         {
             if (Interlocked.Exchange(ref initialized, 1) != 0) return;
-            Interlocked.Exchange(ref requested, 1);
+            // T24 production: deep Storyteller Harmony detours are diagnostic-only.
+            // Top-level catastrophic timing remains available through the existing T1/T15 timer.
         }
 
         internal static void ObserveCatastrophic(long us)
@@ -382,3 +383,4 @@ namespace RimMT
         }
     }
 }
+

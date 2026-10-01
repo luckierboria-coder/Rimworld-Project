@@ -23,14 +23,16 @@ namespace RimMT
     // register/deregister events. Workers consume immutable (Thing ref + integer cell)
     // events and publish immutable source bucket snapshots. The worker never dereferences
     // Thing/Map state. The main thread never waits for publication.
-    internal static class PersistentMapSearchFabric
+    internal static partial class PersistentMapSearchFabric
     {
-        private const string FeatureId = "parallel.jobPartition";
+        private const string FeatureId = CandidateFabric093T34A.FeatureId;
         internal const int BucketSize = 12;
         private const int MaxSourcesPerMap = 96;
 
         private static readonly ConditionalWeakTable<Map, MapState> States =
             new ConditionalWeakTable<Map, MapState>();
+        private static readonly ConcurrentQueue<MapState> PendingStatesT34B =
+            new ConcurrentQueue<MapState>();
 
         private static long sourceRegistrations;
         private static long sourceRegistrationRejected;
@@ -230,10 +232,37 @@ namespace RimMT
         private static void QueueEvent(MapState state, FabricEvent ev)
         {
             state.Events.Enqueue(ev);
-            if (Interlocked.CompareExchange(ref state.WorkerScheduled, 1, 0) != 0)
-                return;
+            MarkPendingT34B(state);
+        }
 
-            ScheduleDrain(state);
+        private static void MarkPendingT34B(MapState state)
+        {
+            if (state == null)
+                return;
+            if (Interlocked.CompareExchange(ref state.FlushQueuedT34B, 1, 0) == 0)
+                PendingStatesT34B.Enqueue(state);
+        }
+
+        // Called once at the logical tick boundary by T34-B. No wait/join/spin occurs here:
+        // it only converts coalesced map events into one foreground worker drain per dirty map.
+        internal static void FlushPendingT34B()
+        {
+            int budget = 64;
+            MapState state;
+            while (budget-- > 0 && PendingStatesT34B.TryDequeue(out state))
+            {
+                Volatile.Write(ref state.FlushQueuedT34B, 0);
+                if (state.Events.IsEmpty)
+                    continue;
+
+                if (Interlocked.CompareExchange(ref state.WorkerScheduled, 1, 0) != 0)
+                {
+                    MarkPendingT34B(state);
+                    continue;
+                }
+
+                ScheduleDrain(state);
+            }
         }
 
         private static void ScheduleDrain(MapState state)
@@ -246,7 +275,7 @@ namespace RimMT
                 return;
             }
 
-            bool accepted = scheduler.TryEnqueue(FeatureId, JobPriority.Normal, delegate
+            bool accepted = scheduler.TryEnqueue(FeatureId, JobPriority.High, delegate
             {
                 DrainWorker(state);
             });
@@ -255,6 +284,8 @@ namespace RimMT
             {
                 Volatile.Write(ref state.WorkerScheduled, 0);
                 Interlocked.Increment(ref schedulerRejected);
+                if (!state.Events.IsEmpty)
+                    MarkPendingT34B(state);
             }
         }
 
@@ -292,8 +323,8 @@ namespace RimMT
             finally
             {
                 Volatile.Write(ref state.WorkerScheduled, 0);
-                if (!state.Events.IsEmpty && Interlocked.CompareExchange(ref state.WorkerScheduled, 1, 0) == 0)
-                    ScheduleDrain(state);
+                if (!state.Events.IsEmpty)
+                    MarkPendingT34B(state);
             }
         }
 
@@ -344,6 +375,7 @@ namespace RimMT
             internal readonly WorkerModel Model;
             internal long MainGeneration;
             internal int WorkerScheduled;
+            internal int FlushQueuedT34B;
             internal MapFabricSnapshot Published;
 
             internal MapState(int mapId, int width, int height)
@@ -418,7 +450,13 @@ namespace RimMT
             private readonly int height;
             private readonly Dictionary<Thing, PositionEntry> positions =
                 new Dictionary<Thing, PositionEntry>(ThingReferenceComparer.Instance);
-            private readonly Dictionary<int, SourceModel> sources = new Dictionary<int, SourceModel>();
+            private readonly Dictionary<int, SourceModel> sources =
+                new Dictionary<int, SourceModel>();
+            private readonly Dictionary<Thing, HashSet<int>> sourceIdsByThing =
+                new Dictionary<Thing, HashSet<int>>(ThingReferenceComparer.Instance);
+            private readonly HashSet<int> dirtySources = new HashSet<int>();
+            private Dictionary<int, SourceSnapshot> publishedSources =
+                new Dictionary<int, SourceSnapshot>();
             private long appliedGeneration;
 
             internal WorkerModel(int mapId, int width, int height)
@@ -438,32 +476,103 @@ namespace RimMT
                 {
                     case EventKind.Upsert:
                         if (ev.Thing != null)
+                        {
                             positions[ev.Thing] = new PositionEntry(ev.X, ev.Z);
+                            MarkThingSourcesDirty(ev.Thing);
+                        }
                         break;
+
                     case EventKind.Remove:
                         if (ev.Thing != null)
+                        {
                             positions.Remove(ev.Thing);
+                            MarkThingSourcesDirty(ev.Thing);
+                        }
                         break;
+
                     case EventKind.Source:
                         if (ev.Members == null)
                             break;
+
+                        SourceModel old;
+                        if (sources.TryGetValue(ev.SourceId, out old) && old != null && old.Members != null)
+                        {
+                            for (int i = 0; i < old.Members.Length; i++)
+                                RemoveMembership(old.Members[i], ev.SourceId);
+                        }
+
                         for (int i = 0; i < ev.Members.Length; i++)
                         {
                             Thing thing = ev.Members[i];
-                            if (thing != null)
-                                positions[thing] = new PositionEntry(ev.Xs[i], ev.Zs[i]);
+                            if (thing == null)
+                                continue;
+                            positions[thing] = new PositionEntry(ev.Xs[i], ev.Zs[i]);
+                            AddMembership(thing, ev.SourceId);
                         }
+
                         sources[ev.SourceId] = new SourceModel(ev.Members);
+                        dirtySources.Add(ev.SourceId);
                         break;
                 }
             }
 
+            private void AddMembership(Thing thing, int sourceId)
+            {
+                if (thing == null)
+                    return;
+
+                HashSet<int> ids;
+                if (!sourceIdsByThing.TryGetValue(thing, out ids))
+                {
+                    ids = new HashSet<int>();
+                    sourceIdsByThing.Add(thing, ids);
+                }
+                ids.Add(sourceId);
+            }
+
+            private void RemoveMembership(Thing thing, int sourceId)
+            {
+                if (thing == null)
+                    return;
+
+                HashSet<int> ids;
+                if (!sourceIdsByThing.TryGetValue(thing, out ids))
+                    return;
+
+                ids.Remove(sourceId);
+                if (ids.Count == 0)
+                    sourceIdsByThing.Remove(thing);
+            }
+
+            private void MarkThingSourcesDirty(Thing thing)
+            {
+                if (thing == null)
+                    return;
+
+                HashSet<int> ids;
+                if (!sourceIdsByThing.TryGetValue(thing, out ids))
+                    return;
+
+                foreach (int id in ids)
+                    dirtySources.Add(id);
+            }
+
             internal MapFabricSnapshot BuildSnapshot()
             {
-                Dictionary<int, SourceSnapshot> published = new Dictionary<int, SourceSnapshot>(sources.Count);
-                foreach (KeyValuePair<int, SourceModel> pair in sources)
-                    published[pair.Key] = BuildSourceSnapshot(pair.Value);
-                return new MapFabricSnapshot(mapId, width, height, appliedGeneration, published);
+                Dictionary<int, SourceSnapshot> next =
+                    new Dictionary<int, SourceSnapshot>(publishedSources);
+
+                foreach (int sourceId in dirtySources)
+                {
+                    SourceModel source;
+                    if (sources.TryGetValue(sourceId, out source) && source != null)
+                        next[sourceId] = BuildSourceSnapshot(source);
+                }
+
+                dirtySources.Clear();
+                publishedSources = next;
+                return new MapFabricSnapshot(
+                    mapId, width, height, appliedGeneration, next);
             }
 
             private SourceSnapshot BuildSourceSnapshot(SourceModel source)
@@ -495,7 +604,9 @@ namespace RimMT
                 for (int i = 0; i < temp.Length; i++)
                     buckets[i] = temp[i] == null ? EmptyEntries : temp[i].ToArray();
 
-                return new SourceSnapshot(mapId, width, height, cols, rows, source.Members.Length, complete, buckets);
+                return new SourceSnapshot(
+                    mapId, width, height, cols, rows,
+                    source.Members.Length, complete, buckets);
             }
         }
 
@@ -519,7 +630,7 @@ namespace RimMT
             }
         }
 
-        internal sealed class SourceSnapshot
+        internal sealed partial class SourceSnapshot
         {
             private readonly int bucketCols;
             private readonly int bucketRows;
@@ -801,3 +912,6 @@ namespace RimMT
             new ThreadLocal<List<Candidate>>(() => new List<Candidate>(128));
     }
 }
+
+
+

@@ -121,6 +121,17 @@ namespace RimMT
                 if (string.IsNullOrEmpty(owner) || owner == RimMTBootstrap.HarmonyId)
                     continue;
 
+                // Observation-only companion owned by this project. Prefix/postfix timing probes
+                // must never suppress production feature admission. Transpilers/finalizers remain blocking.
+                if (string.Equals(owner, "allen.rimmt.diagnostics", StringComparison.Ordinal) &&
+                    (string.Equals(kind, "prefix", StringComparison.Ordinal) || string.Equals(kind, "postfix", StringComparison.Ordinal)))
+                {
+                    MethodInfo dm = patch == null ? null : patch.PatchMethod;
+                    string dn = dm == null || dm.DeclaringType == null ? string.Empty : dm.DeclaringType.FullName;
+                    if (dn.StartsWith("RimMT.Diagnostics.", StringComparison.Ordinal))
+                        continue;
+                }
+
                 if (IsAllowedCoexistence(featureId, target, patch, kind))
                 {
                     string typeName = target.DeclaringType == null ? "<unknown>" : target.DeclaringType.FullName;
@@ -222,3 +233,4 @@ namespace RimMT
         }
     }
 }
+

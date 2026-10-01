@@ -36,7 +36,7 @@ namespace RimMT
         private const long BuildCooldownFrames = 12;
         private const long MismatchCooldownFrames = 600;
         private const int WarmupSamples = 8;
-        private const int SampleMask = 15; // 1/16 after warmup.
+        private const int SampleMask = 127; // Unified Lean: 1/128 after warmup; fuse probation still forces live validation.
 
         private const int GlobalWindowSamples = 8192;
         private const int GlobalMismatchLimit = 8;
@@ -53,7 +53,7 @@ namespace RimMT
 
         private static volatile bool compatibilityReady;
 
-        [ThreadStatic] private static int bypassDepth;
+        
         [ThreadStatic] private static int[] rootRegionScratch;
         [ThreadStatic] private static int[] rootComponentScratch;
 
@@ -180,7 +180,7 @@ namespace RimMT
                 return true;
             }
 
-            if (bypassDepth != 0 || !compatibilityReady || !FeatureGate.IsEnabled(FeatureId) ||
+            if (!compatibilityReady || !FeatureGate.IsEnabled(FeatureId) ||
                 !RimMTThreadGuard.IsMainThread || Current.ProgramState != ProgramState.Playing)
                 return true;
 
@@ -1271,3 +1271,4 @@ namespace RimMT
         }
     }
 }
+

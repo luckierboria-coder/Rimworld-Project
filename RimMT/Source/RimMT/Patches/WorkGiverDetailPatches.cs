@@ -11,7 +11,7 @@ namespace RimMT
 {
     internal static class WorkGiverDetailPatches
     {
-        private const int CaptureJobPackages = 32;
+        private const int CaptureJobPackages = 64;
         private static readonly HashSet<string> TargetNames = new HashSet<string>(StringComparer.Ordinal)
         {
             "ShouldSkip",
@@ -85,7 +85,7 @@ namespace RimMT
                 Interlocked.Exchange(ref active, 1);
                 FeatureGate.SetEnabled("diagnostics.jobGiverDetail", true);
                 WorkGiverProfiler.StartSession(CaptureJobPackages, patched, patchFailures);
-                Log.Message("[RimMT] JobGiver detail capture V0.4.8 started for up to " + CaptureJobPackages + " outer TryIssueJobPackage calls; temporarily patched " + CandidateMethods.Count + " WorkGiver phase candidates and " + InfrastructureMethods.Count + " infrastructure candidates. It will auto-unpatch when complete.");
+                Log.Message("[RimMT] T15 JobGiver detail capture started for up to " + CaptureJobPackages + " outer TryIssueJobPackage calls; temporarily patched " + CandidateMethods.Count + " WorkGiver phase candidates and " + InfrastructureMethods.Count + " infrastructure candidates. It will auto-unpatch when complete.");
                 return true;
             }
         }
@@ -160,7 +160,7 @@ namespace RimMT
 
                 WorkGiverProfiler.StopSession();
                 FeatureGate.SetEnabled("diagnostics.jobGiverDetail", false);
-                Log.Message("[RimMT] JobGiver detail capture V0.4.8 stopped and temporary detours were removed. " + WorkGiverProfiler.Summary(12) + "\n" + JobGiverInfrastructureProfiler.Summary(12));
+                Log.Message("[RimMT] T15 JobGiver detail capture stopped and temporary detours were removed. " + WorkGiverProfiler.Summary(12) + "\n" + JobGiverInfrastructureProfiler.Summary(12));
             }
         }
 
@@ -289,24 +289,34 @@ namespace RimMT
             return __exception;
         }
 
-        public static void Prefix(ref long __state)
+        public struct InfrastructureStateT16
         {
+            public long LegacyStarted;
+            public GenClosestDeepAttribution093T16.Scope Deep;
+        }
+
+        public static void Prefix(WorkGiver __instance, MethodBase __originalMethod, ref long __state)
+        {
+            WorkGiverProfiler.EnterCaller(__instance, __originalMethod);
             __state = WorkGiverProfiler.Begin();
         }
 
         public static void Postfix(WorkGiver __instance, MethodBase __originalMethod, long __state)
         {
-            WorkGiverProfiler.Record(__instance, __originalMethod, __state);
+            try { WorkGiverProfiler.Record(__instance, __originalMethod, __state); }
+            finally { WorkGiverProfiler.ExitCaller(); }
         }
 
-        public static void InfrastructurePrefix(ref long __state)
+        public static void InfrastructurePrefix(MethodBase __originalMethod, object[] __args, ref InfrastructureStateT16 __state)
         {
-            __state = JobGiverInfrastructureProfiler.Begin();
+            __state.LegacyStarted = JobGiverInfrastructureProfiler.Begin();
+            __state.Deep = GenClosestDeepAttribution093T16.Begin(__originalMethod, __args);
         }
 
-        public static void InfrastructurePostfix(MethodBase __originalMethod, long __state)
+        public static void InfrastructurePostfix(MethodBase __originalMethod, InfrastructureStateT16 __state)
         {
-            JobGiverInfrastructureProfiler.Record(__originalMethod, __state);
+            JobGiverInfrastructureProfiler.Record(__originalMethod, __state.LegacyStarted);
+            GenClosestDeepAttribution093T16.End(__state.Deep);
         }
 
         private static bool IsUsefulSignature(MethodInfo method)
@@ -320,3 +330,5 @@ namespace RimMT
         }
     }
 }
+
+

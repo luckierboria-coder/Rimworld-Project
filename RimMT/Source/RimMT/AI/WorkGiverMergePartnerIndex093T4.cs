@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Threading;
 using HarmonyLib;
 using RimWorld;
 using Verse;
@@ -33,6 +34,7 @@ namespace RimMT
     internal static class WorkGiverMergePartnerIndex093T4
     {
         private const string HarmonyOwner = "allen.rimmt";
+        private const string DiagnosticsHarmonyOwner = "allen.rimmt.diagnostics";
         private const int AuthorityRecheckMask = 4095;
 
         [ThreadStatic] private static long scopeStamp;
@@ -57,6 +59,12 @@ namespace RimMT
         private static long unsupportedGroupBypass;
         private static long unsupportedCandidateBypass;
         private static long foreignPatchBypass;
+        private static long commonSenseCompatibleCalls;
+        private static long commonSenseIngestibleBypass;
+        private static long authorityTargetForeign;
+        private static long authorityThingWithCompsForeign;
+        private static long authorityMinifiedForeign;
+        private static long authorityThingUnsafe;
         private static long forcedBypass;
         private static long invalidBypass;
         private static long failures;
@@ -108,10 +116,23 @@ namespace RimMT
             }
             inScopeCalls++;
 
-            if (!AuthoritySafe())
+            int authority = AuthorityMode();
+            if (authority < 0)
             {
                 foreignPatchBypass++;
                 return true;
+            }
+            if (authority == 2)
+            {
+                // CommonSense MealStacking postfix returns immediately when other.def.IsIngestible
+                // is false. Keep ingestible stacks fully Vanilla/CommonSense authoritative; restore
+                // the index only for the proven semantic no-op domain.
+                if (t != null && t.def != null && t.def.IsIngestible)
+                {
+                    commonSenseIngestibleBypass++;
+                    return true;
+                }
+                commonSenseCompatibleCalls++;
             }
 
             if (t == null || t.Destroyed || t.def == null || t.stackCount <= 0 || t.stackCount >= t.def.stackLimit)
@@ -239,28 +260,61 @@ namespace RimMT
             return supported;
         }
 
-        private static bool AuthoritySafe()
+        private static int AuthorityMode()
         {
             long c = calls;
             if (authorityState != 0 && (c & AuthorityRecheckMask) != 1)
-                return authorityState > 0;
+                return authorityState;
 
             try
             {
-                if (HasForeignPatch(target) || HasForeignPatch(thingCanStack) ||
-                    HasForeignPatch(thingWithCompsCanStack) || HasForeignPatch(minifiedCanStack))
+                bool targetForeign = HasForeignPatch(target);
+                bool twcForeign = HasForeignPatch(thingWithCompsCanStack);
+                bool minifiedForeign = HasForeignPatch(minifiedCanStack);
+                int thingMode = ThingCanStackAuthorityMode();
+                if (targetForeign) Interlocked.Increment(ref authorityTargetForeign);
+                if (twcForeign) Interlocked.Increment(ref authorityThingWithCompsForeign);
+                if (minifiedForeign) Interlocked.Increment(ref authorityMinifiedForeign);
+                if (thingMode < 0) Interlocked.Increment(ref authorityThingUnsafe);
+                if (targetForeign || twcForeign || minifiedForeign || thingMode < 0)
                 {
                     authorityState = -1;
-                    return false;
+                    return authorityState;
                 }
-                authorityState = 1;
-                return true;
+                authorityState = thingMode;
+                return authorityState;
             }
             catch
             {
                 authorityState = -1;
-                return false;
+                return authorityState;
             }
+        }
+
+        // 1 = no foreign patch; 2 = only known CommonSense meal postfix; -1 = unsafe/unknown.
+        private static int ThingCanStackAuthorityMode()
+        {
+            if (thingCanStack == null) return -1;
+            Patches info = Harmony.GetPatchInfo(thingCanStack);
+            if (info == null) return 1;
+            if (HasForeign(info.Prefixes) || HasForeign(info.Transpilers) || HasForeign(info.Finalizers)) return -1;
+            if (info.Postfixes == null) return 1;
+            bool commonSense = false;
+            foreach (Patch patch in info.Postfixes)
+            {
+                if (patch == null || string.Equals(patch.owner, HarmonyOwner, StringComparison.Ordinal)) continue;
+                MethodInfo pm = patch.PatchMethod;
+                string dt = pm == null || pm.DeclaringType == null ? null : pm.DeclaringType.FullName;
+                if (string.Equals(patch.owner, "net.avilmask.rimworld.mod.CommonSense", StringComparison.Ordinal) &&
+                    string.Equals(dt, "CommonSense.CompIngredients_CanStackWith_CommonSensePatch", StringComparison.Ordinal) &&
+                    string.Equals(pm.Name, "Postfix", StringComparison.Ordinal))
+                {
+                    commonSense = true;
+                    continue;
+                }
+                return -1;
+            }
+            return commonSense ? 2 : 1;
         }
 
         private static bool HasForeignPatch(MethodBase method)
@@ -278,7 +332,9 @@ namespace RimMT
             foreach (Patch patch in patches)
             {
                 if (patch == null) continue;
-                if (!string.Equals(patch.owner, HarmonyOwner, StringComparison.Ordinal)) return true;
+                if (string.Equals(patch.owner, HarmonyOwner, StringComparison.Ordinal)) continue;
+                if (string.Equals(patch.owner, DiagnosticsHarmonyOwner, StringComparison.Ordinal)) continue;
+                return true;
             }
             return false;
         }
@@ -286,7 +342,7 @@ namespace RimMT
         internal static string Summary()
         {
             return "T4 HaulMerge partner index: installed=" + installed +
-                   ", authoritySafe=" + (authorityState > 0) +
+                   ", authorityMode=" + authorityState +
                    ", calls=" + calls +
                    ", inScope=" + inScopeCalls +
                    ", groupBuilds=" + groupBuilds +
@@ -297,6 +353,9 @@ namespace RimMT
                    ", unsupportedGroupBypass=" + unsupportedGroupBypass +
                    ", unsupportedCandidateBypass=" + unsupportedCandidateBypass +
                    ", foreignPatchBypass=" + foreignPatchBypass +
+                   ", commonSenseCompatibleCalls=" + commonSenseCompatibleCalls +
+                   ", commonSenseIngestibleBypass=" + commonSenseIngestibleBypass +
+                   ", authorityForeign[target/thingWithComps/minified/thingUnsafe]=" + authorityTargetForeign + "/" + authorityThingWithCompsForeign + "/" + authorityMinifiedForeign + "/" + authorityThingUnsafe +
                    ", forcedBypass=" + forcedBypass +
                    ", invalidBypass=" + invalidBypass +
                    ", failures=" + failures +
@@ -374,3 +433,6 @@ namespace RimMT
         }
     }
 }
+
+
+

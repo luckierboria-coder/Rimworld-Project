@@ -33,7 +33,8 @@ namespace RimMT
 
         static LargeSetTailRescue092()
         {
-            LongEventHandler.ExecuteWhenFinished(Install);
+            // T34-A: retired from default production after low bounded-proof yield.
+            // Kept in source for controlled A/B only; no static self-install.
         }
 
         private static void Install()
@@ -288,3 +289,4 @@ namespace RimMT
         }
     }
 }
+

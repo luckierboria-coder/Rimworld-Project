@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimMT V0.9.3 Consolidated Stable</name>
+  <name>RimMT V0.9.3-T34D.2.3 Clean Idle Fix</name>
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -12,5 +12,46 @@
     </li>
   </modDependencies>
   <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>RimMT V0.9.3 Consolidated Stable for RimWorld 1.5. Rollback build using the last consolidated stable production source before the V0.9.4-V0.9.12 continuation and predictive-admission experiments. Keeps the validated JobGiver, DoBill, ReachProfile, haul and topology production paths; resident hot-path profilers, PathSnapshot shadow validation, SafePath telemetry and WorkPrefilter are excluded. Final gameplay decisions remain Vanilla-authoritative and acceleration paths fail closed.</description>
+  <description>Cleaned T34-D.2.3 performance baseline for RimWorld 1.5. Retains T34-B snapshot candidate planning and selected live-authoritative search accelerators. Removes live WorkGiver validation on worker threads and all validator, Reachability and reservation result replay that could turn a valid job search into Idle. Final WorkGiver validation, Reachability, reservations and job selection execute live on the main thread.</description>
 </ModMetaData>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

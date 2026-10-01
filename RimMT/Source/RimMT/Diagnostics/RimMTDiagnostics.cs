@@ -19,26 +19,66 @@ namespace RimMT
         public static void LogRuntimeReport()
         {
             StringBuilder sb = new StringBuilder(8192);
-            sb.AppendLine("[RimMT] V0.9.2 Unified Lean on-demand report");
+            sb.AppendLine("[RimMT] V0.9.3-T34C.4 Refuel Eligibility Shadow Census on-demand report");
             sb.AppendLine("ProgramState=" + Current.ProgramState + ", mainThreadFrames=" + RimMTRuntime.MainThreadFrames);
             sb.AppendLine(RuntimeCompatibility.Summary());
 
             AppendScheduler(sb);
             sb.AppendLine(MainThreadDispatcher.Summary());
             AppendLoad(sb);
+            sb.AppendLine(TailObservatory093T0.Summary());
+            sb.AppendLine(TailObservatory093T0.ComponentSummary());
+            sb.AppendLine(TailObservatory093T0.RecentSummary());
+            sb.AppendLine(TailAttribution093T1.Summary());
+            sb.AppendLine(TailAttribution093T1.RecentSevereSummary());
+            sb.AppendLine(TailPawnAttribution093T2.Summary());
+            sb.AppendLine(TailPawnAttribution093T2.RecentSummary());
+            sb.AppendLine(TailPathfinderAttribution093T3.Summary());
+            sb.AppendLine(TailPathfinderAttribution093T3.RecentSummary());
+            sb.AppendLine(WorkGiverMergePartnerIndex093T4.Summary());
+            sb.AppendLine(HaulMergePatchCensus093T5.DetailedSummary());
+            sb.AppendLine(CarrierMechCheapNegative093T8.Summary());
+            sb.AppendLine(CarrierMechCheapNegative093T8.SlowDetermineSummary());
+            sb.AppendLine(PawnTickAggregateAttribution093T13.Summary());
+            sb.AppendLine(PawnTickAggregateAttribution093T13.CategorySummary());
+            sb.AppendLine(PawnTickAggregateAttribution093T13.RecentSummary());
+            sb.AppendLine(PawnTickAggregateAttribution093T13.PawnTickHarmonyCensus());
+            sb.AppendLine(PlayerHumanResidualAttribution093T14.Summary());
+            sb.AppendLine(PlayerHumanResidualAttribution093T14.StageSummary());
+            sb.AppendLine(PlayerHumanResidualAttribution093T14.ProbeSummary());
+            sb.AppendLine(PlayerHumanResidualAttribution093T14.RecentSummary());
+            sb.AppendLine(WorkGiverDeepAttribution093T15.Summary());
+            sb.AppendLine(WorkGiverProfiler.Summary(24));
+            sb.AppendLine(JobGiverInfrastructureProfiler.Summary(20));
+            sb.AppendLine(GenClosestDeepAttribution093T16.Summary(24));
+            sb.AppendLine(MobileSourceRescue093T18.Summary());
+            sb.AppendLine(StorytellerDeepAttribution093T18.Summary());
+            sb.AppendLine(QuestDeepAttribution093T19.Summary());
+            sb.AppendLine(JobSearchPackageContext093T28.Summary());
+            sb.AppendLine("Idle safety: T34-D worker validators, T20/T21 validator/reach replay, T22 result index, T32 reservation replay and T26 epoch hooks are absent from this assembly.");
+            sb.AppendLine(WorldTailBoundary093T22.Summary());
+            sb.AppendLine(WorldRootAttribution093T22.Summary());
+            sb.AppendLine(SMFDispatcherCoexistence093T16.Summary());
+            sb.AppendLine(StorytellerCatastrophic093T15.Summary());
+            sb.AppendLine(StorytellerCatastrophic093T15.HarmonyCensus());
             sb.AppendLine("Text cache: hits=" + TextMetricCache.Hits + ", misses=" + TextMetricCache.Misses);
-            sb.AppendLine("Production policy: diagnostics=external; PathSnapshot=OFF; WorkPrefilter=OFF; ReachNoCache=OFF; OverlayCache=OFF; S5.1 admission=16ms; S4 tail=32ms + heavy WorkGiver attribution; RC2 Stage3 >=128; DoBill=persistent incremental membership + live readiness + zero-yield-sleeping worker-tail fabric; ReachProfile=V0.4.17 sliced topology + local-first fuse; S5.3 mature pruners; CommonSense=ingredientExpand memo only.");
+            sb.AppendLine("Production policy D.2.3 Clean Idle: T34-B snapshot planning retained; all WorkGiver validators, Reachability and reservations execute live on the main thread; no gameplay result replay; CleanPathfinding experiments absent.");
 
             sb.AppendLine("--- Production path counters ---");
+            sb.AppendLine(ScannerParallelFabric093T34B.Summary());
+            sb.AppendLine(CandidateClassificationFabric093T34C.Summary());
+            sb.AppendLine(CandidateFabric093T34A.Summary());
             sb.AppendLine(PersistentMapSearchFabric.Summary());
-            sb.AppendLine(AdaptiveGenClosestAssist.Summary());
+            sb.AppendLine("T34-C.4 candidate classification=ACTIVE(root-independent SourceSnapshot+Kernel plans indexed by stable SourceIndex + live parity + Refuel/Refuel_Turret measurement-only shadow census + bounded scanner-miss evidence); Refuel facts never reject candidates; invalid/duplicate indices and unknown Harmony owners fail open; T34-B distance planning remains active while the T34-A gameplay consumer is retired.");
             sb.AppendLine(JobGiverHybridTailS51.Summary());
             sb.AppendLine(JobGiverSlowSearch0419S.Summary());
-            sb.AppendLine(LargeSetTailRescue092.Summary());
+            sb.AppendLine("Stage3 large-set rescue: RETIRED/OFF on T34-A production line.");
             sb.AppendLine(PersistentDoBillIndex092.Summary());
-            sb.AppendLine(DoBillTailFabric092.Summary());
+            sb.AppendLine(CleanPathfindingGlowCache093T34D3.Summary());
+            sb.AppendLine("Global haul production V0.4.7: RETIRED/OFF in D.2.3 after 6/736 accelerations and zero avoided candidates.");
+            sb.AppendLine("DoBill worker-tail fabric: RETIRED/OFF on T34-A production line.");
             sb.AppendLine(CommonSenseIngredientExpand092.Summary());
-            sb.AppendLine(AggressiveReachabilityProfilesV17.Summary());
+            sb.AppendLine("ReachProfile: RETIRED/OFF on T34-A production line.");
 
             sb.AppendLine("--- Feature gates ---");
             Dictionary<string, FeatureGate.FeatureState> states = FeatureGate.Snapshot();
@@ -93,10 +133,11 @@ namespace RimMT
 
             sb.AppendLine();
             sb.AppendLine(PersistentDoBillIndex092.Summary());
-            sb.AppendLine(DoBillTailFabric092.Summary());
+            sb.AppendLine(CleanPathfindingGlowCache093T34D3.Summary());
+            sb.AppendLine("DoBill worker-tail fabric: RETIRED/OFF on T34-A production line.");
             sb.AppendLine(JobGiverHybridTailS51.Summary());
             sb.AppendLine(JobGiverSlowSearch0419S.Summary());
-            sb.AppendLine(LargeSetTailRescue092.Summary());
+            sb.AppendLine("Stage3 large-set rescue: RETIRED/OFF on T34-A production line.");
             sb.AppendLine(CommonSenseIngredientExpand092.Summary());
             return sb.ToString();
         }
@@ -199,3 +240,43 @@ namespace RimMT
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -9,11 +9,12 @@ namespace RimMT
 {
     internal static class WorkGiverProfiler
     {
-        private const int MaxSlowTraces = 8;
+        private const int MaxSlowTraces = 16;
         private const int MaxPhasesPerSlowTrace = 10;
         private static readonly Dictionary<ProfileKey, Stat> Stats = new Dictionary<ProfileKey, Stat>();
         private static readonly List<SlowTrace> SlowTraces = new List<SlowTrace>();
         private static readonly long Threshold16Ticks = Math.Max(1L, Stopwatch.Frequency * 16L / 1000L);
+        private static readonly long Threshold20Ticks = Math.Max(1L, Stopwatch.Frequency * 20L / 1000L);
         private static readonly long Threshold64Ticks = Math.Max(1L, Stopwatch.Frequency * 64L / 1000L);
         private static readonly long Threshold128Ticks = Math.Max(1L, Stopwatch.Frequency * 128L / 1000L);
 
@@ -29,6 +30,7 @@ namespace RimMT
         [ThreadStatic] private static bool captureDetail;
         [ThreadStatic] private static Dictionary<string, long> currentInclusivePhases;
         [ThreadStatic] private static string currentPawn;
+        [ThreadStatic] private static List<string> callerStack;
 
         internal struct JobPackageScope
         {
@@ -63,6 +65,8 @@ namespace RimMT
             captureDetail = false;
             currentInclusivePhases = null;
             currentPawn = null;
+            callerStack = null;
+            GenClosestDeepAttribution093T16.Reset();
             sessionActive = true;
         }
 
@@ -73,6 +77,7 @@ namespace RimMT
             jobPackageDepth = 0;
             currentInclusivePhases = null;
             currentPawn = null;
+            callerStack = null;
         }
 
         internal static JobPackageScope BeginJobPackage(Pawn pawn)
@@ -92,6 +97,8 @@ namespace RimMT
             captureDetail = true;
             currentInclusivePhases = new Dictionary<string, long>(StringComparer.Ordinal);
             currentPawn = pawn == null ? "<null>" : pawn.ToString();
+            callerStack = new List<string>(8);
+            GenClosestDeepAttribution093T16.BeginPackage(currentPawn);
             return state;
         }
 
@@ -103,7 +110,8 @@ namespace RimMT
             if (state.Outermost && state.Started != 0L)
             {
                 long elapsed = Stopwatch.GetTimestamp() - state.Started;
-                if (elapsed >= Threshold64Ticks)
+                GenClosestDeepAttribution093T16.EndPackage(elapsed);
+                if (elapsed >= Threshold20Ticks)
                 {
                     slowJobPackages++;
                     SaveSlowTrace(elapsed);
@@ -117,9 +125,35 @@ namespace RimMT
                 captureDetail = false;
                 currentInclusivePhases = null;
                 currentPawn = null;
+                callerStack = null;
                 if (sessionActive && totalJobPackages >= targetJobPackages)
                     WorkGiverDetailPatches.RequestStopCapture();
             }
+        }
+
+        internal static string CurrentCaller
+        {
+            get
+            {
+                if (callerStack == null || callerStack.Count == 0) return "<package>";
+                return callerStack[callerStack.Count - 1];
+            }
+        }
+
+        internal static void EnterCaller(WorkGiver giver, MethodBase method)
+        {
+            if (!captureDetail || !RimMTThreadGuard.IsMainThread) return;
+            if (callerStack == null) callerStack = new List<string>(8);
+            string def = giver == null || giver.def == null ? "<no-def>" : giver.def.defName;
+            string type = giver == null ? "<null>" : giver.GetType().FullName;
+            string phase = method == null ? "?" : method.Name;
+            callerStack.Add(def + "/" + type + "." + phase);
+        }
+
+        internal static void ExitCaller()
+        {
+            if (callerStack == null || callerStack.Count == 0) return;
+            callerStack.RemoveAt(callerStack.Count - 1);
         }
 
         internal static long Begin()
@@ -187,7 +221,7 @@ namespace RimMT
                 .Append(", patchFailures=").Append(patchFailures)
                 .Append(", outerCalls=").Append(totalJobPackages)
                 .Append('/').Append(targetJobPackages)
-                .Append(", slowPackages>=64ms=").Append(slowJobPackages)
+                .Append(", slowPackages>=20ms=").Append(slowJobPackages)
                 .Append(", phaseSamples=").Append(totalSamples)
                 .Append(", tracked=").Append(entries.Count)
                 .Append(", slowTracesKept=").Append(SlowTraces.Count);
@@ -325,3 +359,5 @@ namespace RimMT
         }
     }
 }
+
+

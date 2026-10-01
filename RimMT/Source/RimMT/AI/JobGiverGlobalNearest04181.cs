@@ -36,12 +36,7 @@ namespace RimMT
             if (harmony == null) return;
             try
             {
-                MethodBase jobGiver = AccessTools.Method(typeof(JobGiver_Work), "TryIssueJobPackage");
-                if (jobGiver == null) return;
-
-                harmony.Patch(jobGiver,
-                    prefix: new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(JobGiverPrefix)) { priority = Priority.First },
-                    finalizer: new HarmonyMethod(typeof(JobGiverGlobalNearest04181), nameof(JobGiverFinalizer)) { priority = Priority.Last });
+                if (!JobSearchPackageContext093T28.Installed) return;
 
                 bool global = false;
                 bool reachable = false;
@@ -63,7 +58,7 @@ namespace RimMT
                     }
                 }
 
-                Log.Message("[RimMT] Unified nearest-first + JS2 package-local search-plan reuse active: global=" + global + ", reachable=" + reachable + ".");
+                Log.Message("[RimMT] T28-coordinated nearest-first + JS2 package-local search-plan reuse active: global=" + global + ", reachable=" + reachable + ".");
             }
             catch (Exception ex)
             {
@@ -281,3 +276,4 @@ namespace RimMT
         }
     }
 }
+

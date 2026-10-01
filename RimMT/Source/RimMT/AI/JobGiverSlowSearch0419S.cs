@@ -23,13 +23,22 @@ namespace RimMT
         private const int LargeSearchThreshold = 256;
         private const int TailMinSourceCount = 16;
         private const int TailRescueThresholdMs = 32;
+        private const int EarlyKnownHeavyThresholdMs = 8;
+        private const int TargetedEarlyThresholdMs = 8;
+        private const long EarlyKnownHeavyMinCalls = 2;
+        private const long EarlyKnownHeavyMinRejects = 512;
         private const int MaxSourceCount = 16384;
         private const int HeavyRejectThreshold = 64;
         private const int MaxHeavyValidatorKeys = 24;
         private const int MaxHeavyWorkGiverKeys = 64;
         private static readonly long TailRescueThresholdTicks = Math.Max(1L, Stopwatch.Frequency * TailRescueThresholdMs / 1000L);
+        private static readonly long EarlyKnownHeavyThresholdTicks = Math.Max(1L, Stopwatch.Frequency * EarlyKnownHeavyThresholdMs / 1000L);
+        private static readonly long TargetedEarlyThresholdTicks = Math.Max(1L, Stopwatch.Frequency * TargetedEarlyThresholdMs / 1000L);
 
         [ThreadStatic] private static Candidate[] candidateScratch;
+        [ThreadStatic] private static bool t8DetermineActive;
+        [ThreadStatic] private static string t8DetermineTopWorkGiver;
+        [ThreadStatic] private static int t8DetermineTopRejects;
         private static volatile bool enabled = true;
         private static volatile bool patched;
         private static int failureLogs;
@@ -51,10 +60,33 @@ namespace RimMT
         private static long heavyValidatorRejects;
         private static long heavyWorkGiverResolved;
         private static long heavyWorkGiverUnresolved;
+        private static long earlyKnownChecks;
+        private static long earlyKnownHits;
+        private static long earlyKnownListAdmissions;
+        private static long earlyKnownCustomAdmissions;
+        private static long penPrefilterCalls;
+        private static long penPrefilterRejected;
+        private static long penPrefilterTakeToPenRejected;
+        private static long penPrefilterRoamingRejected;
+        private static long targetedPrefilterCalls;
+        private static long targetedPrefilterRejected;
+        private static long targetedHaulCorpsesRejected;
+        private static long targetedHoldingPlatformRejected;
+        private static long targetedFeedHemogenRejected;
+        private static long targetedVisitSickRejected;
+        private static long targetedFightFiresRejected;
+        private static long targetedPrefilterAuthorityBypass;
+        private static long targetedEarlyChecks;
+        private static long targetedEarlyHits;
+        private static long targetedEarlyListAdmissions;
+        private static long targetedEarlyCustomAdmissions;
+        private static long targetedEarlyAuthorityBypass;
+        private static long actualValidatorCalls;
         private static long failures;
         private static readonly Dictionary<string, HeavyValidatorStats> HeavyValidators = new Dictionary<string, HeavyValidatorStats>();
         private static readonly Dictionary<string, HeavyValidatorStats> HeavyWorkGivers = new Dictionary<string, HeavyValidatorStats>();
         private static readonly Dictionary<Type, FieldInfo> ScannerFieldCache = new Dictionary<Type, FieldInfo>();
+        private static readonly Dictionary<Type, bool> TargetedPrefilterAuthorityCache = new Dictionary<Type, bool>();
 
         internal static void Apply(Harmony harmony)
         {
@@ -114,7 +146,12 @@ namespace RimMT
 
             if (__7 != null)
             {
-                if (Stopwatch.GetTimestamp() - scopeStart < TailRescueThresholdTicks) return true;
+                long elapsedScope = Stopwatch.GetTimestamp() - scopeStart;
+                if (elapsedScope < TailRescueThresholdTicks)
+                {
+                    if (elapsedScope < TargetedEarlyThresholdTicks || !CanUseTargetedEarly(__6)) return true;
+                    targetedEarlyCustomAdmissions++;
+                }
                 customTailEligible++;
                 return TryAccelerateCustom(__7, __0, map, __3, __4, __5, __6, RescueRoute.CustomTail, ref __result);
             }
@@ -132,7 +169,12 @@ namespace RimMT
                 return TryAccelerateList(source, count, __0, map, __3, __4, __5, __6, RescueRoute.StaticLarge, ref __result);
             }
             if (count < TailMinSourceCount) return true;
-            if (Stopwatch.GetTimestamp() - scopeStart < TailRescueThresholdTicks) return true;
+            long elapsedSmallList = Stopwatch.GetTimestamp() - scopeStart;
+            if (elapsedSmallList < TailRescueThresholdTicks)
+            {
+                if (elapsedSmallList < TargetedEarlyThresholdTicks || !CanUseTargetedEarly(__6)) return true;
+                targetedEarlyListAdmissions++;
+            }
 
             tailEligible++;
             return TryAccelerateList(source, count, __0, map, __3, __4, __5, __6, RescueRoute.TailList, ref __result);
@@ -197,36 +239,354 @@ namespace RimMT
         private static bool RunCandidates(Candidate[] candidates, int kept, IntVec3 root, Map map,
             PathEndMode endMode, TraverseParms traverseParms, Predicate<Thing> validator, RescueRoute route, ref Thing result)
         {
+            int localValidatorCalls = 0;
             int localValidatorRejected = 0;
             int localReachRejected = 0;
+            WorkGiver_Scanner resolvedScanner = TryResolveScanner(validator);
+            PenPrefilterKind penKind = ResolvePenPrefilter(resolvedScanner);
+            if (penKind != PenPrefilterKind.None && kept > 0)
+            {
+                int write = 0;
+                for (int i = 0; i < kept; i++)
+                {
+                    penPrefilterCalls++;
+                    Candidate candidate = candidates[i];
+                    if (!PassPenCheapNegative(penKind, traverseParms.pawn, candidate.Thing))
+                    {
+                        penPrefilterRejected++;
+                        if (penKind == PenPrefilterKind.TakeRoamingAnimalsToPen) penPrefilterRoamingRejected++;
+                        else penPrefilterTakeToPenRejected++;
+                        continue;
+                    }
+                    candidates[write++] = candidate;
+                }
+                kept = write;
+            }
+
+            TargetedPrefilterKind targetedKind = ResolveTargetedPrefilter(resolvedScanner);
+            if (targetedKind != TargetedPrefilterKind.None && kept > 0)
+            {
+                if (!IsTargetedPrefilterAuthoritySafe(resolvedScanner))
+                {
+                    targetedPrefilterAuthorityBypass++;
+                }
+                else
+                {
+                    int write = 0;
+                    for (int i = 0; i < kept; i++)
+                    {
+                        targetedPrefilterCalls++;
+                        Candidate candidate = candidates[i];
+                        if (!PassTargetedCheapNegative(targetedKind, traverseParms.pawn, candidate.Thing))
+                        {
+                            targetedPrefilterRejected++;
+                            if (targetedKind == TargetedPrefilterKind.HaulCorpses) targetedHaulCorpsesRejected++;
+                            else if (targetedKind == TargetedPrefilterKind.TakeEntityToHoldingPlatform) targetedHoldingPlatformRejected++;
+                            else if (targetedKind == TargetedPrefilterKind.FeedHemogen) targetedFeedHemogenRejected++;
+                            else if (targetedKind == TargetedPrefilterKind.VisitSickPawn) targetedVisitSickRejected++;
+                            else if (targetedKind == TargetedPrefilterKind.FightFires) targetedFightFiresRejected++;
+                            continue;
+                        }
+                        candidates[write++] = candidate;
+                    }
+                    kept = write;
+                }
+            }
+
+            CarrierPrunerKind093T8 carrierPrunerKind;
+            if (kept > 0 && CarrierMechCheapNegative093T8.TryPrepare(resolvedScanner, out carrierPrunerKind))
+            {
+                int write = 0;
+                for (int i = 0; i < kept; i++)
+                {
+                    Candidate candidate = candidates[i];
+                    if (CarrierMechCheapNegative093T8.Reject(carrierPrunerKind, traverseParms.pawn, candidate.Thing))
+                        continue;
+                    candidates[write++] = candidate;
+                }
+                kept = write;
+            }
+
             if (kept > 1) Array.Sort(candidates, 0, kept, CandidateComparer.Instance);
             for (int i = 0; i < kept; i++)
             {
                 Thing thing = candidates[i].Thing;
-                if (validator != null && !validator(thing))
+                if (validator != null)
                 {
-                    localValidatorRejected++;
-                    continue;
+                    localValidatorCalls++;
+                    if (!validator(thing))
+                    {
+                        localValidatorRejected++;
+                        continue;
+                    }
                 }
                 if (!map.reachability.CanReach(root, new LocalTargetInfo(thing), endMode, traverseParms))
                 {
                     localReachRejected++;
                     continue;
                 }
-                RecordRoute(route, localValidatorRejected, localReachRejected, validator);
+                RecordRoute(route, localValidatorCalls, localValidatorRejected, localReachRejected, validator);
                 result = thing;
                 accelerated++;
                 return false;
             }
-            RecordRoute(route, localValidatorRejected, localReachRejected, validator);
+            RecordRoute(route, localValidatorCalls, localValidatorRejected, localReachRejected, validator);
             result = null;
             accelerated++;
             acceleratedNull++;
             return false;
         }
 
-        private static void RecordRoute(RescueRoute route, int validatorRejects, int reachRejects, Predicate<Thing> validator)
+        private static WorkGiver_Scanner TryResolveScanner(Predicate<Thing> validator)
         {
+            if (validator == null) return null;
+            try
+            {
+                object target = validator.Target;
+                if (target == null) return null;
+                Type targetType = target.GetType();
+                FieldInfo scannerField;
+                if (!ScannerFieldCache.TryGetValue(targetType, out scannerField))
+                {
+                    scannerField = ResolveScannerField(targetType);
+                    ScannerFieldCache[targetType] = scannerField;
+                }
+                return scannerField == null ? null : scannerField.GetValue(target) as WorkGiver_Scanner;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsKnownHeavyWorkGiver(Predicate<Thing> validator)
+        {
+            earlyKnownChecks++;
+            WorkGiver_Scanner scanner = TryResolveScanner(validator);
+            if (scanner == null) return false;
+
+            string key = scanner.def == null || string.IsNullOrEmpty(scanner.def.defName)
+                ? scanner.GetType().FullName
+                : scanner.def.defName;
+            if (string.IsNullOrEmpty(key)) return false;
+
+            HeavyValidatorStats stats;
+            if (!HeavyWorkGivers.TryGetValue(key, out stats) || stats == null) return false;
+            if (stats.Calls < EarlyKnownHeavyMinCalls || stats.Rejects < EarlyKnownHeavyMinRejects) return false;
+            earlyKnownHits++;
+            return true;
+        }
+
+        private static PenPrefilterKind ResolvePenPrefilter(WorkGiver_Scanner scanner)
+        {
+            if (scanner == null) return PenPrefilterKind.None;
+            Type type = scanner.GetType();
+            if (type == typeof(WorkGiver_TakeRoamingAnimalsToPen)) return PenPrefilterKind.TakeRoamingAnimalsToPen;
+            if (type == typeof(WorkGiver_TakeToPen)) return PenPrefilterKind.TakeToPen;
+            if (scanner is WorkGiver_TakeToPen) return PenPrefilterKind.DerivedTakeToPen;
+            return PenPrefilterKind.None;
+        }
+
+        private static bool PassPenCheapNegative(PenPrefilterKind kind, Pawn worker, Thing thing)
+        {
+            try
+            {
+                Pawn animal = thing as Pawn;
+                if (animal == null || animal.RaceProps == null || !animal.RaceProps.Animal) return false;
+                if (worker == null) return true;
+                if (animal.Position.IsForbidden(worker)) return false;
+                Map map = animal.Map;
+                if (map != null && map.designationManager.DesignationOn(animal, DesignationDefOf.ReleaseAnimalToWild) != null)
+                    return false;
+
+                bool roaming = animal.MentalStateDef == MentalStateDefOf.Roaming;
+                if (kind == PenPrefilterKind.TakeRoamingAnimalsToPen && !roaming) return false;
+                if (kind == PenPrefilterKind.TakeToPen && !roaming && animal.MentalStateDef != null) return false;
+                return true;
+            }
+            catch
+            {
+                // Fail open: if any live property behaves unexpectedly, let the original validator decide.
+                return true;
+            }
+        }
+
+        private static bool CanUseTargetedEarly(Predicate<Thing> validator)
+        {
+            targetedEarlyChecks++;
+            WorkGiver_Scanner scanner = TryResolveScanner(validator);
+            if (scanner == null) return false;
+            if (ResolveTargetedPrefilter(scanner) == TargetedPrefilterKind.None) return false;
+            if (!IsTargetedPrefilterAuthoritySafe(scanner))
+            {
+                targetedEarlyAuthorityBypass++;
+                return false;
+            }
+            targetedEarlyHits++;
+            return true;
+        }
+
+        private static TargetedPrefilterKind ResolveTargetedPrefilter(WorkGiver_Scanner scanner)
+        {
+            if (scanner == null) return TargetedPrefilterKind.None;
+            Type type = scanner.GetType();
+            if (type == typeof(WorkGiver_HaulCorpses)) return TargetedPrefilterKind.HaulCorpses;
+            if (type == typeof(WorkGiver_TakeEntityToHoldingPlatform)) return TargetedPrefilterKind.TakeEntityToHoldingPlatform;
+            if (scanner.def != null && scanner.def.defName == "FeedHemogen" && type == typeof(Workgiver_AdministerHemogen))
+                return TargetedPrefilterKind.FeedHemogen;
+            if (scanner.def != null && scanner.def.defName == "VisitSickPawn" && type == typeof(WorkGiver_VisitSickPawn))
+                return TargetedPrefilterKind.VisitSickPawn;
+            if (type.FullName == "RimWorld.WorkGiver_FightFires")
+                return TargetedPrefilterKind.FightFires;
+            return TargetedPrefilterKind.None;
+        }
+
+        private static bool IsTargetedPrefilterAuthoritySafe(WorkGiver_Scanner scanner)
+        {
+            if (scanner == null) return false;
+            Type type = scanner.GetType();
+            bool cached;
+            if (TargetedPrefilterAuthorityCache.TryGetValue(type, out cached)) return cached;
+
+            bool safe = true;
+            try
+            {
+                Type[] args = new Type[] { typeof(Pawn), typeof(Thing), typeof(bool) };
+                string[] methodNames = new string[] { "HasJobOnThing", "JobOnThing" };
+                for (int ni = 0; ni < methodNames.Length && safe; ni++)
+                {
+                    Type current = type;
+                    while (current != null && typeof(WorkGiver).IsAssignableFrom(current))
+                    {
+                        MethodInfo method = current.GetMethod(methodNames[ni],
+                            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                            null, args, null);
+                        if (method != null)
+                        {
+                            Patches info = Harmony.GetPatchInfo(method);
+                            if (info != null &&
+                                (info.Prefixes.Count != 0 || info.Postfixes.Count != 0 ||
+                                 info.Transpilers.Count != 0 || info.Finalizers.Count != 0))
+                            {
+                                safe = false;
+                                break;
+                            }
+                        }
+                        current = current.BaseType;
+                    }
+                }
+            }
+            catch
+            {
+                safe = false;
+            }
+
+            TargetedPrefilterAuthorityCache[type] = safe;
+            return safe;
+        }
+
+        private static bool PassTargetedCheapNegative(TargetedPrefilterKind kind, Pawn worker, Thing thing)
+        {
+            try
+            {
+                if (kind == TargetedPrefilterKind.HaulCorpses)
+                {
+                    // Vanilla WorkGiver_HaulCorpses.JobOnThing: non-corpses are rejected before
+                    // any general hauling logic. Its global candidate source is the haulables lister,
+                    // so this avoids entering PawnCanAutomaticallyHaulFast/HaulToStorageJob for them.
+                    if (!(thing is Corpse)) return false;
+                    if (worker == null || worker.Map == null) return true;
+
+                    Pawn reserver = worker.Map.physicalInteractionReservationManager.FirstReserverOf(new LocalTargetInfo(thing));
+                    if (reserver != null && reserver.RaceProps != null && reserver.RaceProps.Animal &&
+                        reserver.Faction != Faction.OfPlayer)
+                        return false;
+                    return true;
+                }
+
+                if (kind == TargetedPrefilterKind.TakeEntityToHoldingPlatform)
+                {
+                    if (thing == null) return false;
+                    CompHoldingPlatformTarget comp = thing.TryGetComp<CompHoldingPlatformTarget>();
+                    if (comp == null || comp.targetHolder == null) return false;
+                    Thing holder = comp.targetHolder;
+                    if (holder.Destroyed || holder.MapHeld != thing.MapHeld) return false;
+
+                    // EntityHolder should be present whenever the target comp is valid. If an
+                    // unexpected mod state violates that invariant, fail open to Vanilla instead.
+                    if (comp.EntityHolder == null) return true;
+                    if (comp.EntityHolder.HeldPawn != null) return false;
+                    return true;
+                }
+
+                if (kind == TargetedPrefilterKind.FeedHemogen)
+                {
+                    Pawn patient = thing as Pawn;
+                    if (patient == null || ReferenceEquals(patient, worker)) return false;
+                    Gene_Hemogen gene = patient.genes == null ? null : patient.genes.GetFirstGeneOfType<Gene_Hemogen>();
+                    if (gene == null || gene.ValuePercent >= 0.95f) return false;
+                    return true;
+                }
+
+                if (kind == TargetedPrefilterKind.VisitSickPawn)
+                {
+                    Pawn sick = thing as Pawn;
+                    if (sick == null || worker == null) return false;
+                    if (!sick.IsColonist || sick.IsSlave || worker.IsSlave || worker.RaceProps == null ||
+                        !worker.RaceProps.Humanlike || sick.Dead || ReferenceEquals(worker, sick) ||
+                        !sick.InBed() || !sick.Awake() || sick.IsForbidden(worker))
+                        return false;
+                    if (sick.needs == null || sick.needs.joy == null || sick.needs.joy.CurCategory > JoyCategory.VeryLow)
+                        return false;
+                    if (!InteractionUtility.CanReceiveInteraction(sick)) return false;
+                    if (sick.needs.food != null && sick.needs.food.Starving) return false;
+                    if (sick.needs.rest != null && sick.needs.rest.CurLevel <= 0.33f) return false;
+                    return true;
+                }
+
+                if (kind == TargetedPrefilterKind.FightFires)
+                {
+                    Fire fire = thing as Fire;
+                    if (fire == null || worker == null || worker.Map == null) return false;
+                    if (!fire.Spawned || fire.Map != worker.Map || !fire.Position.IsValid) return false;
+                    Pawn burningPawn = fire.parent as Pawn;
+                    if (burningPawn != null)
+                    {
+                        if (ReferenceEquals(burningPawn, worker)) return false;
+                        Faction workerFaction = worker.Faction;
+                        Faction workerHost = worker.HostFaction;
+                        Faction parentFaction = burningPawn.Faction;
+                        Faction parentHost = burningPawn.HostFaction;
+                        bool related = parentFaction != null && parentFaction == workerFaction;
+                        if (!related && parentHost != null)
+                            related = parentHost == workerFaction || parentHost == workerHost;
+                        if (!related) return false;
+                        if (!worker.Map.areaManager.Home[fire.Position])
+                        {
+                            IntVec3 a = worker.Position;
+                            IntVec3 b = burningPawn.Position;
+                            int manhattan = Math.Abs(a.x - b.x) + Math.Abs(a.z - b.z);
+                            if (manhattan > 15) return false;
+                        }
+                        return true;
+                    }
+                    if (worker.WorkTagIsDisabled(WorkTags.Firefighting)) return false;
+                    if (!worker.Map.areaManager.Home[fire.Position]) return false;
+                    return true;
+                }
+
+                return true;
+            }
+            catch
+            {
+                // Fail open: original validator/Reservation/Reachability/JobOnThing remain authoritative.
+                return true;
+            }
+        }
+
+        private static void RecordRoute(RescueRoute route, int validatorCalls, int validatorRejects, int reachRejects, Predicate<Thing> validator)
+        {
+            actualValidatorCalls += validatorCalls;
             validatorRejected += validatorRejects;
             reachRejected += reachRejects;
             switch (route)
@@ -299,6 +659,11 @@ namespace RimMT
                 string defName = scanner.def == null || string.IsNullOrEmpty(scanner.def.defName)
                     ? scanner.GetType().FullName
                     : scanner.def.defName;
+                if (t8DetermineActive && rejects > t8DetermineTopRejects)
+                {
+                    t8DetermineTopRejects = rejects;
+                    t8DetermineTopWorkGiver = defName;
+                }
                 AddHeavyStat(HeavyWorkGivers, defName, rejects);
             }
             catch
@@ -321,6 +686,25 @@ namespace RimMT
                     fallback = field;
             }
             return fallback;
+        }
+
+        internal static void T8BeginDetermineAttribution()
+        {
+            t8DetermineActive = true;
+            t8DetermineTopWorkGiver = null;
+            t8DetermineTopRejects = 0;
+        }
+
+        internal static void T8EndDetermineAttribution(long startedTicks)
+        {
+            if (!t8DetermineActive) return;
+            t8DetermineActive = false;
+            if (startedTicks <= 0L) return;
+            long elapsed = Stopwatch.GetTimestamp() - startedTicks;
+            if (elapsed <= 0L) return;
+            double elapsedMs = elapsed * (1000.0 / Stopwatch.Frequency);
+            if (elapsedMs < 20.0) return;
+            CarrierMechCheapNegative093T8.RecordSlowDetermine(t8DetermineTopWorkGiver, t8DetermineTopRejects, elapsedMs);
         }
 
         private static void AddHeavyStat(Dictionary<string, HeavyValidatorStats> table, string key, int rejects)
@@ -368,8 +752,10 @@ namespace RimMT
                    ", customTailEligible=" + customTailEligible +
                    ", accelerated=" + accelerated +
                    ", acceleratedNull=" + acceleratedNull +
-                   ", validatorRejected=" + validatorRejected +
+                   ", validatorCallsActual=" + actualValidatorCalls +
+                   ", validatorRejectedActual=" + validatorRejected +
                    " [static=" + staticLargeValidatorRejected + ", tailList=" + tailListValidatorRejected + ", custom=" + customTailValidatorRejected + "]" +
+                   ", prefilterRejected=" + (penPrefilterRejected + targetedPrefilterRejected) +
                    ", reachRejected=" + reachRejected +
                    " [static=" + staticLargeReachRejected + ", tailList=" + tailListReachRejected + ", custom=" + customTailReachRejected + "]" +
                    ", heavyValidatorCalls=" + heavyValidatorCalls +
@@ -378,6 +764,24 @@ namespace RimMT
                    ", heavyWorkGivers=" + workGivers +
                    ", heavyWorkGiverResolved=" + heavyWorkGiverResolved +
                    ", heavyWorkGiverUnresolved=" + heavyWorkGiverUnresolved +
+                   ", earlyKnownChecks=" + earlyKnownChecks +
+                   ", earlyKnownHits=" + earlyKnownHits +
+                   ", earlyKnownAdmissions=" + (earlyKnownListAdmissions + earlyKnownCustomAdmissions) +
+                   " [list=" + earlyKnownListAdmissions + ", custom=" + earlyKnownCustomAdmissions + "]" +
+                   ", earlyKnownPolicy=OFF" +
+                   ", penPrefilterCalls=" + penPrefilterCalls +
+                   ", penPrefilterRejected=" + penPrefilterRejected +
+                   " [takeToPen=" + penPrefilterTakeToPenRejected + ", roaming=" + penPrefilterRoamingRejected + "]" +
+                   ", targetedPrefilterCalls=" + targetedPrefilterCalls +
+                   ", targetedPrefilterRejected=" + targetedPrefilterRejected +
+                   " [haulCorpses=" + targetedHaulCorpsesRejected + ", holdingPlatform=" + targetedHoldingPlatformRejected +
+                   ", feedHemogen=" + targetedFeedHemogenRejected + ", visitSick=" + targetedVisitSickRejected +
+                   ", fightFires=" + targetedFightFiresRejected + "]" +
+                   ", targetedAuthorityBypass=" + targetedPrefilterAuthorityBypass +
+                   ", targetedEarly=" + (targetedEarlyListAdmissions + targetedEarlyCustomAdmissions) +
+                   " [checks=" + targetedEarlyChecks + ", hits=" + targetedEarlyHits +
+                   ", list=" + targetedEarlyListAdmissions + ", custom=" + targetedEarlyCustomAdmissions +
+                   ", authorityBypass=" + targetedEarlyAuthorityBypass + "]" +
                    ", failures=" + failures +
                    ", staticThreshold=" + LargeSearchThreshold + ", tailThresholdMs=" + TailRescueThresholdMs +
                    ", tailMinSource=" + TailMinSourceCount + ".";
@@ -420,6 +824,8 @@ namespace RimMT
         }
 
         private enum RescueRoute { StaticLarge, TailList, CustomTail }
+        private enum PenPrefilterKind { None, TakeToPen, TakeRoamingAnimalsToPen, DerivedTakeToPen }
+        private enum TargetedPrefilterKind { None, HaulCorpses, TakeEntityToHoldingPlatform, FeedHemogen, VisitSickPawn, FightFires }
 
         private sealed class HeavyValidatorStats
         {
@@ -449,3 +855,12 @@ namespace RimMT
         }
     }
 }
+
+
+
+
+
+
+
+
+
