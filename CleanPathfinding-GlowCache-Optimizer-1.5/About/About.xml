@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Clean Pathfinding - Glow Cache Optimizer</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.cleanpathfinding.glowcacheoptimizer</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>Owlchemist.CleanPathfinding</packageId>
+      <displayName>Clean Pathfinding 2</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>Owlchemist.CleanPathfinding</li>
+  </loadAfter>
+  <description>Standalone performance companion for Clean Pathfinding 2 on RimWorld 1.5.4063. Caches Clean Pathfinding's per-cell GameGlowAtFast result for 30 ticks per map to reduce repeated glow-grid work inside PathFinder cost evaluation. Clean Pathfinding remains authoritative on cache misses. No RimMT dependency or diagnostics hook.</description>
+</ModMetaData>
