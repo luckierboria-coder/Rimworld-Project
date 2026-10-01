@@ -11,8 +11,6 @@
   <RimMT_OverlayCacheDesc>镜头不移动时避免每帧扫描全图所有可显示浮层的物体。实际绘制仍只在主线程执行。</RimMT_OverlayCacheDesc>
   <RimMT_OverlayRefresh>浮层缓存刷新间隔：{0} 帧</RimMT_OverlayRefresh>
   <RimMT_Production>正式性能优化</RimMT_Production>
-  <RimMT_WorkScanAcceleration>加速安全的 Work / Job 搜索</RimMT_WorkScanAcceleration>
-  <RimMT_WorkScanAccelerationDesc>启用经过验证的 JobGiver、DoBill、搬运与 ReachProfile 正式优化。Worker 只处理可安全分流的快照/预处理，最终验证、预留与 Job 创建仍由主线程实时决定。</RimMT_WorkScanAccelerationDesc>
   <RimMT_Experimental>实验性功能</RimMT_Experimental>
   <RimMT_PathSnapshotWorker>受限 Path 快照一致性验证（V0.4.5.2）</RimMT_PathSnapshotWorker>
   <RimMT_PathSnapshotWorkerDesc>只把 Worker A* 作为有预算的影子验证器运行。V0.4.5.2 仅抽样符合条件的中距离路径，同时最多运行 1 个影子任务，主线程高压时停止接收，并在达到验证额度后完全停止。原版 PawnPath 始终作为最终结果。</RimMT_PathSnapshotWorkerDesc>

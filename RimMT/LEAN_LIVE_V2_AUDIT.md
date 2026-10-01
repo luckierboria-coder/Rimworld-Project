@@ -51,6 +51,8 @@ Runtime counters are cumulative and sessions have different lengths, so raw maxi
 
 The 2026-10-01 V2 runtime report confirmed that the cleaned DLL was loaded. In 1,133 synchronous work packages it recorded 667,443 live validator calls. The heaviest remaining WorkGivers were HaulMerge, Train and Repair. The retained filters were productive: 69,361 T4 merge negatives, 144,190 carrier/mech negatives, 298,731 S4 prefilter negatives, 5,932,665 DoBill false-memo hits and 466,360 Common Sense memo hits, all with zero recorded module failures.
 
+The later V2.1 report showed why reject counts alone were insufficient evidence for S4. Across 2,816 packages it still executed 781,388 live validators after sorting candidates; 15,035 of 16,370 reported accelerations returned no candidate. The new Train filter rejected nothing and Repair rejected only 1,110 candidates. Because the report did not establish net elapsed-time savings, V2.2 removes the complete S4 closest-search replacement and its nested T8 path. DoBill, Common Sense, T4 merge filtering, text caching and the minimal T28 package context remain.
+
 V2.1 therefore makes two bounded changes:
 
 - S5.1 no longer installs a second Harmony prefix on the same `ClosestThingReachable` overload. Its 16 ms known-small-set route is part of the single S4 prefix.

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Toddlers Toy Mote Hotfix 1.5</name>
+  <author>Allen</author>
+  <packageId>allen.toddlers.toymotehotfix15</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <loadAfter><li>cyanobot.toddlers</li></loadAfter>
+  <description>Prevents ToddlerPlayToys job restart storms when RimWorld declines to create one of the optional toy motes. Gameplay logic is unchanged; only null visual motes are skipped.</description>
+</ModMetaData>

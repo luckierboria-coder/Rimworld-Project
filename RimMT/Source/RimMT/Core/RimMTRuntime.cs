@@ -15,7 +15,6 @@ namespace RimMT
             initialized = true;
 
             FeatureGate.Register("ui.textCache", true, "Validated text measurement cache");
-            FeatureGate.Register(JobGiverSlowSearch0419S.FeatureId, true, "Validated synchronous slow-search rescue");
             ApplySettings(RimMTMod.Settings);
         }
 
@@ -23,8 +22,6 @@ namespace RimMT
         {
             if (!initialized || settings == null) return;
             FeatureGate.SetEnabled("ui.textCache", settings.TextCache);
-            FeatureGate.SetEnabled(JobGiverSlowSearch0419S.FeatureId, settings.WorkScanAcceleration);
-            JobGiverSlowSearch0419S.SetEnabled(settings.WorkScanAcceleration);
         }
     }
 }

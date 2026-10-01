@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RimMT V0.9.3-T34D.2.3 Lean Live V2.1</name>
+  <name>RimMT V0.9.3-T34D.2.3 Lean Live V2.2</name>
   <author>Allen / Rimworld-Project</author>
   <packageId>allen.rimmt</packageId>
   <supportedVersions><li>1.5</li></supportedVersions>
@@ -12,7 +12,7 @@
     </li>
   </modDependencies>
   <loadAfter><li>brrainz.harmony</li></loadAfter>
-  <description>Evidence-curated D.2.3 baseline for RimWorld 1.5. V2.1 consolidates S5.1 into the single S4 search hook and adds strict exact-type Train/Repair negative pruning for the current measured hot set. The DLL retains synchronous DoBill, Common Sense, merge and text-cache paths while excluding T34 fabrics, workers, dispatchers, Clean Pathfinding hooks and all validator, reachability or reservation replay. Final gameplay decisions execute live on the main thread.</description>
+  <description>Evidence-curated D.2.3 baseline for RimWorld 1.5. V2.2 removes the S4 closest-search replacement and T8 carrier/mech path after V2.1 showed high validator volume without demonstrated net time savings. The DLL retains synchronous DoBill, Common Sense, merge and text-cache paths plus only the minimal package scope they require. It excludes T34 fabrics, workers, dispatchers, Clean Pathfinding hooks and all validator, reachability or reservation replay.</description>
 </ModMetaData>
 
 
