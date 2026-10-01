@@ -132,10 +132,10 @@ namespace RimThreadedTTR
                 }
                 if (drawSafe)
                 {
-                    MethodInfo baseForceDraw = AccessTools.DeclaredMethod(closedBase, "ForceDraw", new Type[] { typeof(DrawBatch) });
-                    if (baseForceDraw != null && patchedMethods.Add(baseForceDraw))
+                    MethodInfo baseDraw = AccessTools.DeclaredMethod(closedBase, "Draw", new Type[] { typeof(DrawBatch) });
+                    if (baseDraw != null && patchedMethods.Add(baseDraw))
                     {
-                        harmony.Patch(baseForceDraw, new HarmonyMethod(patchClass.GetMethod("ForceDrawPrefix")), null, null, null);
+                        harmony.Patch(baseDraw, new HarmonyMethod(patchClass.GetMethod("DrawPrefix")), null, null, null);
                         patched++;
                     }
                 }
@@ -238,11 +238,11 @@ namespace RimThreadedTTR
         private static readonly FieldInfo dataRealtimeField = AccessTools.DeclaredField(typeof(FleckSystemBase<T>), "dataRealtime");
         private static readonly FieldInfo dataGametimeField = AccessTools.DeclaredField(typeof(FleckSystemBase<T>), "dataGametime");
 
-        // Replaces FleckSystemBase<T>.Update(float deltaTime) - real-time flecks.
-        public static bool UpdatePrefix(FleckSystemBase<T> __instance, float deltaTime)
+        // Replaces FleckSystemBase<T>.Update() - real-time flecks on RimWorld 1.5.
+        public static bool UpdatePrefix(FleckSystemBase<T> __instance)
         {
             List<T> data = (List<T>)dataRealtimeField.GetValue(__instance);
-            return RunSerialInstead(__instance, data, deltaTime);
+            return RunSerialInstead(__instance, data, UnityEngine.Time.deltaTime);
         }
 
         // Replaces FleckSystemBase<T>.Tick() - game-time flecks (vanilla uses a
@@ -341,14 +341,9 @@ namespace RimThreadedTTR
 
         private static readonly WaitCallback drawWorkerCallback = DrawWorker;
 
-        // Replaces FleckSystemBase<T>.ForceDraw(DrawBatch) when eligible.
-        public static bool ForceDrawPrefix(FleckSystemBase<T> __instance, DrawBatch drawBatch)
+        // Replaces FleckSystemBase<T>.Draw(DrawBatch) when eligible on RimWorld 1.5.
+        public static bool DrawPrefix(FleckSystemBase<T> __instance, DrawBatch drawBatch)
         {
-            // During gravship snapshot rendering, keep everything vanilla.
-            if (WorldComponent_GravshipController.GravshipRenderInProgess)
-            {
-                return true;
-            }
             List<T> realtime = (List<T>)dataRealtimeField.GetValue(__instance);
             List<T> gametime = (List<T>)dataGametimeField.GetValue(__instance);
             int total = ((realtime != null) ? realtime.Count : 0) + ((gametime != null) ? gametime.Count : 0);
@@ -359,7 +354,7 @@ namespace RimThreadedTTR
             try
             {
                 // Graphics must be initialized on the main thread before any
-                // worker touches them (mirrors vanilla ForceDraw).
+                // worker touches them (mirrors vanilla Draw).
                 List<FleckDef> defs = __instance.handledDefs;
                 for (int i = 0; i < defs.Count; i++)
                 {
