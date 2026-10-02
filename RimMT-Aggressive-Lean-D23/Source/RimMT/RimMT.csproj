@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>RimMT</AssemblyName>
+    <RootNamespace>RimMT</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NuGetAudit>false</NuGetAudit>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>..\..\1.5\Assemblies\</OutputPath>
+    <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AI\AggressiveParallelScanner093T34D.cs" />
+    <Compile Include="AI\JobGiverGlobalNearest04181.cs" />
+    <Compile Include="AI\JobSearchPackageContext093T28.cs" />
+    <Compile Include="AI\JobSearchTransaction093T20.cs" />
+    <Compile Include="AI\PersistentDoBillIndex092.cs" />
+    <Compile Include="AI\ReservationTransaction093T32A.cs" />
+    <Compile Include="AI\WorkGiverMergePartnerIndex093T4.cs" />
+    <Compile Include="Bootstrap\RimMTBootstrap.cs" />
+    <Compile Include="Compatibility\CommonSenseIngredientExpand092.cs" />
+    <Compile Include="Compatibility\FeatureGate.cs" />
+    <Compile Include="Compatibility\RuntimeCompatibility.cs" />
+    <Compile Include="Core\MainThreadDispatcher.cs" />
+    <Compile Include="Core\RimMTRuntime.cs" />
+    <Compile Include="Core\RimMTThreadGuard.cs" />
+    <Compile Include="Diagnostics\CircuitBreaker.cs" />
+    <Compile Include="Diagnostics\RimMTDiagnostics.cs" />
+    <Compile Include="Patches\RimMTPatches.cs" />
+    <Compile Include="Patches\TextMetricCache.cs" />
+    <Compile Include="Scheduling\AdaptiveLoadBalancer.cs" />
+    <Compile Include="Scheduling\JobPriority.cs" />
+    <Compile Include="Scheduling\JobScheduler.cs" />
+    <Compile Include="Settings\RimMTMod.cs" />
+    <Compile Include="Settings\RimMTMonitorWindow.cs" />
+    <Compile Include="Settings\RimMTSettings.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.5.4063" />
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>

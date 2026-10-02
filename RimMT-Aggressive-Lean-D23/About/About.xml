@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RimMT V0.9.3-T34D.2.3 Aggressive Lean V1</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.rimmt</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>A clean rebuild of RimMT T34-D.2.3 for RimWorld 1.5. Retains the aggressive parallel scanner plus the measured-positive T21/T28/T32, DoBill, T4, Common Sense and text-cache paths. Removes T34-A/B/C, S4/S5.1, T22, T26, Clean Pathfinding experiments and resident attribution probes from the compiled assembly. Scanner types that complete a worker wait above 8 ms still fail open and are quarantined.</description>
+</ModMetaData>
