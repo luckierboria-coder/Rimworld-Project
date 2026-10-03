@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>Clean Pathfinding 2 - Hotpath Performance Patch</name>
+  <author>Allen / Rimworld-Project</author>
+  <packageId>allen.cleanpathfinding.hotpathpatch</packageId>
+  <supportedVersions><li>1.5</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+    <li>
+      <packageId>Owlchemist.CleanPathfinding</packageId>
+      <displayName>Clean Pathfinding 2</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/3260446812</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>Owlchemist.CleanPathfinding</li>
+    <li>allen.cleanpathfinding.glowcacheoptimizer</li>
+  </loadAfter>
+  <description>Standalone RimWorld 1.5 performance patch for Clean Pathfinding 2. Replaces its per-cell AdjustCosts call with a direct fast implementation that prepares pawn and map state once per path, permanently disables development logging during play, and removes the older per-cell Glow Cache Optimizer detour. Clean Pathfinding remains authoritative for terrain, road, door and light behavior.</description>
+</ModMetaData>
