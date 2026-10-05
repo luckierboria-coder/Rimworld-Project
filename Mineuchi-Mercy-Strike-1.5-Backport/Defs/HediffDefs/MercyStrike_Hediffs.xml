@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+  <HediffDef>
+    <defName>Allen_MercyStrike_Mode</defName>
+    <label>mercy strike mode</label>
+    <description>Hidden state used by the RimWorld 1.5 Mercy Strike backport.</description>
+    <hediffClass>Allen.MercyStrike15.Hediff_MercyStrikeMode</hediffClass>
+    <scenarioCanAdd>false</scenarioCanAdd>
+  </HediffDef>
+
+  <HediffDef>
+    <defName>Allen_MercyStrike_Suppression</defName>
+    <label>suppression</label>
+    <description>Accumulated non-lethal suppression from controlled melee strikes. It gradually lowers maximum consciousness and fades over time.</description>
+    <hediffClass>Allen.MercyStrike15.Hediff_MercyStrikeSuppression</hediffClass>
+    <maxSeverity>0.6</maxSeverity>
+    <scenarioCanAdd>false</scenarioCanAdd>
+    <stages>
+      <li>
+        <minSeverity>0.1</minSeverity>
+        <capMods>
+          <li>
+            <capacity>Consciousness</capacity>
+            <max>0.85</max>
+          </li>
+        </capMods>
+      </li>
+      <li>
+        <minSeverity>0.2</minSeverity>
+        <capMods>
+          <li>
+            <capacity>Consciousness</capacity>
+            <max>0.70</max>
+          </li>
+        </capMods>
+      </li>
+      <li>
+        <minSeverity>0.3</minSeverity>
+        <capMods>
+          <li>
+            <capacity>Consciousness</capacity>
+            <max>0.55</max>
+          </li>
+        </capMods>
+      </li>
+      <li>
+        <minSeverity>0.4</minSeverity>
+        <capMods>
+          <li>
+            <capacity>Consciousness</capacity>
+            <max>0.40</max>
+          </li>
+        </capMods>
+      </li>
+      <li>
+        <minSeverity>0.5</minSeverity>
+        <capMods>
+          <li>
+            <capacity>Consciousness</capacity>
+            <max>0.25</max>
+          </li>
+        </capMods>
+      </li>
+      <li>
+        <minSeverity>0.6</minSeverity>
+        <capMods>
+          <li>
+            <capacity>Consciousness</capacity>
+            <max>0.10</max>
+          </li>
+        </capMods>
+      </li>
+    </stages>
+  </HediffDef>
+</Defs>
