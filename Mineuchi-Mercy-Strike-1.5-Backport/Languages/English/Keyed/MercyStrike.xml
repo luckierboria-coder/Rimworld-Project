@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <MercyStrike15_CommandLabel>Mercy Strike</MercyStrike15_CommandLabel>
+  <MercyStrike15_CommandDesc>Use controlled, non-lethal melee attacks while drafted. Accuracy is reduced, fatal body parts are avoided, primary strikes are converted to blunt damage, human damage is capped, endangered parts may be preserved at 1 HP, and human targets can accumulate Suppression.</MercyStrike15_CommandDesc>
+</LanguageData>
