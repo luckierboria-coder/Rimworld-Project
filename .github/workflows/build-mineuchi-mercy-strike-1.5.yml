@@ -1,0 +1,64 @@
+name: Build Mineuchi Mercy Strike 1.5
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Mineuchi-Mercy-Strike-1.5-Backport/**'
+      - '.github/workflows/build-mineuchi-mercy-strike-1.5.yml'
+      - '.github/actions/setup-rw15-dotnet/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup RimWorld 1.5 build environment
+        uses: ./.github/actions/setup-rw15-dotnet
+
+      - name: Restore
+        run: dotnet restore Mineuchi-Mercy-Strike-1.5-Backport/Source/Mineuchi15.csproj
+
+      - name: Build
+        run: dotnet build Mineuchi-Mercy-Strike-1.5-Backport/Source/Mineuchi15.csproj --configuration Release --no-restore
+
+      - name: Verify and package
+        shell: pwsh
+        run: |
+          $dll = 'Mineuchi-Mercy-Strike-1.5-Backport\1.5\Assemblies\Mineuchi15.dll'
+          if (!(Test-Path $dll)) { throw 'Compiled DLL missing.' }
+
+          Remove-Item 'dist-mineuchi15' -Recurse -Force -ErrorAction SilentlyContinue
+          $stage = 'dist-mineuchi15\Mineuchi-Mercy-Strike-1.5-Backport'
+
+          New-Item -ItemType Directory -Force -Path "$stage\About" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\1.5\Assemblies" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\Defs\HediffDefs" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\Languages\English\Keyed" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage\Languages\ChineseSimplified\Keyed" | Out-Null
+
+          Copy-Item 'Mineuchi-Mercy-Strike-1.5-Backport\About\About.xml' "$stage\About\About.xml"
+          Copy-Item 'Mineuchi-Mercy-Strike-1.5-Backport\Defs\HediffDefs\MercyStrike_Hediffs.xml' "$stage\Defs\HediffDefs\MercyStrike_Hediffs.xml"
+          Copy-Item 'Mineuchi-Mercy-Strike-1.5-Backport\Languages\English\Keyed\MercyStrike.xml' "$stage\Languages\English\Keyed\MercyStrike.xml"
+          Copy-Item 'Mineuchi-Mercy-Strike-1.5-Backport\Languages\ChineseSimplified\Keyed\MercyStrike.xml' "$stage\Languages\ChineseSimplified\Keyed\MercyStrike.xml"
+          Copy-Item 'Mineuchi-Mercy-Strike-1.5-Backport\README_CN.txt' "$stage\README_CN.txt"
+          Copy-Item $dll "$stage\1.5\Assemblies\Mineuchi15.dll"
+
+          $files = Get-ChildItem $stage -Recurse -File
+          if ($files.Name -contains '0Harmony.dll') { throw 'Harmony DLL leaked into package.' }
+          if ($files.Name -match '\.pdb$') { throw 'PDB leaked into package.' }
+
+          $hash = (Get-FileHash "$stage\1.5\Assemblies\Mineuchi15.dll" -Algorithm SHA256).Hash
+          Set-Content -Path "$stage\SHA256.txt" -Value "Mineuchi15.dll SHA256: $hash" -Encoding UTF8
+
+          Compress-Archive -Path $stage -DestinationPath 'dist-mineuchi15\Mineuchi-Mercy-Strike-1.5-Backport.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mineuchi-Mercy-Strike-1.5-Backport
+          path: dist-mineuchi15/Mineuchi-Mercy-Strike-1.5-Backport.zip
+          if-no-files-found: error
