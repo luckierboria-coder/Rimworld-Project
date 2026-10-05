@@ -295,9 +295,6 @@ namespace Allen.MercyStrike15
 
             int meleeLevel = MeleeLevel(attacker);
 
-            // Mercy Strike injuries themselves cannot remove a body part.
-            injury.destroysBodyParts = false;
-
             if (target.RaceProps.Humanlike)
             {
                 injury.Severity = Mathf.Min(HumanDamageCap, injury.Severity);
