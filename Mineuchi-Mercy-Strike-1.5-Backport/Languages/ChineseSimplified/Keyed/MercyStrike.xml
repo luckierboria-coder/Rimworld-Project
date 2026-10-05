@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <MercyStrike15_CommandLabel>留手攻击</MercyStrike15_CommandLabel>
+  <MercyStrike15_CommandDesc>征召状态下使用尽量非致命的近战攻击。命中率会降低，攻击会避开致命部位并优先腿部/移动部位，主要伤害转换为钝击；对人类单次伤害上限为 5，部位即将被摧毁时有概率保留 1 点生命，人类目标还会累积“压制”并最终倒地。</MercyStrike15_CommandDesc>
+</LanguageData>
