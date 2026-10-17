@@ -1,0 +1,49 @@
+name: Build WTL Growth Trait Cache v3
+on:
+  push:
+    branches: [fix/wtl-growth-trait-v3-cache-diagnostics]
+    paths:
+      - 'WTL-GrowthTraitFix-1.6-v3/**'
+      - '.github/workflows/build-wtl-growth-v3.yml'
+  pull_request:
+    paths:
+      - 'WTL-GrowthTraitFix-1.6-v3/**'
+      - '.github/workflows/build-wtl-growth-v3.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Check narrow patch scope
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path("WTL-GrowthTraitFix-1.6-v3/Source/GrowthTraitGuard.cs").read_text()
+          assert "Method(db, \"EnsureInitialized\")" not in s
+          assert "GenerateTraitsFor" in s and "TrySetChoices" in s and "FilteredTraits" in s
+          assert "DefTechLevels.Initialize(" not in s
+          assert "s.Candidates = __result.ToArray();" in s
+          print("WTL v3 static invariant checks passed")
+          PY
+      - name: Build for RimWorld 1.6.4871
+        run: dotnet build WTL-GrowthTraitFix-1.6-v3/Source/WTLGrowthTraitFixV3.csproj -c Release --nologo
+      - name: Package mod
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/WTL-GrowthTraitFix-1.6-v3/{About,Assemblies}
+          cp WTL-GrowthTraitFix-1.6-v3/About/About.xml dist/WTL-GrowthTraitFix-1.6-v3/About/
+          cp WTL-GrowthTraitFix-1.6-v3/Source/bin/Release/net472/WTLGrowthTraitFixV3.dll dist/WTL-GrowthTraitFix-1.6-v3/Assemblies/
+          cd dist
+          zip -rq WTL-GrowthTraitFix-1.6-v3.zip WTL-GrowthTraitFix-1.6-v3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WTL-GrowthTraitFix-1.6-v3-TEST
+          path: dist/WTL-GrowthTraitFix-1.6-v3.zip
+          if-no-files-found: error
