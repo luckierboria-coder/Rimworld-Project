@@ -1,0 +1,32 @@
+name: RX97 Bridge Diagnostics (RW 1.6)
+on:
+  push:
+    branches:
+      - diagnostics/vmf-rx97-bridge-rw16
+    paths:
+      - 'VehicleMapFramework-RX97-Bridge-1.6/DiagnosticMod/**'
+      - '.github/workflows/rx97-bridge-diagnostic.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build read-only diagnostics
+        run: dotnet build VehicleMapFramework-RX97-Bridge-1.6/DiagnosticMod/Source/RX97BridgeDiagnostics.csproj -c Release -v minimal
+      - name: Stage installable mod
+        run: |
+          set -euo pipefail
+          mkdir -p stage/Allen.RX97BridgeDiagnostics/1.6/Assemblies
+          cp VehicleMapFramework-RX97-Bridge-1.6/DiagnosticMod/About/About.xml stage/Allen.RX97BridgeDiagnostics/About.xml
+          cp VehicleMapFramework-RX97-Bridge-1.6/DiagnosticMod/1.6/Assemblies/Allen.RX97BridgeDiagnostics.dll stage/Allen.RX97BridgeDiagnostics/1.6/Assemblies/
+      - name: Upload game mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: RX97BridgeDiagnostics-RW16
+          path: stage/Allen.RX97BridgeDiagnostics
+          if-no-files-found: error
