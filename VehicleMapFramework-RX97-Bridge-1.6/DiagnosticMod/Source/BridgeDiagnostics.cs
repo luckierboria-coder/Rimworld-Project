@@ -52,7 +52,7 @@ namespace AllenRX97BridgeDiagnostics
             AccessTools.Method(typeof(BridgeDiagnostics), nameof(BeforePatherFailed))));
         else
           Log.Warning("[RX97Diag] PatherFailed hook unavailable");
-        Log.Message("[RX97Diag] v1.2 read-only hooks active: VehicleCanGoto, StartPath, PatherFailed; button: Mod Settings -> RX97 Bridge Diagnostics.");
+        Log.Message("[RX97Diag] v1.3 read-only hooks active: VehicleCanGoto, StartPath, PatherFailed; button: Mod Settings -> RX97 Bridge Diagnostics.");
       }
       catch (Exception ex)
       {
@@ -99,9 +99,10 @@ namespace AllenRX97BridgeDiagnostics
     {
       try
       {
-        if (startPathsLogged >= 30) return;
         var vehicle = HorseCartForFollower(__instance);
         if (vehicle == null) return;
+        BridgeDiagnosticTracker.Watch(vehicle);
+        if (startPathsLogged >= 30) return;
         startPathsLogged++;
         Log.Message("[RX97Diag] Horse Cart StartPath pos=" + vehicle.Position +
           " dest=" + dest + " peMode=" + peMode + " ignoreReachability=" + ignoreReachability +
@@ -228,6 +229,7 @@ namespace AllenRX97BridgeDiagnostics
               id.IndexOf("vehicle", StringComparison.OrdinalIgnoreCase) >= 0)
             Log.Message("[RX97Diag] active-mod=" + mod.Name + " [" + id + "]");
         }
+        BridgeDiagnosticTracker.DumpSelected();
         Log.Message("[RX97Diag] Snapshot END");
       }
       catch (Exception ex)
