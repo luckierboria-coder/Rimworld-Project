@@ -27,7 +27,7 @@ The latest imported development conversation reports **RimMT 2.0 M1.1.4** source
 
 ## Immediate next work
 
-1. Import the **real M1.1.4 source project**, build scripts, mod metadata and tests from the existing working package. Do not reconstruct from summaries or copy historical 1.5 RimMT runtime.
+1. Commit the **verified M1.1.4 source project** from the supplied archive, including build scripts, mod metadata and tests. A portable local source package is prepared; do not merge its original DLL as a newly compiled binary. Do not reconstruct from summaries or copy historical 1.5 RimMT runtime.
 2. Verify exact commit / DLL version / packaged source and target **RimWorld 1.6.4871** API. Validate CI build feasibility before claiming a build.
 3. Review unknown-caller probe in context. Limit stack capture to bounded, opt-in sampling; preserve correct nested search attribution and avoid high-frequency overhead while profiler off.
 4. Test M1.1.4 on the same representative save with a profiler-off baseline. Record `unknown[seen/traces]`, `unknownCallerTop`, `giverTop`, search counts, TPS, worker submission, relevant exceptions, and sample overhead.
@@ -45,7 +45,7 @@ The latest imported development conversation reports **RimMT 2.0 M1.1.4** source
 
 ## Repository/status caveat
 
-As of this handoff, the linked repository's default branch did not contain a `RimMT2/` source tree, and a branch search did not find a RimMT 2.0 development branch. The earlier machine-specific package location is **not accessible** through a GitHub connector or a text-only conversation archive. The actual project archive must be supplied/synced before implementation or compilation can safely continue.
+As of this handoff, the linked repository's default branch did not contain a `RimMT2/` source tree, and a branch search did not find a RimMT 2.0 development branch. The earlier machine-specific package location is **not accessible** through a GitHub connector or a text-only conversation archive. The original M1.1.4 source-containing ZIP has now been supplied and verified offline (23 ZIP entries, no CRC errors, full C# source and compiled DLL). The GitHub connector cannot directly transfer that binary conversation attachment, so the **real source has not yet been committed to this branch**. A separate portable source ZIP was prepared with only four differences from the supplied archive: `Build/Build.ps1`, `Source/RimMT2/RimMT2.csproj`, `AUDIT.md`, and `README.md`; all C# implementation files and DLL/PDB are byte-identical. Do not claim a GitHub source sync or new build until they occur.
 
 ## Agent workflow
 
