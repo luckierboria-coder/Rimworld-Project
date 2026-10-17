@@ -26,3 +26,16 @@ For permanent remote storage of the original bytes, use a private GitHub reposit
 ## Safety
 
 Never put game DLLs, decompiled copies of proprietary assemblies, saves, personal logs, or user-specific configuration in this public repository.
+
+## 2026-10-17 confirmed recovery
+
+The user's uploaded `3414187030(1).zip` was **incomplete**, not merely a different packaging layout. It contained `1.6/Lunar/Components/WorldTechLevel.dll` and matching `.lfc` files but lacked BOTH bootstrap components:
+
+- `1.6/Assemblies/LunarLoader.dll`
+- `1.6/Lunar/Components/LunarFramework.dll`
+
+The author's authentic official **v1.1.6** release archive was verified by GitHub Actions: [WorldTechLevel_v1.1.6.zip](https://github.com/m00nl1ght-dev/WorldTechLevel/releases/download/1.1.6/WorldTechLevel_v1.1.6.zip), 1,312,285 bytes, SHA-256 `8e333e9adfe61d9c66faa432b50ace1091156451c97bcbd0a15a281d5b46ef98`. It contains both missing bootstrap DLLs and the WTL 1.6 component. This is the required recovery source; no need to re-request the WTL archives from user.
+
+**Safe restoration:** move the old `Mods/3414187030` away, extract the complete official archive to a newly created `Mods/3414187030` folder, and start the game. Do not merge old/new files. The user's WTL game settings are not stored in the Mod folder. Keep a backup of the save and check Research Tree before installing any further trait compatibility fixes.
+
+The separate v2 trait compatibility source is in PR #78 (`WTL-GrowthTraitFix-1.6-v2`). It is a compile-verified candidate but not yet game-tested.
