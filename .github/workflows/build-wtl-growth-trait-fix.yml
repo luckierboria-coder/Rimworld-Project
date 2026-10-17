@@ -1,0 +1,40 @@
+name: Build WTL Growth Trait Fix (1.6)
+
+on:
+  push:
+    paths:
+      - "WTL-GrowthTraitFix-1.6/**"
+      - ".github/workflows/build-wtl-growth-trait-fix.yml"
+  pull_request:
+    paths:
+      - "WTL-GrowthTraitFix-1.6/**"
+      - ".github/workflows/build-wtl-growth-trait-fix.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build patch using RimWorld 1.6 reference assemblies
+        run: dotnet build WTL-GrowthTraitFix-1.6/Source/WTLGrowthTraitFix.csproj -c Release --nologo
+      - name: Assemble installable mod folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/WTL-GrowthTraitFix-1.6/About"
+          mkdir -p "dist/WTL-GrowthTraitFix-1.6/Assemblies"
+          cp "WTL-GrowthTraitFix-1.6/About/About.xml" "dist/WTL-GrowthTraitFix-1.6/About/"
+          cp "WTL-GrowthTraitFix-1.6/Source/bin/Release/net472/WTLGrowthTraitFix.dll" "dist/WTL-GrowthTraitFix-1.6/Assemblies/"
+          cd dist
+          zip -r WTL-GrowthTraitFix-1.6.zip WTL-GrowthTraitFix-1.6/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WTL-GrowthTraitFix-1.6
+          path: dist/WTL-GrowthTraitFix-1.6.zip
+          if-no-files-found: error
