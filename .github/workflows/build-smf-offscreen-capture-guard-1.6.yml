@@ -1,0 +1,73 @@
+name: Build SMF Offscreen Capture Guard 1.6
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'SMF-Offscreen-Capture-Guard-1.6/**'
+      - '.github/workflows/build-smf-offscreen-capture-guard-1.6.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore SMF-Offscreen-Capture-Guard-1.6/Source/SmfCaptureGuard.csproj
+
+      - name: Build Release
+        run: dotnet build SMF-Offscreen-Capture-Guard-1.6/Source/SmfCaptureGuard.csproj -c Release --no-restore
+
+      - name: Stage and verify minimal assembly
+        shell: pwsh
+        run: |
+          $name = 'SMF-Offscreen-Capture-Guard-1.6'
+          $dll = "$name/Source/bin/Release/net472/Allen.SmfCaptureGuard.dll"
+          if (!(Test-Path $dll)) { throw "DLL not found: $dll" }
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $dll))
+          $ascii = [Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($required in @('BeforeCapturedFrame','BeginCapturedFrame','HybridSession')) {
+            if (!$ascii.Contains($required)) { throw "DLL missing $required" }
+          }
+          foreach ($forbidden in @('BeforeGrowthOpen','AfterPlayUpdate','BeforeRenderingPolicy','BeforeSelectionPublish','Dialog_GrowthMomentChoices')) {
+            if ($ascii.Contains($forbidden)) { throw "Unexpected growth/UI hook $forbidden" }
+          }
+          $stage = "build/SMF_Offscreen_Capture_Guard_1.6_Minimal"
+          New-Item -ItemType Directory -Force "$stage/1.6/Assemblies" | Out-Null
+          Copy-Item "$name/About" "$stage/About" -Recurse
+          Copy-Item "$name/README.md" "$stage/README.md"
+          Copy-Item $dll "$stage/1.6/Assemblies/Allen.SmfCaptureGuard.dll"
+          Compress-Archive -Path $stage -DestinationPath 'build/SMF_Offscreen_Capture_Guard_1.6_Minimal.zip' -Force
+          Write-Host "Clean DLL size $($bytes.Length) bytes"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SMF-Offscreen-Capture-Guard-1.6-Minimal
+          path: build/SMF_Offscreen_Capture_Guard_1.6_Minimal.zip
+          if-no-files-found: error
+
+      - name: Commit distributable ZIP
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-artifacts | Out-Null
+          Copy-Item 'build/SMF_Offscreen_Capture_Guard_1.6_Minimal.zip' 'dist-artifacts/SMF_Offscreen_Capture_Guard_1.6_Minimal.zip' -Force
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist-artifacts/SMF_Offscreen_Capture_Guard_1.6_Minimal.zip
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m 'Build minimal SMF 1.6 offscreen capture guard release'
+          git push
