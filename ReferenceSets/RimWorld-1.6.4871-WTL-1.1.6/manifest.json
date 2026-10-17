@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-17",
+  "game": {
+    "name": "RimWorld",
+    "version": "1.6.4871",
+    "log_revision": "rev591",
+    "archive_uploaded_name": "Managed(1).zip",
+    "archive_sha256": "40fb83679297a2a266a6cf288c6ebbc31ce9c8d2d5b7cfbd178bd8c525b490c3",
+    "archive_size_bytes": 14764934,
+    "archive_entries": 107,
+    "selected_assemblies": [
+      {
+        "path": "Managed/Assembly-CSharp.dll",
+        "size_bytes": 15777280,
+        "sha256": "5cf1b5be399d5b1c9c56ca72c9d35b4ecf307feacf5859d04ac5a1aa5926356a"
+      },
+      {
+        "path": "Managed/UnityEngine.CoreModule.dll",
+        "size_bytes": 1386688,
+        "sha256": "c5c58ea254834291780a1d6c388c241443d07167b4a4b890a23c9494f626ddba"
+      },
+      {
+        "path": "Managed/UnityEngine.IMGUIModule.dll",
+        "size_bytes": 188608,
+        "sha256": "c6c39327211be8299e2e9ffdee7a979f228736c99b84fd54bc73f563456865d9"
+      },
+      {
+        "path": "Managed/UnityEngine.InputLegacyModule.dll",
+        "size_bytes": 37568,
+        "sha256": "be3f8c860d15e1b00611e454871b1e1e0041efa843e9bae4f77c227a59d10ac8"
+      },
+      {
+        "path": "Managed/UnityEngine.TextRenderingModule.dll",
+        "size_bytes": 37568,
+        "sha256": "b63769ad71c7fc79034cf6c3a1ebfcf79d4591f0b1f5cd4a9823e6ed7b5816f8"
+      }
+    ],
+    "compile_reference": {
+      "nuget_package": "Krafs.Rimworld.Ref",
+      "version": "1.6.4871",
+      "source": "https://www.nuget.org/packages/Krafs.Rimworld.Ref/1.6.4871"
+    }
+  },
+  "world_tech_level": {
+    "version": "1.1.6",
+    "package_id": "m00nl1ght.WorldTechLevel",
+    "archive_uploaded_name": "3414187030(1).zip",
+    "archive_sha256": "d7aeebfec359002ad4473ba65ccd9df7415ef7e3a93556a8deb0bc1582688955",
+    "archive_size_bytes": 357854,
+    "archive_entries": 31,
+    "assembly": {
+      "path": "1.6/Lunar/Components/WorldTechLevel.dll",
+      "size_bytes": 117760,
+      "sha256": "cd1274e251f73922ec00dc3dbeb0fd92eee708fa64ef0b8b2552e274a55c9ad8"
+    },
+    "lunar_manifest": "1.6/Lunar/Manifest.xml",
+    "load_folders": "LoadFolders.xml",
+    "license": "CC BY-NC-SA 4.0",
+    "upstream_source": "https://github.com/m00nl1ght-dev/WorldTechLevel",
+    "reviewed_source_commit": "5b71598d9c272c0a6b662374dbde247de4d242db"
+  },
+  "storage": {
+    "binary_files_committed": false,
+    "reason": "The target GitHub repository is public. RimWorld/Unity game binaries are proprietary; neither original archive has been published here. This manifest is not a substitute for original binary bytes.",
+    "user_uploaded_archives_exist_in_conversation": true
+  }
+}
