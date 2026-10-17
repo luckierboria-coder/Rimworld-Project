@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>WTL Growth Trait Cache Guard v2</name>
+  <author>Allen / independent compatibility patch</author>
+  <packageId>allen.wtl.growthtraitfix.v2</packageId>
+  <description>RimWorld 1.6: only refresh World Tech Level 1.1.6's TraitDef technology cache at its non-generic pawn trait filter call site. Preserves vanilla child growth selection and WTL research filters.</description>
+  <supportedVersions><li>1.6</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+    <li><packageId>m00nl1ght.WorldTechLevel</packageId><displayName>World Tech Level</displayName></li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li><li>m00nl1ght.WorldTechLevel</li></loadAfter>
+  <incompatibleWith><li>allen.wtl.growthtraitfix</li></incompatibleWith>
+</ModMetaData>
