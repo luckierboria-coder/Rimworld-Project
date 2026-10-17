@@ -46,6 +46,18 @@ Specific VMF source points to inspect (source at 2026-10-17, commit `77c898584`)
 
 **No exact culpable Harmony method or cache mutation has yet been demonstrated.** Treat VMF as a confirmed problem *component* per user observation, not a demonstrated line-level root cause.
 
+## Read-only instrumented diagnostics built in GitHub Actions
+
+- Source and usage: [DiagnosticMod/README.md](DiagnosticMod/README.md)
+- Source entrypoint: [DiagnosticMod/Source/BridgeDiagnostics.cs](DiagnosticMod/Source/BridgeDiagnostics.cs)
+- GitHub Actions workflow: [.github/workflows/rx97-bridge-diagnostic.yml](../../.github/workflows/rx97-bridge-diagnostic.yml)
+- Successful RW 1.6.4871 public-reference compilation and artifact staging:
+  https://github.com/luckierboria-coder/Rimworld-Project/actions/runs/39035428160
+- Name: `RX97BridgeDiagnostics-RW16`. Its DLL is **diagnostic only**, not a released compatibility fix and not game-tested.
+- One read-only Harmony postfix on `Vehicles.FloatMenuOptionProvider_OrderVehicle.VehicleCanGoto`, filtered by `RX97_HorseCart`, prints rejects only (up to 30). One debug action `RX97 Bridge > Dump vehicle region owners` prints group owners, region dirty flags, presence of RX97 carts, vehicle mods. No pathing effects.
+- An install-ready ZIP was also packaged into this conversation with correct `Allen.RX97BridgeDiagnostics/About/About.xml` and `1.6/Assemblies/*.dll` layout and its ZIP CRC verified. No compiled DLL pushed into repository.
+- Required follow-up: user's actual runtime `[RX97Diag]` Player.log, then produce root-cause-specific compatibility patch.
+
 ## Actual user-supplied RX97 Carts archive — forensic audit (2026-10-17)
 
 Source: user upload `3797810085.zip` (2,004,982 bytes), 239 ZIP entries including a `.git/` directory. Inspected actual byte content, not upstream public `main` defaults. This is an **XML + textures** mod, **no compiled DLL**.
