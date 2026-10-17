@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>RX97 Bridge Reachability Diagnostics (RW 1.6)</name>
+  <author>Allen / ChatGPT</author>
+  <packageId>Allen.RX97.BridgeDiagnostics</packageId>
+  <description>Read-only, opt-in diagnostics for Cammel Horse Cart bridge routing. Does not change pathing, bridge, fuel or vehicle definitions.</description>
+  <supportedVersions><li>1.6</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+    <li><packageId>SmashPhil.VehicleFramework</packageId><displayName>Vehicle Framework</displayName></li>
+  </modDependencies>
+  <loadAfter><li>SmashPhil.VehicleFramework</li><li>OELS.VehicleMapFramework</li><li>RX97.MapVehiclesCarts</li></loadAfter>
+</ModMetaData>
