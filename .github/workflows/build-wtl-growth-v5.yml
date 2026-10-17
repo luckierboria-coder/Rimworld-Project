@@ -1,0 +1,50 @@
+name: Build WTL Growth Window Dispatch v5
+on:
+  push:
+    branches: [fix/wtl-growth-v5-window-dispatch-trace]
+    paths:
+      - 'WTL-GrowthTraitFix-1.6-v5/**'
+      - '.github/workflows/build-wtl-growth-v5.yml'
+  pull_request:
+    paths:
+      - 'WTL-GrowthTraitFix-1.6-v5/**'
+      - '.github/workflows/build-wtl-growth-v5.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Check limited patch scope
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("WTL-GrowthTraitFix-1.6-v5/Source/GrowthTraitGuard.cs")
+          s=p.read_text()
+          assert 'InnerWindowOnGUI' in s and 'Event.current' in s
+          assert 'Method(db, "EnsureInitialized")' not in s
+          assert 'DefTechLevels.Initialize(' not in s
+          assert 's.Candidates = __result.ToArray()' in s
+          print("v5 static checks passed")
+          PY
+      - name: Build RimWorld 1.6.4871 reference target
+        run: dotnet build WTL-GrowthTraitFix-1.6-v5/Source/WTLGrowthTraitFixV5.csproj -c Release --nologo
+      - name: Package installable mod ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/WTL-GrowthTraitFix-1.6-v5/{About,Assemblies}
+          cp WTL-GrowthTraitFix-1.6-v5/About/About.xml dist/WTL-GrowthTraitFix-1.6-v5/About/
+          cp WTL-GrowthTraitFix-1.6-v5/Source/bin/Release/net472/WTLGrowthTraitFixV5.dll dist/WTL-GrowthTraitFix-1.6-v5/Assemblies/
+          cd dist
+          zip -rq WTL-GrowthTraitFix-1.6-v5.zip WTL-GrowthTraitFix-1.6-v5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WTL-GrowthTraitFix-v5-DISPATCH-TEST
+          path: dist/WTL-GrowthTraitFix-1.6-v5.zip
+          if-no-files-found: error
