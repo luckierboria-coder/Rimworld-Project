@@ -37,11 +37,12 @@ jobs:
           if (!(Test-Path $dll)) { throw "DLL not found: $dll" }
           $bytes = [IO.File]::ReadAllBytes((Resolve-Path $dll))
           $ascii = [Text.Encoding]::ASCII.GetString($bytes)
+          $unicode = [Text.Encoding]::Unicode.GetString($bytes)
           foreach ($required in @('BeforeCapturedFrame','BeginCapturedFrame','HybridSession')) {
-            if (!$ascii.Contains($required)) { throw "DLL missing $required" }
+            if (!$ascii.Contains($required) -and !$unicode.Contains($required)) { throw "DLL missing $required" }
           }
           foreach ($forbidden in @('BeforeGrowthOpen','AfterPlayUpdate','BeforeRenderingPolicy','BeforeSelectionPublish','Dialog_GrowthMomentChoices')) {
-            if ($ascii.Contains($forbidden)) { throw "Unexpected growth/UI hook $forbidden" }
+            if ($ascii.Contains($forbidden) -or $unicode.Contains($forbidden)) { throw "Unexpected growth/UI hook $forbidden" }
           }
           $stage = "build/SMF_Offscreen_Capture_Guard_1.6_Minimal"
           New-Item -ItemType Directory -Force "$stage/1.6/Assemblies" | Out-Null
