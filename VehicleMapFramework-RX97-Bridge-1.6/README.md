@@ -46,6 +46,15 @@ Specific VMF source points to inspect (source at 2026-10-17, commit `77c898584`)
 
 **No exact culpable Harmony method or cache mutation has yet been demonstrated.** Treat VMF as a confirmed problem *component* per user observation, not a demonstrated line-level root cause.
 
+## User runtime diagnostic result, October 17, 2026
+
+The user's actual `Player.log` from v1.1 diagnostics shows the DLL and Mod Settings button working; there were **two** completed snapshots. `RX97_HorseCart` is a **separate region-grid owner**, `size (4,7)`, `regionDirty=False`, `gridEnabled=True`; `RX97_Animal_Cart` likewise owns its separate grid, `size (3,7)`, `regionDirty=False`, `gridEnabled=True`. Both spawned carts were present. Horse Cart changed from `(72,0,138)` to `(72,0,139)`. No `REJECTED` command entry in this log; the exact blocked order remains uncaptured.
+
+A new **v1.2 read-only diagnostics** version was compiled in GitHub Actions:
+https://github.com/luckierboria-coder/Rimworld-Project/actions/runs/39038837942
+
+The v1.2 patch records accepted and rejected right-click orders, `VehiclePathFollower.StartPath` and `VehiclePathFollower.PatherFailed` (capped). It does not change pathing. An install-ready zip was packaged for the current conversation; GitHub source and compilation remain in `DiagnosticMod/`. Keep the final fix pending proper path execution data.
+
 ## Read-only instrumented diagnostics built in GitHub Actions
 
 - Source and usage: [DiagnosticMod/README.md](DiagnosticMod/README.md)
