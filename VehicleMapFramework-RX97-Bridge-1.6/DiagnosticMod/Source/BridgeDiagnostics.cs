@@ -10,27 +10,30 @@ using Verse;
 namespace AllenRX97BridgeDiagnostics
 {
   // Diagnostic only. NEVER mutate VF/VMF map pathing or change bridge definitions.
-  [StaticConstructorOnStartup]
-  internal static class BridgeDiagnostics
+  public static class BridgeDiagnostics
   {
     private static int failuresLogged;
+    private static bool snapshotOnFailureDone;
+    private static bool initialized;
     private const string TargetName = "RX97_HorseCart";
 
-    static BridgeDiagnostics()
+    public static void Initialize()
     {
+      if (initialized) return;
+      initialized = true;
       try
       {
         var provider = AccessTools.TypeByName("Vehicles.FloatMenuOptionProvider_OrderVehicle");
         var method = provider == null ? null : AccessTools.Method(provider, "VehicleCanGoto");
         if (method == null)
         {
-          Log.Warning("[RX97Diag] VF VehicleCanGoto not found. Snapshot debug action remains available.");
+          Log.Warning("[RX97Diag] VF VehicleCanGoto not found; use Mod Settings -> RX97 Bridge Diagnostics -> Dump snapshot.");
           return;
         }
         var harmony = new Harmony("allen.rx97.bridge.diagnostics");
         var postfix = AccessTools.Method(typeof(BridgeDiagnostics), nameof(AfterVehicleCanGoto));
         harmony.Patch(method, postfix: new HarmonyMethod(postfix));
-        Log.Message("[RX97Diag] Read-only VehicleCanGoto diagnostic enabled. Use Dev Mode -> Debug actions -> RX97 Bridge -> Dump snapshot.");
+        Log.Message("[RX97Diag] v1.1 read-only diagnostic enabled; use Mod Settings -> RX97 Bridge Diagnostics -> Dump snapshot. First rejected move also dumps automatically.");
       }
       catch (Exception ex)
       {
@@ -50,6 +53,12 @@ namespace AllenRX97BridgeDiagnostics
         Log.Warning("[RX97Diag] Horse Cart movement REJECTED: " + __result +
                     " pos=" + vehicle.Position + " map=" + vehicle.Map +
                     " args=" + string.Join(", ", __args.Select(a => a == null ? "<null>" : a.ToString()).ToArray()));
+        if (!snapshotOnFailureDone)
+        {
+          snapshotOnFailureDone = true;
+          Log.Message("[RX97Diag] Automatic one-time state snapshot triggered by first rejected Horse Cart movement");
+          DumpSnapshot();
+        }
       }
       catch (Exception ex)
       {
@@ -57,7 +66,7 @@ namespace AllenRX97BridgeDiagnostics
       }
     }
 
-    [DebugAction("RX97 Bridge", "Dump vehicle region owners", allowedGameStates = AllowedGameStates.PlayingOnMap)]
+    [DebugAction("RX97 Bridge", "Dump vehicle region owners", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap)]
     public static void DumpSnapshot()
     {
       try
