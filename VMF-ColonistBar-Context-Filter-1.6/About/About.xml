@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>VMF Colonist Bar Context Filter v1.1 (RW 1.6)</name>
+  <name>VMF Colonist Bar Context Filter v1.2 (RW 1.6)</name>
   <author>Allen</author>
   <packageId>Allen.VMFColonistBarContext</packageId>
   <supportedVersions><li>1.6</li></supportedVersions>
@@ -16,5 +16,5 @@
     <li>OELS.VehicleMapFramework</li>
     <li>Syrus.ColonistBarAdjuster</li>
   </loadAfter>
-  <description>Small, UI-only compatibility patch for Vehicle Map Framework v1.6.673 and Colonist Bar Adjuster. Hides colony-spawned vehicle interior map groups directly in RimWorld's ColonistBar map enumeration; preserves actual world caravan groups. Keeps map groups for vehicle caravans on the world map. Does not modify colonists, saves, car destinations, or pathfinding.</description>
+  <description>Small, UI-only compatibility patch for Vehicle Map Framework v1.6.673 and Colonist Bar Adjuster. Removes empty colony-spawned VMF vehicle interior map entries immediately before RimWorld calculates colonist-bar layout; preserves pawns and real world caravans. Keeps map groups for vehicle caravans on the world map. Does not modify colonists, saves, car destinations, or pathfinding.</description>
 </ModMetaData>
