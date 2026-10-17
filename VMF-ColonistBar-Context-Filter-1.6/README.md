@@ -1,29 +1,25 @@
-# VMF Colonist Bar Context Filter — RimWorld 1.6
+# VMF Colonist Bar Context Filter — RimWorld 1.6 (v1.1)
 
-**Purpose:** Remove the empty or redundant vehicle-map group in the top colonist bar when RX97 Animal Cart (or another VMF vehicle) is spawned at a player colony, while **preserving its original caravan presentation on the world map**.
+## Bug in v1.0 (verified from user runtime Player log)
 
-## Inputs verified
+- `[VMFContextFilter] v1.0 active` appeared, but no `Hidden colony vehicle pocket-map` message appeared, and the empty portrait-bar group remained.
+- v1.0 hooked the optional VMF helper `Patch_ColonistBar_CheckRecacheEntries.ExcludeVehicleMaps`; its transpiler is annotated VMF `PatchLevel(Level.Sensitive)` and is not always installed, so a successful Harmony patch of the helper does **not** guarantee that the helper is called.
+- Decompiled **RimWorld 1.6** `ColonistBar.CheckRecacheEntries` loops through `Find.Maps` and unconditionally adds `Entry(null, map, num)` for empty-map groups (the `if (!tmpPawns.Any())` branch). This creates exactly the kind of blank group the user sees.
 
-- `VehicleMapFramework-v1.6.673.zip`: packageId `OELS.VehicleMapFramework`, 1.6 DLL present.
-- `2673413930.zip`: Colonist Bar Adjuster, packageId `Syrus.ColonistBarAdjuster`, RimWorld 1.6 DLL and actual C# sources present.
-- VMF source `VMF_HarmonyPatches/Patches_GUI.cs`: `Patch_ColonistBar_CheckRecacheEntries.ExcludeVehicleMaps` filters `Find.Maps` and excludes only `m==vehicle.VehicleMap` for spawned vehicles.
-- CBA source `HarmonyPatches.cs`: it patches bar layout and group-frame rendering, not vehicle-group membership. Its `HideBackground` setting is global rather than per vehicle group.
+## v1.1 correction
 
-## Implementation
+- Hook **vanilla `ColonistBar.CheckRecacheEntries` directly** with a small Harmony transpiler.
+- Inject our `ExcludeColonyVehicleMaps(IEnumerable<Map>)` immediately after its `Find.Maps` getter.
+- Filter only `VehicleMapFramework.MapParent_Vehicle` interior maps whose owner vehicle chain is currently `Spawned` on an `IsPlayerHome` map.
+- Preserve all other maps and the vanilla world's `Find.WorldObjects.Caravans` path, so the real world caravan groups remain visible.
+- Never touch Colonist Bar Adjuster layout, per-frame UI rendering, pawn ticks, vehicles, saves, or pathfinding.
+- `[VMFContextFilter] v1.1 ... IL map-site matched=True` means the transpiler found `Find.Maps`; `v1.1 vanilla recache map filter invoked` confirms actual execution; `v1.1 hidden colony vehicle map` confirms removal.
+- Unknown owners, unspawned vehicles and non-colony vehicles always pass through unchanged.
 
-Harmony postfix on VMF's existing `ExcludeVehicleMaps(IEnumerable<Map>)` method filters additional nested/remaining vehicle pocket maps if their owner vehicle chain is currently spawned on a player home map.
+## Limitations and next step
 
-- Owner is unspawned (actual vehicle caravan): retain map/group.
-- Owner still spawned on colony: filter interior pocket map/group.
-- Owner spawned on non-home map: retain.
-- Unknown map/VMF version: pass through unchanged and warn.
-- No changes to `ColonistBar.Entries` after layout; do not interfere with CBA's placement calculation.
-- No patch on `DrawGroupFrame`, pawn tick, vehicles, pathfinding, or the save format.
-
-## Scope and validation
-
-This is a **first runtime test build**, compiled via GitHub Actions, not yet verified inside user's full mod stack. In `Player.log`, look for `[VMFContextFilter] v1.0 active` and `Hidden colony vehicle pocket-map`. If the white box remains and no map was filtered, this indicates it is not produced by VMF's surviving pocket-map list; the next fix should inspect group frame construction rather than broadening this patch speculatively.
+This is a **compile-verified first runtime test of v1.1**, not yet verified in the user's game. If the bar still appears while direct map filter is invoked, the remaining group may have a non-`MapParent_Vehicle` parent; need an entry dump distinguishing `pawn == null`, `entry.map` and `entry.group`. Do not blindly delete all `Entry(null,...)` placeholders because normal empty maps also use them.
 
 ## Installation
 
-Extract ready-to-install ZIP into `RimWorld/Mods` to create `Allen.VMFColonistBarContext`. Enable after Harmony, Vehicle Framework, VMF and CBA. Restart game. Test (1) cart spawned on colony, (2) actual world caravan, (3) returned to colony. Remove mod folder to revert.
+Extract the ZIP under `Mods` to create `Allen.VMFColonistBarContext`; remove v1.0 first. Keep Harmony, VF, VMF, Colonist Bar Adjuster and RX97 Animal Cart enabled. Fully restart RimWorld, test colony, actual world caravan and return to colony. Uninstall by deleting only the independent mod folder.
