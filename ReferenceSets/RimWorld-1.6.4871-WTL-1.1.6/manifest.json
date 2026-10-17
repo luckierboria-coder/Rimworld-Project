@@ -58,7 +58,20 @@
     "load_folders": "LoadFolders.xml",
     "license": "CC BY-NC-SA 4.0",
     "upstream_source": "https://github.com/m00nl1ght-dev/WorldTechLevel",
-    "reviewed_source_commit": "5b71598d9c272c0a6b662374dbde247de4d242db"
+    "reviewed_source_commit": "5b71598d9c272c0a6b662374dbde247de4d242db",
+    "official_release": {
+      "tag": "1.1.6",
+      "url": "https://github.com/m00nl1ght-dev/WorldTechLevel/releases/download/1.1.6/WorldTechLevel_v1.1.6.zip",
+      "sha256": "8e333e9adfe61d9c66faa432b50ace1091156451c97bcbd0a15a281d5b46ef98",
+      "archive_size_bytes": 1312285,
+      "compared_to_uploaded": "User-uploaded 3414187030(1).zip (357854 bytes) lacked LunarLoader.dll and LunarFramework.dll. Official 1.1.6 archive contains both for 1.5/1.6.",
+      "critical_v16_files": [
+        "1.6/Assemblies/LunarLoader.dll",
+        "1.6/Lunar/Components/LunarFramework.dll",
+        "1.6/Lunar/Components/WorldTechLevel.dll"
+      ],
+      "validated_by": "GitHub Actions official release audit on 2026-10-17"
+    }
   },
   "storage": {
     "binary_files_committed": false,
