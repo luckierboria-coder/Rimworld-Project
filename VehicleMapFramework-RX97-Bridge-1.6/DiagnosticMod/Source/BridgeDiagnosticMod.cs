@@ -11,7 +11,7 @@ namespace AllenRX97BridgeDiagnostics
   {
     public BridgeDiagnosticMod(ModContentPack content) : base(content)
     {
-      Log.Message("[RX97Diag] v1.2 mod loaded from " + content.RootDir);
+      Log.Message("[RX97Diag] v1.3 mod loaded from " + content.RootDir);
       BridgeDiagnostics.Initialize();
     }
 
