@@ -1,18 +1,26 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
+using RimWorld;
 using Verse;
 
 namespace AllenVMFColonistBarContext
 {
     /// <summary>
-    /// A narrow post-filter on VMF's existing CheckRecacheEntries map selection.
-    /// Map/group layout remains calculated by the vanilla ColonistBar and CBA.
-    /// World-caravan vehicle maps are not filtered because their vehicles are unspawned.
+    /// Targets the vanilla ColonistBar map-enumeration site, not the optional
+    /// Level.Sensitive VMF ExcludeVehicleMaps helper.  The VMF helper may be
+    /// unpatched when VMF dynamic patch settings disable sensitive patches.
+    /// All actual world caravan items are left intact.
     /// </summary>
     public sealed class ContextFilterMod : Mod
     {
+        private static int callsLogged;
+        private static int hiddenLogged;
+        private static int errorsLogged;
+        private static bool transpilerMatched;
+
         public ContextFilterMod(ModContentPack content) : base(content)
         {
             LongEventHandler.ExecuteWhenFinished(Install);
@@ -22,42 +30,60 @@ namespace AllenVMFColonistBarContext
         {
             try
             {
-                Type patchClass = AccessTools.TypeByName(
-                    "VehicleMapFramework.VMF_HarmonyPatches.Patch_ColonistBar_CheckRecacheEntries");
-                MethodInfo helper = patchClass == null ? null :
-                    AccessTools.Method(patchClass, "ExcludeVehicleMaps");
-                if (helper == null)
+                MethodInfo target = AccessTools.Method(typeof(ColonistBar), "CheckRecacheEntries");
+                if (target == null)
                 {
-                    Log.Warning("[VMFContextFilter] VMF's ExcludeVehicleMaps was not found; " +
-                                "no patch installed. Check that Vehicle Map Framework 1.6.673 is enabled.");
+                    Log.Error("[VMFContextFilter] v1.1: vanilla ColonistBar.CheckRecacheEntries not found. No patch installed.");
                     return;
                 }
 
-                MethodInfo postfix = AccessTools.Method(
-                    typeof(ContextFilterMod), nameof(AfterExcludeVehicleMaps));
-                new Harmony("allen.vmf.colonistbar.contextfilter.rw16").Patch(
-                    helper, postfix: new HarmonyMethod(postfix));
-                Log.Message("[VMFContextFilter] v1.0 active. Colony-spawned vehicle pocket maps " +
-                            "will be excluded at Colonist Bar recache; caravan maps remain unchanged.");
+                var harmony = new Harmony("allen.vmf.colonistbar.contextfilter.rw16");
+                harmony.Patch(target, transpiler: new HarmonyMethod(
+                    AccessTools.Method(typeof(ContextFilterMod), nameof(FilterMapsAtVanillaRecache))));
+                Log.Message("[VMFContextFilter] v1.1 DIRECT vanilla ColonistBar map filter installed; " +
+                            "VMF pocket maps on a home colony are suppressed, world caravans unchanged." +
+                            " IL map-site matched=" + transpilerMatched);
             }
             catch (Exception ex)
             {
-                Log.Warning("[VMFContextFilter] Initialization failed: " + ex);
+                Log.Error("[VMFContextFilter] v1.1 patch initialization failed: " + ex);
             }
         }
 
-        private static int exclusionLogs;
-
-        // Execute ONLY when the top bar is rebuilt; never inside pawn ticks or map pathfinding.
-        private static void AfterExcludeVehicleMaps(ref IEnumerable<Map> __result)
+        // VMF's original transpiler injects a filter after the same Find.Maps call.
+        // Their filter and ours compose whichever Harmony applies first.
+        private static IEnumerable<CodeInstruction> FilterMapsAtVanillaRecache(
+            IEnumerable<CodeInstruction> source)
         {
-            if (__result != null)
-                __result = FilterStationaryColonyVehicleMaps(__result);
+            var getMaps = AccessTools.PropertyGetter(typeof(Find), nameof(Find.Maps));
+            var filter = AccessTools.Method(typeof(ContextFilterMod), nameof(ExcludeColonyVehicleMaps));
+            int matches = 0;
+            foreach (var instruction in source)
+            {
+                yield return instruction;
+                if (getMaps != null && instruction.Calls(getMaps))
+                {
+                    yield return new CodeInstruction(OpCodes.Call, filter);
+                    matches++;
+                }
+            }
+            transpilerMatched = matches > 0;
+            if (matches != 1)
+                Log.Error("[VMFContextFilter] v1.1: expected 1 Find.Maps call, found " + matches +
+                          ". Bar filter cannot be guaranteed; no unrelated layout was modified.");
         }
 
-        private static IEnumerable<Map> FilterStationaryColonyVehicleMaps(IEnumerable<Map> source)
+        private static IEnumerable<Map> ExcludeColonyVehicleMaps(IEnumerable<Map> maps)
         {
-            foreach (Map map in source)
+            if (maps == null) return maps;
+            if (callsLogged++ < 3)
+                Log.Message("[VMFContextFilter] v1.1 vanilla recache map filter invoked.");
+            return IterateFilteredMaps(maps);
+        }
+
+        private static IEnumerable<Map> IterateFilteredMaps(IEnumerable<Map> maps)
+        {
+            foreach (Map map in maps)
             {
                 if (map == null)
                 {
@@ -65,52 +91,47 @@ namespace AllenVMFColonistBarContext
                     continue;
                 }
 
-                bool hidden = false;
+                bool exclude = false;
                 try
                 {
-                    hidden = IsGroundColonyVehiclePocketMap(map);
+                    exclude = IsColonyVehiclePocketMap(map);
                 }
                 catch (Exception ex)
                 {
-                    if (exclusionLogs < 3)
-                        Log.Warning("[VMFContextFilter] Classification failed; preserving map " +
-                                    map + ": " + ex);
-                    exclusionLogs++;
+                    if (errorsLogged++ < 3)
+                        Log.Warning("[VMFContextFilter] v1.1: map classification error; " +
+                                    "keeping map " + map + ": " + ex);
                 }
-
-                if (hidden)
+                if (exclude)
                 {
-                    if (exclusionLogs++ < 15)
-                        Log.Message("[VMFContextFilter] Hidden colony vehicle pocket-map " + map);
+                    if (hiddenLogged++ < 20)
+                        Log.Message("[VMFContextFilter] v1.1 hidden colony vehicle map " + map +
+                                    " (its empty group will not be created)");
                     continue;
                 }
+
                 yield return map;
             }
         }
 
-        private static bool IsGroundColonyVehiclePocketMap(Map map)
+        private static bool IsColonyVehiclePocketMap(Map map)
         {
-            // Follow nested vehicle pocket-map ownership back to the actual ground map.
-            // No item is removed if there is any uncertainty or an unspawned vehicle:
-            // that preserves all world-caravan representations.
-            Map parentMap = map;
-            bool foundVehiclePocketMap = false;
-            for (int depth = 0; depth < 12; depth++)
+            Map current = map;
+            bool isVehicleMap = false;
+            for (int i = 0; i < 12; i++)
             {
-                object parent = parentMap.Parent;
-                if (parent == null ||
-                    parent.GetType().FullName != "VehicleMapFramework.MapParent_Vehicle")
-                {
-                    return foundVehiclePocketMap && parentMap.IsPlayerHome;
-                }
+                object parent = current.Parent;
+                if (parent == null || parent.GetType().FullName !=
+                    "VehicleMapFramework.MapParent_Vehicle")
+                    return isVehicleMap && current.IsPlayerHome;
 
-                foundVehiclePocketMap = true;
-                FieldInfo field = AccessTools.Field(parent.GetType(), "vehicle");
-                Pawn vehicle = field == null ? null : field.GetValue(parent) as Pawn;
+                isVehicleMap = true;
+                var vehicleField = AccessTools.Field(parent.GetType(), "vehicle");
+                Pawn vehicle = vehicleField?.GetValue(parent) as Pawn;
                 if (vehicle == null || !vehicle.Spawned || vehicle.Map == null)
-                    return false; // Vehicle is in a caravan, stashed, or not yet spawned.
+                    return false; // World-caravan or stashed vehicle: keep map/group.
 
-                parentMap = vehicle.Map;
+                current = vehicle.Map;
             }
             return false;
         }
