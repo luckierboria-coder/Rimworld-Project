@@ -13,6 +13,9 @@ namespace AllenRX97BridgeDiagnostics
   public static class BridgeDiagnostics
   {
     private static int failuresLogged;
+    private static int acceptedOrdersLogged;
+    private static int startPathsLogged;
+    private static int patherFailuresLogged;
     private static bool snapshotOnFailureDone;
     private static bool initialized;
     private const string TargetName = "RX97_HorseCart";
@@ -33,7 +36,22 @@ namespace AllenRX97BridgeDiagnostics
         var harmony = new Harmony("allen.rx97.bridge.diagnostics");
         var postfix = AccessTools.Method(typeof(BridgeDiagnostics), nameof(AfterVehicleCanGoto));
         harmony.Patch(method, postfix: new HarmonyMethod(postfix));
-        Log.Message("[RX97Diag] v1.1 read-only diagnostic enabled; use Mod Settings -> RX97 Bridge Diagnostics -> Dump snapshot. First rejected move also dumps automatically.");
+        // Unlike VehicleCanGoto, these hooks capture failures AFTER a move was accepted.
+        // They are called per order/path failure, not per pawn tick; all logs are capped.
+        var followerType = AccessTools.TypeByName("Vehicles.VehiclePathFollower");
+        var startPath = followerType == null ? null : AccessTools.Method(followerType, "StartPath");
+        var patherFailed = followerType == null ? null : AccessTools.Method(followerType, "PatherFailed");
+        if (startPath != null)
+          harmony.Patch(startPath, prefix: new HarmonyMethod(
+            AccessTools.Method(typeof(BridgeDiagnostics), nameof(BeforeStartPath))));
+        else
+          Log.Warning("[RX97Diag] StartPath hook unavailable");
+        if (patherFailed != null)
+          harmony.Patch(patherFailed, prefix: new HarmonyMethod(
+            AccessTools.Method(typeof(BridgeDiagnostics), nameof(BeforePatherFailed))));
+        else
+          Log.Warning("[RX97Diag] PatherFailed hook unavailable");
+        Log.Message("[RX97Diag] v1.2 read-only hooks active: VehicleCanGoto, StartPath, PatherFailed; button: Mod Settings -> RX97 Bridge Diagnostics.");
       }
       catch (Exception ex)
       {
@@ -41,29 +59,102 @@ namespace AllenRX97BridgeDiagnostics
       }
     }
 
-    // Postfix is read-only. It logs only failed Horse Cart player movement commands.
+    // Postfix is read-only, captures both ACCEPTED and REJECTED Horse Cart click orders.
     private static void AfterVehicleCanGoto(object[] __args, AcceptanceReport __result)
     {
       try
       {
-        if (__result.Accepted || failuresLogged >= 30 || __args == null) return;
-        var vehicle = __args.OfType<Thing>().FirstOrDefault(t => t.def != null && t.def.defName == TargetName);
+        if (__args == null) return;
+        var vehicle = __args.OfType<Thing>().FirstOrDefault(t => IsHorseCart(t));
         if (vehicle == null) return;
-        failuresLogged++;
-        Log.Warning("[RX97Diag] Horse Cart movement REJECTED: " + __result +
-                    " pos=" + vehicle.Position + " map=" + vehicle.Map +
-                    " args=" + string.Join(", ", __args.Select(a => a == null ? "<null>" : a.ToString()).ToArray()));
+        if (__result.Accepted)
+        {
+          if (acceptedOrdersLogged++ < 25)
+            Log.Message("[RX97Diag] Horse Cart VehicleCanGoto ACCEPTED pos=" + vehicle.Position +
+              " args=" + ShortArgs(__args));
+        }
+        else
+        {
+          if (failuresLogged++ >= 30) return;
+          Log.Warning("[RX97Diag] Horse Cart VehicleCanGoto REJECTED: " + __result +
+            " pos=" + vehicle.Position + " args=" + ShortArgs(__args));
+          if (!snapshotOnFailureDone)
+          {
+            snapshotOnFailureDone = true;
+            Log.Message("[RX97Diag] Automatic snapshot from first REJECTED move");
+            DumpSnapshot();
+          }
+        }
+      }
+      catch (Exception ex)
+      {
+        if (failuresLogged++ < 3) Log.Warning("[RX97Diag] VehicleCanGoto logging failed: " + ex);
+      }
+    }
+
+    // Only happens when a path order is issued, never on the per-tick hot path.
+    private static void BeforeStartPath(object __instance, LocalTargetInfo dest,
+      PathEndMode peMode, bool ignoreReachability)
+    {
+      try
+      {
+        if (startPathsLogged >= 30) return;
+        var vehicle = HorseCartForFollower(__instance);
+        if (vehicle == null) return;
+        startPathsLogged++;
+        Log.Message("[RX97Diag] Horse Cart StartPath pos=" + vehicle.Position +
+          " dest=" + dest + " peMode=" + peMode + " ignoreReachability=" + ignoreReachability +
+          " moving=" + ReadProperty(__instance, "Moving") +
+          " requestStatus=" + ReadProperty(__instance, "RequestStatus"));
+      }
+      catch (Exception ex)
+      {
+        if (startPathsLogged++ < 3) Log.Warning("[RX97Diag] StartPath logging failed: " + ex);
+      }
+    }
+
+    private static void BeforePatherFailed(object __instance)
+    {
+      try
+      {
+        if (patherFailuresLogged >= 20) return;
+        var vehicle = HorseCartForFollower(__instance);
+        if (vehicle == null) return;
+        patherFailuresLogged++;
+        Log.Warning("[RX97Diag] Horse Cart PatherFailed pos=" + vehicle.Position +
+          " destination=" + ReadProperty(__instance, "Destination") +
+          " moving=" + ReadProperty(__instance, "Moving") +
+          " requestStatus=" + ReadProperty(__instance, "RequestStatus") +
+          " stack=" + new System.Diagnostics.StackTrace(1, false));
         if (!snapshotOnFailureDone)
         {
           snapshotOnFailureDone = true;
-          Log.Message("[RX97Diag] Automatic one-time state snapshot triggered by first rejected Horse Cart movement");
+          Log.Message("[RX97Diag] Automatic snapshot from first PatherFailed");
           DumpSnapshot();
         }
       }
       catch (Exception ex)
       {
-        if (failuresLogged++ < 3) Log.Warning("[RX97Diag] Postfix error: " + ex);
+        if (patherFailuresLogged++ < 3) Log.Warning("[RX97Diag] PatherFailed logging failed: " + ex);
       }
+    }
+
+    private static Thing HorseCartForFollower(object follower)
+    {
+      if (follower == null) return null;
+      var f = AccessTools.Field(follower.GetType(), "vehicle");
+      var thing = f == null ? null : f.GetValue(follower) as Thing;
+      return IsHorseCart(thing) ? thing : null;
+    }
+
+    private static bool IsHorseCart(Thing thing)
+    {
+      return thing?.def?.defName == TargetName;
+    }
+
+    private static string ShortArgs(object[] args)
+    {
+      return string.Join(", ", args.Select(a => a == null ? "<null>" : a.ToString()).ToArray());
     }
 
     [DebugAction("RX97 Bridge", "Dump vehicle region owners", actionType = DebugActionType.Action, allowedGameStates = AllowedGameStates.PlayingOnMap)]
