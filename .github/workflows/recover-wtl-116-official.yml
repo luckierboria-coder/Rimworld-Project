@@ -1,0 +1,38 @@
+name: Recover official WTL 1.1.6 distribution
+on:
+  push:
+    paths:
+      - '.github/workflows/recover-wtl-116-official.yml'
+  workflow_dispatch:
+jobs:
+  fetch-official:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download and verify authors release package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          curl -fLSs --retry 4 'https://github.com/m00nl1ght-dev/WorldTechLevel/releases/download/1.1.6/WorldTechLevel_v1.1.6.zip' -o dist/WorldTechLevel_v1.1.6.zip
+          echo "8e333e9adfe61d9c66faa432b50ace1091156451c97bcbd0a15a281d5b46ef98  dist/WorldTechLevel_v1.1.6.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile
+          p="dist/WorldTechLevel_v1.1.6.zip"
+          with zipfile.ZipFile(p) as z:
+              names=set(z.namelist())
+              required={"1.6/Assemblies/LunarLoader.dll","1.6/Lunar/Components/LunarFramework.dll",
+                        "1.6/Lunar/Components/WorldTechLevel.dll","1.6/Lunar/Manifest.xml",
+                        "1.6/Lunar/Components/WorldTechLevel.lfc", "About/Version.txt"}
+              assert required<=names, sorted(required-names)
+              assert z.read("About/Version.txt").decode("utf8").strip()=="1.1.6"
+              assert z.testzip() is None
+              print("Official WTL 1.1.6 complete package verified: "+str(len(names))+" entries")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Official-WorldTechLevel-v1.1.6-Verified
+          path: dist/WorldTechLevel_v1.1.6.zip
+          retention-days: 30
+          if-no-files-found: error
