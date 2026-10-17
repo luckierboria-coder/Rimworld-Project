@@ -1,0 +1,32 @@
+name: VMF Colonist Bar Context Filter (RW 1.6)
+on:
+  push:
+    branches:
+      - fix/vmf-colonistbar-context-rw16
+    paths:
+      - 'VMF-ColonistBar-Context-Filter-1.6/**'
+      - '.github/workflows/vmf-colonistbar-context-rw16.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build independent UI patch
+        run: dotnet build VMF-ColonistBar-Context-Filter-1.6/Source/VMFContextFilter.csproj -c Release -v minimal
+      - name: Stage installable mod
+        run: |
+          set -euo pipefail
+          mkdir -p stage/Allen.VMFColonistBarContext/About stage/Allen.VMFColonistBarContext/1.6/Assemblies
+          cp VMF-ColonistBar-Context-Filter-1.6/About/About.xml stage/Allen.VMFColonistBarContext/About/About.xml
+          cp VMF-ColonistBar-Context-Filter-1.6/1.6/Assemblies/Allen.VMFColonistBarContext.dll stage/Allen.VMFColonistBarContext/1.6/Assemblies/
+      - name: Upload independent RimWorld mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: VMFColonistBarContext-RW16
+          path: stage/Allen.VMFColonistBarContext
+          if-no-files-found: error
