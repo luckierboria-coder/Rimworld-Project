@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>RX97 Bridge Reachability Diagnostics v1.2 (RW 1.6)</name>
+  <name>RX97 Bridge Reachability Diagnostics v1.3 (RW 1.6)</name>
   <author>Allen / ChatGPT</author>
   <packageId>Allen.RX97.BridgeDiagnostics</packageId>
-  <description>Read-only diagnostics of Cammel Horse Cart movement acceptance, path start and failure. Does not change pathing, bridge, fuel or vehicle definitions.</description>
+  <description>Read-only diagnostics of Cammel Horse Cart movement acceptance, path start, failure and 60-tick passive path-follower sampling. Does not change pathing, bridge, fuel or vehicle definitions.</description>
   <supportedVersions><li>1.6</li></supportedVersions>
   <modDependencies>
     <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
