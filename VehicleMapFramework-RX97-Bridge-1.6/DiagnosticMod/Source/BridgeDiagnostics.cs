@@ -6,6 +6,7 @@ using System.Reflection;
 using HarmonyLib;
 using LudeonTK;
 using Verse;
+using Verse.AI;
 
 namespace AllenRX97BridgeDiagnostics
 {
