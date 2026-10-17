@@ -1,6 +1,6 @@
 # Vehicle Map Framework × RX97 Horse Cart × S.D. Bridges (RimWorld 1.6)
 
-**Status (2026-10-17): REGRESSION STILL REPRODUCES WITH VMF v1.6.673 (user-reported); NOT FIXED / NOT RUNTIME-VERIFIED BY US.**
+**Status (2026-10-17): RX97 Carts is a necessary trigger in user's A/B test; VMF v1.6.673 alone works. Root cause not yet proved; no patch shipped.**
 
 This folder tracks an apparent compatibility problem where the regular `RX97_HorseCart` from **RX97 Medieval Vehicle: Cammel** fails to cross a drawbridge after an up/down transition, even when the drawbridge appears lowered. This is separate from the Vehicle Map Framework colonist-bar grouping issue.
 
@@ -45,6 +45,38 @@ Specific VMF source points to inspect (source at 2026-10-17, commit `77c898584`)
 4. VMF has a configurable dynamic patch level; lowering this globally may break VMF's normal mapped-vehicle features. Do not treat changing levels as a proven fix.
 
 **No exact culpable Harmony method or cache mutation has yet been demonstrated.** Treat VMF as a confirmed problem *component* per user observation, not a demonstrated line-level root cause.
+
+## Confirmed differential isolation (2026-10-17, user tested)
+
+**The critical A/B test is now complete:** retaining the updated Vehicle Map Framework while disabling **only RX97 Carts** restores `RX97_HorseCart` movement. The user also reports failure with RX97 Carts enabled.
+
+| Runtime condition | RX97 HorseCart through drawbridge |
+|---|---|
+| VF + Cammel + S.D. Bridges + VMF v1.6.673; **RX97 Carts disabled** | PASS (user report) |
+| Same plus **RX97 Carts enabled** | FAIL (user report) |
+
+This supersedes the earlier unclear combined VMF+RX97 Carts removal test. It **does not** prove whether the root lies in RX97 Carts defs, an old or duplicated asset/DLL, or a shared pathing algorithm triggered by adding the vehicle defs. Do not ask the user to repeat this differential test.
+
+### Author's publicly available content repositories (discovered now)
+
+- RX97 Carts: https://github.com/Rangelx97/RX97_Vehicle_Map_Carts
+  - `About/About.xml` declares `RX97.MapVehiclesCarts` and **supportedVersions 1.5 only**. Last visible main commit 2025-06-15, no 1.6 branch.
+  - `Defs/VehicleDefs/Animal Cart/Animal_Cart_VehiclePawn.xml`: `BaseVehiclePawnWithMap`, `RX97_Animal_Cart`, visible external `size=(4,8)`, interior `size=(2,3)`, XML `Class="VehicleInteriors.VehicleMapProps"` and `VehicleInteriors.VehicleHumanPowered`. This is 1.5-era naming. Chariot (`2x5`) and Hand Cart (`2x3`) also inherit BaseVehiclePawnWithMap.
+- Cammel: https://github.com/Rangelx97/RX97Rwcart
+  - `yackcart/1.5/Defs/VehicleDefs/HorseCart/HorseCart_VehiclePawn.xml`: `BaseVehiclePawn`, `RX97_HorseCart`, `size=(4,7)`.
+- VMF v1.6.673: https://github.com/oelsart/VehicleMapFramework/blob/1.6/1.6/Defs/VehicleDefs/BaseVehiclePawnWithMap.xml loads `VehicleMapFramework.VehiclePawnWithMap` and source `VehicleMapFramework.VehicleMapProps` exists at `Source/VehicleMapFramework/VehicleMap/VehicleMapProps.cs`.
+- VF 1.6: https://github.com/SmashPhil/Vehicle-Framework/blob/v1.6.2144/Source/Vehicles/Pathing/MapGridOwners.cs compares `min(Size.x, Size.z)`, default impassable flags, and *impassable terrain and thing sets* to group region owners. The criterion does **not** by itself establish whether these exact defs share one owner. In fact RX97 Carts public XML disallows terrain tagged Water, whereas Cammel public HorseCart XML does not explicitly do that, potentially preventing a match. **Do not claim shared grids as fact.**
+- Crucial historical discrepancy: older game-side diagnostic described `RX97_Animal_Cart` size **3×7**, while current public Carts source says **4×8**. This confirms public source is not a verified byte-for-byte substitute for the user's actual installed 1.6 content.
+
+### Engineering implications
+
+1. Scope root-cause investigation around presence of `RX97.MapVehiclesCarts` while VMF remains installed, not VMF alone.
+2. Do **not** deploy a guessed `MatchesReachability` Harmony patch until comparing the **loaded 1.6 XML defs**, patch operations, game log class resolution, and the actual group owner IDs at runtime.
+3. Audit any `VehicleInteriors.*` class references in the *installed* Carts files; the author's public source uses 1.5 type names despite 1.6 VMF changes. Distinguish from Steam build, which may have been updated independently.
+4. A minimal targeted diagnostic should report `RX97_HorseCart` and `RX97_Animal_Cart` exact final def sizes, flags, impassable sets, region owner IDs, `VehicleReachability` result, and whether movement gets rejected before/after path generation. Instrument on one explicit player command, never on each tick.
+5. Preserve Cammel and S.D. Bridges unmodified. Prefer a narrowly targeted `RX97 Carts × VF 1.6` compatibility module only after the above confirmation; the first safe action is obtaining/inspecting the **actual RX97 Carts 1.6 mod content** if not already accessible.
+
+**No compiled patch or game runtime validation in this iteration.** The old source snapshot is only a lead, not conclusive proof of the loaded XML.
 
 ## New regression report — 2026-10-17
 
