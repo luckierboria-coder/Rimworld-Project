@@ -46,6 +46,34 @@ Specific VMF source points to inspect (source at 2026-10-17, commit `77c898584`)
 
 **No exact culpable Harmony method or cache mutation has yet been demonstrated.** Treat VMF as a confirmed problem *component* per user observation, not a demonstrated line-level root cause.
 
+## Actual user-supplied RX97 Carts archive — forensic audit (2026-10-17)
+
+Source: user upload `3797810085.zip` (2,004,982 bytes), 239 ZIP entries including a `.git/` directory. Inspected actual byte content, not upstream public `main` defaults. This is an **XML + textures** mod, **no compiled DLL**.
+
+### Actual RW 1.6 contents
+
+- `About/About.xml`: `RX97.MapVehiclesCarts`, `supportedVersions: 1.6`; dependencies `brrainz.harmony`, `SmashPhil.VehicleFramework`, `OELS.VehicleMapFramework`, load after the same.
+- `About/LoadFolders.xml`: version 1.6 loads `1.6/` only.
+- `1.6/Defs/VehicleDefs/Animal Cart/Animal_Cart_VehiclePawn.xml`: **one** vehicle def, `RX97_Animal_Cart`, parent `BaseVehiclePawnWithMap`, external `size=(3,7)`, `MoveSpeed=3`, `customTerrainCosts DisallowTerrainWithTag="Water"`; interior `VehicleMapFramework.VehicleMapProps` of `size=(2,3)`; hay fueled; correctly uses current VMF 1.6 namespace.
+- `1.6/Defs/VehicleDefs/Animal Cart/Animal_Cart_Buildable.xml`: same external size `(3,7)`, build creates this def.
+- `1.6/Defs/UpgradeTrees/AnimalCart_UpgradeTree.xml`: RX97_AnimalCart_UpgradeTree, optional canopy.
+- XML Patches: `Early_Vehicle_Parts.xml`, `Early_Vehicle_Parts_Research.xml`, `Medieval_Overhaul.xml`, `RX97_Animal_Roles.xml`, and `Simply_Wheel_Barrow_(Vehicle)_Research.xml`. All statically inspected XML are parseable. These target **the Animal Cart blueprint/vehicle** and the RX97 trade cart research; **none directly targets `RX97_HorseCart` or S.D. Bridges**.
+- `RX97_Animal_Roles.xml` operates **only if mod named `RX97 Animal Roles` is active**, adds draft animal roles and removes Animal Cart `CompProperties_FueledTravel` and horse fuel-leak reactor. This is a separate compatibility dimension requiring the actual user's active Mod list.
+- No source-provided Harmony/C# assemblies in this archive; any cross-effect on Cammel is therefore more likely from **VF/VMF global initialization/pathing**, mod interactions, existing cart instances, or external compatibility patches, rather than a direct RX97 Carts Harmony patch.
+- The ZIP embeds Git metadata pointing at upstream `Rangelx97/RX97_Vehicle_Map_Carts` and `main` commit `6b15171590836ed3abdef06485d9f692662c408e`. The archive's 1.6 tree **differs materially** from the public GitHub main tree, which still lists 1.5 and an Animal Cart `size=(4,8)`. The previous old-API hypothesis is **disproved for this uploaded 1.6 version**.
+
+### Region-owner hypothesis decisively narrowed
+
+In **VF 1.6** `MapGridOwners.PathConfig`, region sharing requires same `size = min(vehicleDef.Size.x, vehicleDef.Size.z)` **and** same default impassability and impassable thing/terrain sets. Actual RX97 Animal Cart `(3,7)` yields size **3**; Cammel Horse Cart `(4,7)` yields **4**. Thus these **two specific defs cannot directly share a region owner**. Do not produce a fictitious grid-owner isolation patch between them. Adding Animal Cart can still perturb global init/other owner groups, which remains unproven.
+
+### The next discriminating runtime check
+
+Using a **copy of the save**, keep RX97 Carts and VMF enabled, but test whether horse-cart blockage occurs **before any RX97 Animal Cart instance / interior map is spawned**. If only after an Animal Cart map is instantiated, prioritize VMF map creation and base-map propagation, pathfinding dirtier invalidation and conflicts with existing bridge workarounds. If immediately on loading the extra VehicleDef, inspect VF map path-owner initialization, total owner count/dirty-rebuild scheduling and third-party Harmony patches. Also distinguish whether `RX97 Animal Roles` and the prior `Allen.RX97HerbivoreFuel16` mod are active, as those conditionally alter vehicle state.
+
+Never test destructive changes on the only save; do not change `thingClass` or interior `VehicleMapProps` in a live save holding Animal Cart interior pawns/items.
+
+**Status**: user's ablation isolates RX97 Carts; source audit is complete; actual runtime exception stage / root code path and fix **not yet confirmed**, no DLL patch built or claimed to be fixed.
+
 ## Confirmed differential isolation (2026-10-17, user tested)
 
 **The critical A/B test is now complete:** retaining the updated Vehicle Map Framework while disabling **only RX97 Carts** restores `RX97_HorseCart` movement. The user also reports failure with RX97 Carts enabled.
