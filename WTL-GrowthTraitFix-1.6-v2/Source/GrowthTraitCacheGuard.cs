@@ -25,7 +25,6 @@ namespace WTLGrowthTraitFixV2
         private static MethodInfo applyOverridesMethod;
         private static bool rebuilding;
         private static int lastFailedCount = -1;
-        private static bool loggedEmpty = false;
 
         public GrowthTraitCacheGuardMod(ModContentPack content) : base(content)
         {
@@ -114,7 +113,6 @@ namespace WTLGrowthTraitFixV2
                     }
 
                     lastFailedCount = -1;
-                    loggedEmpty = false;
                     Log.Message("[WTLGrowthTraitFixV2] Refreshed WTL TraitDef cache only: " +
                                 oldLevels.Length + " -> " + liveCount +
                                 ". WTL's original trait filtering will now run.");
