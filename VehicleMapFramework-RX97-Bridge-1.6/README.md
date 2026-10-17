@@ -55,6 +55,16 @@ https://github.com/luckierboria-coder/Rimworld-Project/actions/runs/39038837942
 
 The v1.2 patch records accepted and rejected right-click orders, `VehiclePathFollower.StartPath` and `VehiclePathFollower.PatherFailed` (capped). It does not change pathing. An install-ready zip was packaged for the current conversation; GitHub source and compilation remain in `DiagnosticMod/`. Keep the final fix pending proper path execution data.
 
+## v1.2 runtime result — Player(20261017-141537).log (2026-10-17)
+
+- **Tool loaded:** line 483 `[RX97Diag] v1.2 mod loaded`; line 484 `read-only hooks active: VehicleCanGoto, StartPath, PatherFailed`.
+- Two snapshots work (lines 3560–3576, 3598–3614); both final loaded VehicleDefs retain their own `MapGridOwners` owner, `PathDataSuspended=False`, `regionDirty=False`, `gridEnabled=True`. Actual `RX97_HorseCart` is `(4,7)`, `RX97_Animal_Cart` is `(3,7)`. Both instantiated on the main map.
+- From line 3543 onward, **all observed Horse Cart `VehicleCanGoto` evaluations are ACCEPTED**, no `REJECTED` event. Many calls to `VehiclePathFollower.StartPath` with real coordinate pairs; observed cart coordinates moved `(82,0,138) -> (72,0,138) -> (77,0,138) -> (73,0,138) -> (82,0,138)` across commands. There is no observed failed reachability invocation in this trace. This is **NOT definitive bridge-state validation** because the logger did not capture bridge lifting/lowering or the bridge's precise grid cells, nor whether the user reproduced the original symptom in this run.
+- Single `PatherFailed` line 3587 at `pos=(82,0,138) destination=(82,0,138) moving=False`; stack in lines 3588–3597 proves this was triggered by `VehicleIgnitionController.CheckForFailedPathing -> set_Drafted -> Command_Toggle.ProcessInput`. This is **a vehicle draft state change**, not evidence of a pathfinder failure! Do not use this as proof of a root cause.
+- Around load: other unrelated mod issues, e.g. `NullReferenceException` near line 3539, unsupported mod metadata and `SimplyMoreFPS` renderer. No evidence linking those to current bridge issue from this log.
+- **Recommendation:** Hold at v1.2 (read-only); no guesswork patch. The decisive next observation is whether original raise/lower-failure actually occurred during this trace and the exact moment/cells. If it did, instrument VF `VehiclePathFinder.FindPath` output and `VehiclePathFollower` path state, not yet another generic region-dirty sweep. If not, reproduce raise/lower in same session with RX97 Carts enabled; compare exact bridge-cell/vehicle-footprint status when refusal happens.
+- No correction to the vehicle or bridge code from this log. Existing confirmed A/B RX97 Carts trigger still stands for past failure.
+
 ## Read-only instrumented diagnostics built in GitHub Actions
 
 - Source and usage: [DiagnosticMod/README.md](DiagnosticMod/README.md)
