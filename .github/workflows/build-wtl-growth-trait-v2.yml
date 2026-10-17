@@ -1,0 +1,49 @@
+name: Build WTL Growth Trait Cache Guard v2
+on:
+  push:
+    branches: [fix/wtl-1.1.6-lunar-loader-growth-v2]
+    paths:
+      - 'WTL-GrowthTraitFix-1.6-v2/**'
+      - '.github/workflows/build-wtl-growth-trait-v2.yml'
+  pull_request:
+    paths:
+      - 'WTL-GrowthTraitFix-1.6-v2/**'
+      - '.github/workflows/build-wtl-growth-trait-v2.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Assert no generic database Harmony patch and no bypass of WTL filters
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          code=Path("WTL-GrowthTraitFix-1.6-v2/Source/GrowthTraitCacheGuard.cs").read_text()
+          assert 'HarmonyMethod(prefix)' in code
+          assert 'nameof(BeforeFilterTraits)' in code
+          assert 'Method(traitCache, "EnsureInitialized")' not in code
+          assert 'DefTechLevels.Initialize' in code # only exists in comment
+          assert 'WorldTechLevel.Patches.Patch_PawnGenerator' in code
+          print("Static guard checks passed")
+          PY
+      - name: Compile against RimWorld 1.6.4871 reference API
+        run: dotnet build WTL-GrowthTraitFix-1.6-v2/Source/WTLGrowthTraitFix.csproj -c Release --nologo
+      - name: Package as a standalone Mod
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/WTL-GrowthTraitFix-1.6-v2/{About,Assemblies}
+          cp WTL-GrowthTraitFix-1.6-v2/About/About.xml dist/WTL-GrowthTraitFix-1.6-v2/About/
+          cp WTL-GrowthTraitFix-1.6-v2/Source/bin/Release/net472/WTLGrowthTraitFixV2.dll dist/WTL-GrowthTraitFix-1.6-v2/Assemblies/
+          cd dist && zip -rq WTL-GrowthTraitFix-1.6-v2.zip WTL-GrowthTraitFix-1.6-v2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WTL-GrowthTraitFix-1.6-v2-CANDIDATE
+          path: dist/WTL-GrowthTraitFix-1.6-v2.zip
+          if-no-files-found: error
