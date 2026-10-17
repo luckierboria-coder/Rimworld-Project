@@ -1,25 +1,24 @@
-# VMF Colonist Bar Context Filter — RimWorld 1.6 (v1.1)
+# VMF Colonist Bar Context Filter v1.2
 
-## Bug in v1.0 (verified from user runtime Player log)
+## Confirmed user runtime evidence
+- v1.0: VMF ExcludeVehicleMaps helper patched, never called.
+- v1.1: direct Find.Maps call-site transpiler **compiled and installed with `IL map-site matched=True`**, but no `vanilla recache map filter invoked` in user `20261017-161959` log. Empty frame remains.
+- RimWorld 1.6 ColonistBar.CheckRecacheEntries adds `new Entry(null, map, num)` when a map has no free colonists.
+- Colonist Bar Adjuster mainly patches DrawGroupFrame and layout calculation; the source does not itself generate the blank entry.
 
-- `[VMFContextFilter] v1.0 active` appeared, but no `Hidden colony vehicle pocket-map` message appeared, and the empty portrait-bar group remained.
-- v1.0 hooked the optional VMF helper `Patch_ColonistBar_CheckRecacheEntries.ExcludeVehicleMaps`; its transpiler is annotated VMF `PatchLevel(Level.Sensitive)` and is not always installed, so a successful Harmony patch of the helper does **not** guarantee that the helper is called.
-- Decompiled **RimWorld 1.6** `ColonistBar.CheckRecacheEntries` loops through `Find.Maps` and unconditionally adds `Entry(null, map, num)` for empty-map groups (the `if (!tmpPawns.Any())` branch). This creates exactly the kind of blank group the user sees.
+## v1.2 design
+Patches **ColonistBarDrawLocsFinder.CalculateDrawLocs(List<Vector2>, out float, int)** *Prefix*, invoked immediately before layout computation. This is independent of both the optional VMF transpiler and the Find.Maps injection.
 
-## v1.1 correction
+- Examine the already-created `ColonistBar.cachedEntries`.
+- Remove **only** `Entry.pawn == null` and `Entry.map.Parent` inheriting `VehicleMapFramework.MapParent_Vehicle`, and whose owner vehicle is `Spawned` ultimately on a player home map.
+- Never remove entries with real pawns or entries for actual world-map caravans (which have map=null, or vehicle is unspawned).
+- Re-compact entry group numbers using RimWorld's own `ColonistBar.Entry` constructor, so group reorder/click callbacks use correct group IDs.
+- Update `cachedReorderableGroups` and `groupsCount` before the layout is calculated.
+- Request one bar recache on startup after the map is loaded.
+- No render-loop patches or vehicle/pathfinding/save-state modifications.
 
-- Hook **vanilla `ColonistBar.CheckRecacheEntries` directly** with a small Harmony transpiler.
-- Inject our `ExcludeColonyVehicleMaps(IEnumerable<Map>)` immediately after its `Find.Maps` getter.
-- Filter only `VehicleMapFramework.MapParent_Vehicle` interior maps whose owner vehicle chain is currently `Spawned` on an `IsPlayerHome` map.
-- Preserve all other maps and the vanilla world's `Find.WorldObjects.Caravans` path, so the real world caravan groups remain visible.
-- Never touch Colonist Bar Adjuster layout, per-frame UI rendering, pawn ticks, vehicles, saves, or pathfinding.
-- `[VMFContextFilter] v1.1 ... IL map-site matched=True` means the transpiler found `Find.Maps`; `v1.1 vanilla recache map filter invoked` confirms actual execution; `v1.1 hidden colony vehicle map` confirms removal.
-- Unknown owners, unspawned vehicles and non-colony vehicles always pass through unchanged.
+## Expected logging
+`[VMFContextFilter] v1.2 active`, `LAYOUT hook invoked`, `empty entry group=...`, then if matched `REMOVED blank colony vehicle group`. The first sample logs all empty map groups for source tracing. If the match fails, don't broaden blindly: inspect actual `parentType`/group.
 
-## Limitations and next step
-
-This is a **compile-verified first runtime test of v1.1**, not yet verified in the user's game. If the bar still appears while direct map filter is invoked, the remaining group may have a non-`MapParent_Vehicle` parent; need an entry dump distinguishing `pawn == null`, `entry.map` and `entry.group`. Do not blindly delete all `Entry(null,...)` placeholders because normal empty maps also use them.
-
-## Installation
-
-Extract the ZIP under `Mods` to create `Allen.VMFColonistBarContext`; remove v1.0 first. Keep Harmony, VF, VMF, Colonist Bar Adjuster and RX97 Animal Cart enabled. Fully restart RimWorld, test colony, actual world caravan and return to colony. Uninstall by deleting only the independent mod folder.
+## Compatibility & risk
+Compiled in GitHub Actions against Krafs RimWorld 1.6 references; not yet runtime verified in user's mod stack. Back up save; remove the independent mod folder to revert. Exact uploaded mods: VMF 1.6.673, CBA 2673413930. Source branch `fix/vmf-colonistbar-context-rw16`.
