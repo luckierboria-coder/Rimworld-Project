@@ -1,6 +1,6 @@
 # Vehicle Map Framework × RX97 Horse Cart × S.D. Bridges (RimWorld 1.6)
 
-**Status (2026-10-17): diagnostic investigation; NOT FIXED / NOT RUNTIME-VERIFIED.**
+**Status (2026-10-17): REGRESSION STILL REPRODUCES WITH VMF v1.6.673 (user-reported); NOT FIXED / NOT RUNTIME-VERIFIED BY US.**
 
 This folder tracks an apparent compatibility problem where the regular `RX97_HorseCart` from **RX97 Medieval Vehicle: Cammel** fails to cross a drawbridge after an up/down transition, even when the drawbridge appears lowered. This is separate from the Vehicle Map Framework colonist-bar grouping issue.
 
@@ -45,6 +45,24 @@ Specific VMF source points to inspect (source at 2026-10-17, commit `77c898584`)
 4. VMF has a configurable dynamic patch level; lowering this globally may break VMF's normal mapped-vehicle features. Do not treat changing levels as a proven fix.
 
 **No exact culpable Harmony method or cache mutation has yet been demonstrated.** Treat VMF as a confirmed problem *component* per user observation, not a demonstrated line-level root cause.
+
+## New regression report — 2026-10-17
+
+User installed latest Vehicle Map Framework after the first source audit and reported **the same drawbridge regression persists**. Therefore upgrading to `v1.6.673` is *not* a verified workaround.
+
+**Crucial unresolved isolation:** The historical test disabled VMF **and** RX97 Carts simultaneously. In the new test, it is not established whether RX97 Carts was independently disabled, whether an actually boarded operator could move the Horse Cart on the same side, or whether any of the old bridge refresh DLLs were active. These are concrete confounders, not grounds to deny the user reproduction.
+
+Minimal *next* A/B case: VMF `v1.6.673` ON + Cammel `RX97_HorseCart` ON + S.D. Bridges ON, RX97 Carts OFF, with operator already **physically occupying the driver seat**. Use a copy of the current save; do not save over the original with missing mod state. Move the cart one tile before the bridge on the same side (establish driver/motion), then lower / raise / lower and cross WITHOUT reload. This single contrast separates VMF-only regression from RX97-Carts-dependent load-order or def-group effects.
+
+Current upstream source review:
+- `Source/VehicleMapFramework/Utilities/CrossMapReachabilityUtility.cs` explicitly delegates **same-map** `CanReachVehicle` to VF `VehicleReachability`; do not assume cross-map algorithm is at fault.
+- `Source/VehicleMapFramework/VMF_HarmonyPatches/Patches_Map.cs` `Reachability.CanReach` prefix generally delegates normal same-map checks to vanilla.
+- `Source/VehicleMapFramework/VMF_HarmonyPatches/Patches_VehicleFramework.cs` changes `MapGridOwners.PathConfig.MatchesReachability` for `VehicleMapProps_Unique` placeholder defs; VF's `MapGridOwners` shares `RegionData` between equivalent def groups. A changed group owner is a **candidate** to instrument, not a confirmed cause.
+- VF `VehicleRegionDirtyer.NotifyWalkabilityChanged` does dirty adjacent **no-region** cells as well as existing regions in upstream develop code; previous simplistic claim 'it only dirties cells already having regions' is NOT valid as a general description of this source version.
+- Earlier in-game diagnostic recorded both cached and immediate cell costs passable, but did not capture the exact rejection stage (operator check / float menu / region reachability / path generation).
+- No updated live Player.log / exact installed DLL hashes have been made available during this continuation. Avoid shipping a speculative fix.
+
+Next diagnostic artifact once isolated: conditional one-shot logging at `FloatMenuOptionProvider_OrderVehicle.VehicleCanGoto`, original `VehicleReachability.CanReachVehicle`, and final `VehiclePathFinder` for a single `RX97_HorseCart` crossing attempt, plus `VehiclePathingSystem.GridOwners.GetOwner(vehicleDef)` and region dirty state. Avoid per-tick logs or changing pathfinding during measurement.
 
 ## Upstream updates / best next action
 
