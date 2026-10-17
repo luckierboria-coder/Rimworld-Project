@@ -1,3 +1,22 @@
+## Actual in-game validation (2026-10-17 16:57:38 Player log)
+
+**Colony UI bug fixed in user's RimWorld 1.6.4871 mod stack.** User explicitly confirmed that the erroneous white/empty top-bar group is gone.
+
+From the real log (not merely GitHub compilation):
+
+- `[VMFContextFilter] v1.2 active`
+- `LAYOUT hook invoked; entries=61 groupsCount=2`
+- `empty entry group=1 map=Map-160 parentType=VehicleMapFramework.MapParent_Vehicle colonyVehicleMap=True`
+- `REMOVED blank colony vehicle group=1 map=Map-160`
+- `recached: entries=60 groups=1 suppressed=1`
+- Subsequent recaches also consistently remove the same empty group.
+
+**Scope of verification:** colony-side hiding confirmed. The second half of acceptance criteria (actual world-map vehicle caravan remains visible, and correct return transition) was not reported/tested by user in this message and remains to be checked.
+
+**Other log note:** after the first group recache an undiagnosed `NullReferenceException [Ref 5ECF8F58]` is logged as a duplicate stacktrace, with no original stack trace in supplied text. Its cause cannot be attributed to this patch on this evidence; do not claim clean game log or causality.
+
+**Mod dependency when replacing Cammel:** The separately created `RX97-Carts-1.6-Cammel-Dedup-TEST` build removes its own research defs and expressly depends on Cammel. If uninstalling Cammel, revert to the *original, unmodified* RX97 Carts (`3797810085.zip`), otherwise the dedup version's dependencies/blueprints are incomplete.
+
 # VMF Colonist Bar Context Filter v1.2
 
 ## Confirmed user runtime evidence
