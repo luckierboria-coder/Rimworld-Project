@@ -1,0 +1,84 @@
+name: Build RimMT2 M1.1.5 (RimWorld 1.6)
+
+on:
+  push:
+    branches: [rimmt2-m1-1-4-continuation-20261017]
+    paths:
+      - 'RimMT2/**'
+      - '.github/workflows/build-rimmt2-m115.yml'
+  pull_request:
+    paths:
+      - 'RimMT2/**'
+      - '.github/workflows/build-rimmt2-m115.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Recover verified M1.1.5 source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s RimMT2/source-archive/rimmt2_m115_source_only.tar.xz.b64
+          base64 -d RimMT2/source-archive/rimmt2_m115_source_only.tar.xz.b64 > /tmp/rimmt2_source.tar.xz
+          echo '129f28f4780e8a2e04875fcb84bd45df41b6fb7de0af00876d2ab151ab62dfa5  /tmp/rimmt2_source.tar.xz' | sha256sum -c -
+          mkdir -p RimMT2
+          tar -xJf /tmp/rimmt2_source.tar.xz -C RimMT2
+          test -f RimMT2/Source/RimMT2/Diagnostics/JobSearchCensus.cs
+          grep -q 'M1.1.5' RimMT2/Source/RimMT2/Diagnostics/StatusReporter.cs
+          grep -q 'unknownCallerRecentTop' RimMT2/Source/RimMT2/Diagnostics/JobSearchCensus.cs
+      - name: Prepare portable reference-only CI project
+        shell: bash
+        run: |
+          mkdir -p RimMT2/CI
+          cat > RimMT2/CI/RimMT2.CI.csproj <<'XML'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net472</TargetFramework>
+              <LangVersion>latest</LangVersion>
+              <Nullable>disable</Nullable>
+              <AssemblyName>RimMT2</AssemblyName>
+              <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+              <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+              <Deterministic>true</Deterministic>
+              <DebugType>portable</DebugType>
+            </PropertyGroup>
+            <ItemGroup>
+              <Compile Include="../Source/RimMT2/**/*.cs" />
+              <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.4871" ExcludeAssets="runtime" />
+              <PackageReference Include="Lib.Harmony" Version="2.3.3" ExcludeAssets="runtime" />
+              <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
+            </ItemGroup>
+          </Project>
+          XML
+      - name: Compile RimMT2 M1.1.5
+        shell: bash
+        run: dotnet build RimMT2/CI/RimMT2.CI.csproj --configuration Release --nologo
+      - name: Verify DLL and package as installable test mod
+        shell: bash
+        run: |
+          set -euo pipefail
+          dll=RimMT2/CI/bin/Release/net472/RimMT2.dll
+          test -s "$dll"
+          file "$dll"
+          sha256sum "$dll"
+          mkdir -p release/RimMT2/1.6/Assemblies release/RimMT2/About
+          cp "$dll" release/RimMT2/1.6/Assemblies/RimMT2.dll
+          cp RimMT2/About/About.xml release/RimMT2/About/About.xml
+          cp RimMT2/LoadFolders.xml release/RimMT2/LoadFolders.xml
+          cd release && zip -qr RimMT2-2.0.0-M1.1.5-RollingCallerCensus-PLAYTEST.zip RimMT2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RimMT2-M1.1.5-compiled-playtest
+          path: release/RimMT2-2.0.0-M1.1.5-RollingCallerCensus-PLAYTEST.zip
+          if-no-files-found: error
