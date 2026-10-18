@@ -1,6 +1,6 @@
 # AGENTS.md — RimMT 2.0 (RimWorld 1.6)
 
-> Project-local agent handoff. This directory is a **source handoff placeholder**, not a claim that the working RimMT 2.0 code is already checked in.
+> Project-local agent handoff. **M1.1.5 full editable source is checked in** at `Source/RimMT2/`. See `BUILDING.md` and `CI/RimMT2.CI.csproj`. This is a diagnostic milestone, not a demonstrated TPS optimization.
 
 ## Identity / boundaries
 
@@ -9,9 +9,9 @@
 - Coexistence with Missile Girl and other performance/AI mods must be based on inspected Harmony patch chains, not hard-coded load-order assumptions.
 - Prefer the existing linked GitHub repository/Actions for changes and builds. Do not automatically set up an unrelated local SDK or assume host game assemblies are available in CI.
 
-## Latest reported checkpoint (2026-10-17)
+## Archived milestone context (2026-10-17)
 
-The latest imported development conversation reports **RimMT 2.0 M1.1.4** source/build package, but only **M1.1.3** actually loaded in the last game session.
+The imported conversation initially stopped at M1.1.4. The subsequent actual 2026-10-18 RimWorld log confirmed M1.1.4 loaded; unknown-caller trace capacity saturated. M1.1.5 rolling diagnostics source was then prepared and independently CI-compiled, but not yet gameplay tested.
 
 | Milestone | Status from the conversation, NOT independently CI-verified |
 | --- | --- |
@@ -43,9 +43,9 @@ The latest imported development conversation reports **RimMT 2.0 M1.1.4** source
 - Disabled diagnostics must unpatch hot-path Harmony wrappers where applicable. Do not infer performance gains from instrumented samples alone.
 - Any behavior mismatch quarantines only the affected kernel/module. Never silently change selection order or cause false no-job.
 
-## Repository/status caveat
+## Source and build provenance (2026-10-18)
 
-As of this handoff, the linked repository's default branch did not contain a `RimMT2/` source tree, and a branch search did not find a RimMT 2.0 development branch. The earlier machine-specific package location is **not accessible** through a GitHub connector or a text-only conversation archive. The original M1.1.4 source-containing ZIP has now been supplied and verified offline (23 ZIP entries, no CRC errors, full C# source and compiled DLL). The GitHub connector cannot directly transfer that binary conversation attachment, so the **real source has not yet been committed to this branch**. A separate portable source ZIP was prepared with only four differences from the supplied archive: `Build/Build.ps1`, `Source/RimMT2/RimMT2.csproj`, `AUDIT.md`, and `README.md`; all C# implementation files and DLL/PDB are byte-identical. Do not claim a GitHub source sync or new build until they occur.
+Full M1.1.5 C# implementation, original native project, portable CI project, metadata and local build script are now committed under `RimMT2/` on PR #77. The 14 unchanged source and load-folders entries were matched to their original source-only ZIP by exact Git-blob SHA-1. `About.xml` was corrected to `2.0.0-m1.1.5`. The encoded snapshot stays under `source-archive/` for provenance only. No proprietary RimWorld or Unity binaries are committed. **Build success is not gameplay acceptance.**
 
 ## Agent workflow
 
