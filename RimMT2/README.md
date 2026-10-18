@@ -1,28 +1,36 @@
-# RimMT 2.0
+# RimMT 2.0 — RimWorld 1.6
 
-Independent multithreaded performance project for **RimWorld 1.6**, superseding the architecture of (but not replacing the installation of) historical RimMT 0.x.
+Independent `allen.rimmt2` multithreading and diagnostics mod. **The editable M1.1.5 source is committed** in [Source/RimMT2](./Source/RimMT2/), separate from legacy [RimMT 1.5](../RimMT/).
 
-> **Status (2026-10-17):** Handoff documentation only. The last chat checkpoint reports an M1.1.4 diagnostic package compiled locally, but the newest tested game version was M1.1.3. The actual M1.1.4 ZIP has now been supplied and reviewed offline, but its source has **not yet been committed into this GitHub directory**. Do not treat this branch as an installable release.
+## Local compilation
 
-## Target architecture
+**See [BUILDING.md](./BUILDING.md) for setup, both build methods, exact DLL paths and installation steps.** The quickest route (requires a .NET SDK, not just the .NET runtime) from repository root:
 
-Reuse the game's built-in **Unity ManagedJob / JobHandle** scheduling and dependency model for heavy pure computation, using main-thread-created immutable snapshots. Keep live Pawn/Map state mutation, mod callbacks, job selection commits, and fallback on the game thread. Optimize expensive shared scan/search stages; do not re-create a separate idle thread pool.
+```powershell
+dotnet build RimMT2/CI/RimMT2.CI.csproj -c Release
+```
 
-## Current development blocker
+Produces `RimMT2/CI/bin/Release/net472/RimMT2.dll`. This portable reference-only project uses `Krafs.Rimworld.Ref` **1.6.4871** and Harmony from NuGet. For compilation against your *actual game binaries* use `Build/Build.ps1` and configure `RIMWORLD_MANAGED_DIR` + `RIMMT_HARMONY_DLL`; the native project targets `net48`.
 
-The job-search profiler sees high aggregate cost in **unidentified** nested/global/region candidate searches. It is unsafe to attribute that entire cost to `FillProcessor`, even though `FillProcessor`, medical, and visitation tasks are known contributors. The M1.1.3 `>=10 ms per unidentified call` stack threshold produced `unknownTraces=0`, so the latest M1.1.4 iteration uses bounded call-count sampling (1/8; at most 128).
+The code here is **M1.1.5**, a diagnostic milestone. Its rolling unknown-caller census samples every 32nd unknown call, bounded to 16 captures per 64 sampled root searches, keeping the last 128 callsites. Work search and actual game job execution are still serial; no TPS improvement has been demonstrated. Never treat successful compilation as runtime validation.
 
-## Next verification
+## Repository paths
 
-- Commit the verified **M1.1.4 source/build package** to this branch. The supplied ZIP has 23 CRC-clean entries. The portability patch changes only Build/Build.ps1, RimMT2.csproj, AUDIT.md and README.md; all .cs runtime source and DLL/PDB files are byte-identical.
-- Confirm its actual installed/runtime DLL version (not from version text alone).
-- Run comparable samples in a representative save, including periods of poor TPS, with the profiler explicitly enabled only for attribution.
-- Capture `unknown[seen/traces]`, `unknownCallerTop`, `giverTop`, total sampled searches, top slow calls, lifecycle failures, and `submitted`.
-- **Turn diagnostics off** for a comparable Production A/B. Evaluate TPS and P95/P99, correctness (job decisions, idle/no-job), and worker utilization only as context.
-- After identifying a verified high-cost primitive, write its snapshot → ManagedJob → checked result-consumer path and test with an epoch/fallback/parity contract.
+- `Source/RimMT2/`: all editable C# code, including `Diagnostics/JobSearchCensus.cs`.
+- `Source/RimMT2/RimMT2.csproj`: native `net48` project referencing installed RimWorld/Harmony DLLs.
+- `CI/RimMT2.CI.csproj`: portable `net472` reference-only project, built from exactly the same `.cs` files.
+- `Build/Build.ps1`: optional native local build helper, **does not install tools**.
+- `About/About.xml` and `LoadFolders.xml`: RimWorld mod metadata (`2.0.0-m1.1.5`).
+- `source-archive/`: older encoded import snapshot kept for provenance, **not** the active source tree.
 
-See [AGENTS.md](./AGENTS.md) for the detailed implementation constraints and current handoff.
+## Engineering contract
 
-## Evidence provenance
+Use native Unity `ManagedJob`/`JobHandle` with immutable main-thread snapshots and validated main-thread result commits. Never call live Verse/Pawn/Map, Unity, Missile Girl mod callbacks or mutable reachability searches from worker threads. Profiler patching is opt-in, and idle worker count is 0 when no module is active. Do not reintroduce whole-job-search parallelism from the RimMT 1.5 project.
 
-The milestone chronology in this README is from the user's archived, user-visible previous development conversation (through 2026-10-17), not a fresh run of the game or CI. The public repository did not yet have the actual 2.0 source at the time this documentation was written.
+See [AGENTS.md](./AGENTS.md) for safety conditions, lifecycle and acceptance checks.
+
+## Verification status
+
+- M1.1.4: real RimWorld 1.6.4871 log analyzed; sampling saturated at 128 captures and `submitted=0`.
+- M1.1.5: sourced directly from uploaded ZIP, 14 original text entries SHA-1 Git-blob matched against committed source; only Mod `About.xml` was updated from 1.1.4 metadata to 1.1.5.
+- GitHub Actions previously built M1.1.5 against the same source snapshot with zero compiler warnings or errors. On this direct-source import, CI has been changed to compile the checked-in files. **No new game-side M1.1.5 validation yet.**
