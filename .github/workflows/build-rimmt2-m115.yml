@@ -74,7 +74,8 @@ jobs:
           sha256sum "$dll"
           mkdir -p release/RimMT2/1.6/Assemblies release/RimMT2/About
           cp "$dll" release/RimMT2/1.6/Assemblies/RimMT2.dll
-          cp RimMT2/About/About.xml release/RimMT2/About/About.xml
+          sed 's/<modVersion>2.0.0-m1.1.4<\/modVersion>/<modVersion>2.0.0-m1.1.5<\/modVersion>/;s/RimMT 2.0 M1.1 - WorkGiver Census/RimMT 2.0 M1.1.5 - Rolling Caller Census/' RimMT2/About/About.xml > release/RimMT2/About/About.xml
+          grep -q '<modVersion>2.0.0-m1.1.5</modVersion>' release/RimMT2/About/About.xml
           cp RimMT2/LoadFolders.xml release/RimMT2/LoadFolders.xml
           cd release && zip -qr RimMT2-2.0.0-M1.1.5-RollingCallerCensus-PLAYTEST.zip RimMT2
       - uses: actions/upload-artifact@v4
