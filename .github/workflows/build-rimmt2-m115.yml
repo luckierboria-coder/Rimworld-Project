@@ -25,42 +25,15 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Recover verified M1.1.5 source archive
+      - name: Verify actual committed M1.1.5 source and project
         shell: bash
         run: |
           set -euo pipefail
-          test -s RimMT2/source-archive/rimmt2_m115_source_only.tar.xz.b64
-          base64 -d RimMT2/source-archive/rimmt2_m115_source_only.tar.xz.b64 > /tmp/rimmt2_source.tar.xz
-          echo '129f28f4780e8a2e04875fcb84bd45df41b6fb7de0af00876d2ab151ab62dfa5  /tmp/rimmt2_source.tar.xz' | sha256sum -c -
-          mkdir -p RimMT2
-          tar -xJf /tmp/rimmt2_source.tar.xz -C RimMT2
-          test -f RimMT2/Source/RimMT2/Diagnostics/JobSearchCensus.cs
+          test -f RimMT2/Source/RimMT2/RimMT2.csproj
+          test -f RimMT2/CI/RimMT2.CI.csproj
           grep -q 'M1.1.5' RimMT2/Source/RimMT2/Diagnostics/StatusReporter.cs
           grep -q 'unknownCallerRecentTop' RimMT2/Source/RimMT2/Diagnostics/JobSearchCensus.cs
-      - name: Prepare portable reference-only CI project
-        shell: bash
-        run: |
-          mkdir -p RimMT2/CI
-          cat > RimMT2/CI/RimMT2.CI.csproj <<'XML'
-          <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup>
-              <TargetFramework>net472</TargetFramework>
-              <LangVersion>latest</LangVersion>
-              <Nullable>disable</Nullable>
-              <AssemblyName>RimMT2</AssemblyName>
-              <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-              <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-              <Deterministic>true</Deterministic>
-              <DebugType>portable</DebugType>
-            </PropertyGroup>
-            <ItemGroup>
-              <Compile Include="../Source/RimMT2/**/*.cs" />
-              <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.4871" ExcludeAssets="runtime" />
-              <PackageReference Include="Lib.Harmony" Version="2.3.3" ExcludeAssets="runtime" />
-              <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
-            </ItemGroup>
-          </Project>
-          XML
+          grep -q '<modVersion>2.0.0-m1.1.5</modVersion>' RimMT2/About/About.xml
       - name: Compile RimMT2 M1.1.5
         shell: bash
         run: dotnet build RimMT2/CI/RimMT2.CI.csproj --configuration Release --nologo
@@ -74,7 +47,7 @@ jobs:
           sha256sum "$dll"
           mkdir -p release/RimMT2/1.6/Assemblies release/RimMT2/About
           cp "$dll" release/RimMT2/1.6/Assemblies/RimMT2.dll
-          sed 's/<modVersion>2.0.0-m1.1.4<\/modVersion>/<modVersion>2.0.0-m1.1.5<\/modVersion>/;s/RimMT 2.0 M1.1 - WorkGiver Census/RimMT 2.0 M1.1.5 - Rolling Caller Census/' RimMT2/About/About.xml > release/RimMT2/About/About.xml
+          cp RimMT2/About/About.xml release/RimMT2/About/About.xml
           grep -q '<modVersion>2.0.0-m1.1.5</modVersion>' release/RimMT2/About/About.xml
           cp RimMT2/LoadFolders.xml release/RimMT2/LoadFolders.xml
           cd release && zip -qr RimMT2-2.0.0-M1.1.5-RollingCallerCensus-PLAYTEST.zip RimMT2
