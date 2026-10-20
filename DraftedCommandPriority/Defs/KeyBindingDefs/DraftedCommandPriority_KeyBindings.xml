@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+  <KeyBindingDef>
+    <defName>DCP_ToggleMeleeAutoAttack</defName>
+    <label>Toggle melee auto attack</label>
+    <category>Misc</category>
+    <defaultKeyCodeA>None</defaultKeyCodeA>
+  </KeyBindingDef>
+</Defs>
