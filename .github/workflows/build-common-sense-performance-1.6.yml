@@ -1,0 +1,73 @@
+name: Build Common Sense Performance 1.6
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'CommonSense-Performance-1.6/**'
+      - '.github/workflows/build-common-sense-performance-1.6.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore references
+        run: dotnet restore CommonSense-Performance-1.6/Source/CommonSensePerformance.csproj
+
+      - name: Compile Release
+        run: dotnet build CommonSense-Performance-1.6/Source/CommonSensePerformance.csproj --no-restore -c Release
+
+      - name: Stage package and verify output
+        shell: pwsh
+        run: |
+          $root = "CommonSense-Performance-1.6"
+          $dll = "$root/Source/bin/Release/net472/Allen.CommonSensePerformance.dll"
+          if (-not (Test-Path $dll)) { throw "DLL missing after successful build: $dll" }
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $dll))
+          if ($bytes.Length -lt 4096) { throw "Assembly appears too small: $($bytes.Length)" }
+          $ascii = [Text.Encoding]::ASCII.GetString($bytes)
+          $unicode = [Text.Encoding]::Unicode.GetString($bytes)
+          foreach ($needle in @("FilthSelector", "SelectAllFilth", "CommonSensePerformanceMod")) {
+            if (-not $ascii.Contains($needle) -and -not $unicode.Contains($needle)) { throw "Missing compiled symbol: $needle" }
+          }
+          $stage = "build/CommonSense_Performance_1.6_M1"
+          New-Item -ItemType Directory -Path "$stage/1.6/Assemblies" -Force | Out-Null
+          Copy-Item "$root/About" "$stage/About" -Recurse
+          Copy-Item "$root/README.md" "$stage/README.md" -Force
+          Copy-Item $dll "$stage/1.6/Assemblies/Allen.CommonSensePerformance.dll" -Force
+          Compress-Archive -Path $stage -DestinationPath "build/CommonSense_Performance_1.6_M1.zip" -Force
+          Get-FileHash $dll -Algorithm SHA256 | Format-List
+          Write-Host "Final compiled DLL size $($bytes.Length) bytes"
+
+      - name: Upload downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CommonSense-Performance-1.6-M1
+          path: build/CommonSense_Performance_1.6_M1.zip
+          if-no-files-found: error
+
+      - name: Publish public release ZIP in repo
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist-artifacts -Force | Out-Null
+          Copy-Item "build/CommonSense_Performance_1.6_M1.zip" "dist-artifacts/CommonSense_Performance_1.6_M1.zip" -Force
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist-artifacts/CommonSense_Performance_1.6_M1.zip
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m "Build Common Sense Performance 1.6 M1 release ZIP"
+          git push
