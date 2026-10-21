@@ -49,6 +49,12 @@ namespace Allen.CommonSensePerformance
             {
                 Log.Error("[CS Perf] Initialization failed; original logic untouched. " + ex);
             }
+            finally
+            {
+                // M2 is independently optional. An M1 API mismatch must not
+                // suppress an otherwise safe M2 patch.
+                PathPruning.TryInstall();
+            }
         }
     }
 

@@ -39,23 +39,23 @@ jobs:
           if ($bytes.Length -lt 4096) { throw "Assembly appears too small: $($bytes.Length)" }
           $ascii = [Text.Encoding]::ASCII.GetString($bytes)
           $unicode = [Text.Encoding]::Unicode.GetString($bytes)
-          foreach ($needle in @("FilthSelector", "SelectAllFilth", "CommonSensePerformanceMod")) {
+          foreach ($needle in @("FilthSelector", "SelectAllFilth", "CommonSensePerformanceMod", "PathPruning", "Cleaning_Opportunity")) {
             if (-not $ascii.Contains($needle) -and -not $unicode.Contains($needle)) { throw "Missing compiled symbol: $needle" }
           }
-          $stage = "build/CommonSense_Performance_1.6_M1"
+          $stage = "build/CommonSense_Performance_1.6_M2"
           New-Item -ItemType Directory -Path "$stage/1.6/Assemblies" -Force | Out-Null
           Copy-Item "$root/About" "$stage/About" -Recurse
           Copy-Item "$root/README.md" "$stage/README.md" -Force
           Copy-Item $dll "$stage/1.6/Assemblies/Allen.CommonSensePerformance.dll" -Force
-          Compress-Archive -Path $stage -DestinationPath "build/CommonSense_Performance_1.6_M1.zip" -Force
+          Compress-Archive -Path $stage -DestinationPath "build/CommonSense_Performance_1.6_M2.zip" -Force
           Get-FileHash $dll -Algorithm SHA256 | Format-List
           Write-Host "Final compiled DLL size $($bytes.Length) bytes"
 
       - name: Upload downloadable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CommonSense-Performance-1.6-M1
-          path: build/CommonSense_Performance_1.6_M1.zip
+          name: CommonSense-Performance-1.6-M2
+          path: build/CommonSense_Performance_1.6_M2.zip
           if-no-files-found: error
 
       - name: Publish public release ZIP in repo
@@ -63,11 +63,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist-artifacts -Force | Out-Null
-          Copy-Item "build/CommonSense_Performance_1.6_M1.zip" "dist-artifacts/CommonSense_Performance_1.6_M1.zip" -Force
+          Copy-Item "build/CommonSense_Performance_1.6_M2.zip" "dist-artifacts/CommonSense_Performance_1.6_M2.zip" -Force
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dist-artifacts/CommonSense_Performance_1.6_M1.zip
+          git add dist-artifacts/CommonSense_Performance_1.6_M2.zip
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 0) { exit 0 }
-          git commit -m "Build Common Sense Performance 1.6 M1 release ZIP"
+          git commit -m "Build Common Sense Performance 1.6 M2 release ZIP"
           git push
