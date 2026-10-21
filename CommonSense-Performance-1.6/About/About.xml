@@ -9,5 +9,5 @@
     <li><packageId>avilmask.CommonSense</packageId><displayName>Common Sense</displayName></li>
   </modDependencies>
   <loadAfter><li>avilmask.CommonSense</li></loadAfter>
-  <description>Conservative Common Sense 1.6 filth-selection performance patch. Source must be compiled.</description>
+  <description>Conservative Common Sense 1.6 filth-selection performance patch. GitHub Actions release build is compiled; game runtime compatibility not yet verified.</description>
 </ModMetaData>
