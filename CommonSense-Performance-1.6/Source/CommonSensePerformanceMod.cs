@@ -62,7 +62,6 @@ namespace Allen.CommonSensePerformance
                 Log.Message("[CS Perf M5] All scoped modules evaluated. Check earlier messages for enabled or skipped modules.");
             }
         }
-    }
 
         public override string SettingsCategory() { return "Common Sense Performance"; }
 
