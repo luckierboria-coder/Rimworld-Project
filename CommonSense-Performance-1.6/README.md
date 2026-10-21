@@ -1,6 +1,6 @@
 # Common Sense Performance — RimWorld 1.6
 
-Status: **M2 candidate source, pending GitHub Actions compilation and gameplay validation.** The M1 compiled package is still available in `dist-artifacts/CommonSense_Performance_1.6_M1.zip`. M2 will publish separately as `dist-artifacts/CommonSense_Performance_1.6_M2.zip` after a verified build.
+Status: **M2 compiled in GitHub Actions (0 errors, 0 warnings), gameplay validation still required.** The M1 compiled package is still available in `dist-artifacts/CommonSense_Performance_1.6_M1.zip`. M2 compiled distribution: `dist-artifacts/CommonSense_Performance_1.6_M2.zip`, including `1.6/Assemblies/Allen.CommonSensePerformance.dll`.
 
 ## Baseline
 - User-provided 1.6 CommonSense.dll Git blob SHA: 145f41329d2f69b03fac198a6132ad1bf8ad6c61
