@@ -1,6 +1,6 @@
 # Common Sense Performance 1.6 — M5 integrated source
 
-**Build status:** pending compilation. Runtime gameplay/TPS compatibility is NOT verified.
+**Build status:** M5 successfully compiled with existing GitHub Actions for RimWorld 1.6.4871 (0 errors). Gameplay/TPS compatibility is NOT verified.
 
 ## Authoritative upstream and targets
 - Common Sense 1.6 source: https://github.com/catgirlfighter/RimWorld_CommonSense (Source/CommonSense16/CommonSense)
