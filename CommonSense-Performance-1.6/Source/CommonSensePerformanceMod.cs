@@ -5,14 +5,17 @@ using HarmonyLib;
 using RimWorld;
 using Verse;
 using Verse.AI;
+using UnityEngine;
 
 namespace Allen.CommonSensePerformance
 {
     public sealed class CommonSensePerformanceMod : Mod
     {
         private const string Id = "allen.commonsense.performance16";
+        internal static PerformanceOptions Options;
         public CommonSensePerformanceMod(ModContentPack content) : base(content)
         {
+            Options = GetSettings<PerformanceOptions>();
             LongEventHandler.ExecuteWhenFinished(Apply);
         }
 
@@ -54,7 +57,38 @@ namespace Allen.CommonSensePerformance
                 // M2 is independently optional. An M1 API mismatch must not
                 // suppress an otherwise safe M2 patch.
                 PathPruning.TryInstall();
+                M3Ingredients.TryInstall();
+                M4RouteOrdering.TryInstall();
+                Log.Message("[CS Perf M5] All scoped modules evaluated. Check earlier messages for enabled or skipped modules.");
             }
+        }
+    }
+
+        public override string SettingsCategory() { return "Common Sense Performance"; }
+
+        public override void DoSettingsWindowContents(Rect rect)
+        {
+            Listing_Standard listing = new Listing_Standard();
+            listing.Begin(rect);
+            listing.Label("M1 filth selector + M2 path pruning use guarded compatibility checks.");
+            listing.CheckboxLabeled("M3 ingredient sorting (per-sort snapshot)", ref Options.SortIngredientKeys);
+            listing.CheckboxLabeled("M3 stockpile candidate scan", ref Options.ScanStorageGroups);
+            listing.CheckboxLabeled("M4 route ordering (cleaning and ingredient queues)", ref Options.RouteOrdering);
+            listing.Label("Changes take effect on the next game restart. Test with a copy of the save.");
+            listing.End();
+        }
+    }
+
+    public sealed class PerformanceOptions : ModSettings
+    {
+        public bool SortIngredientKeys = true;
+        public bool ScanStorageGroups = true;
+        public bool RouteOrdering = true;
+        public override void ExposeData()
+        {
+            Scribe_Values.Look(ref SortIngredientKeys, "SortIngredientKeys", true);
+            Scribe_Values.Look(ref ScanStorageGroups, "ScanStorageGroups", true);
+            Scribe_Values.Look(ref RouteOrdering, "RouteOrdering", true);
         }
     }
 

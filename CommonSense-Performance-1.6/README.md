@@ -1,52 +1,41 @@
-# Common Sense Performance — RimWorld 1.6
+# Common Sense Performance 1.6 — M5 integrated source
 
-Status: **M2 compiled in GitHub Actions (0 errors, 0 warnings), gameplay validation still required.** The M1 compiled package is still available in `dist-artifacts/CommonSense_Performance_1.6_M1.zip`. M2 compiled distribution: `dist-artifacts/CommonSense_Performance_1.6_M2.zip`, including `1.6/Assemblies/Allen.CommonSensePerformance.dll`.
+**Build status:** pending compilation. Runtime gameplay/TPS compatibility is NOT verified.
 
-## Baseline
-- User-provided 1.6 CommonSense.dll Git blob SHA: 145f41329d2f69b03fac198a6132ad1bf8ad6c61
-- Verified identical to catgirlfighter/RimWorld_CommonSense upstream master, 1.6/Assemblies/CommonSense.dll.
-- Decompiled/available upstream source method: Source/CommonSense16/CommonSense/Utility.cs, SelectAllFilth(Pawn, LocalTargetInfo, int).
+## Authoritative upstream and targets
+- Common Sense 1.6 source: https://github.com/catgirlfighter/RimWorld_CommonSense (Source/CommonSense16/CommonSense)
+- Audited the following hot-path implementations: Utility.SelectAllFilth, Utility.OptimizePath, OpportunisticTasks.Cleaning_Opportunity, IngredientPriority.PreProcess / DoSort, JobGiver_DoBIll_Rework, Utility.CleanFilthToil, MealStacking, RandomIngredients.
+- Original uploaded 1.6 CommonSense.dll SHA (Git blob): 145f41329d2f69b03fac198a6132ad1bf8ad6c61; matches upstream at audit time.
 
-## What M1 changes
-- Single-pass filth selection rather than LINQ OfType/Where/Take enumerators.
-- Avoid duplicate eligibility scans from Count() followed by queueing for small rooms.
-- Preserve room ordering, radial search first 200 cells, allowed areas, doorway and reserveability checks via HasJobOnThing.
-- Keep the upstream per-cell limit semantics in huge rooms.
-- No tick throttling, multi-threading, or changing work priority.
-- Automatically skip if a Harmony patch already targets this method.
-- On exception, fall back to original Common Sense for the session.
+## Included components
+1. M1 — one-pass filth candidate selection, removing repeat LINQ enumeration.
+2. M2 — provable null-result pruning of third path search in Cleaning_Opportunity (when enabled in original).
+3. M3-A — single-call snapshots of MedicalPotency and rot-bucket keys before ingredient List.Sort, preserving the original comparator, only for 8+ candidates; private helper Prefix; no cross-tick caches.
+4. M3-B — eliminate a redundant GetSlotGroup() request in Common Sense's private extended storage search, preserving collection order, validators, and pawn.CanReach.
+5. M4 — optimize greedy ordering for cleaning targets and ingredient ThingCount queues, same comparison/tie rules, fewer repeated list/position reads. No cross-tick caching of CleaningSpeed or terrain cleaning factor.
+6. M5 — opt-out settings for M3/M4, per-target Harmony conflicts fail closed, exact signature checks, error fallbacks, source audit, build pipeline and regression checklist.
 
-The small-room results are now snapshotted once rather than lazy; in rare cases this may differ if the world changes between the original two enumerations. This still requires gameplay testing.
+## Compatibility and verification boundary
+This is an independently installed patch (no original Common Sense DLL replacement).
+It does NOT globally patch pawn paths, WorkGiver_DoBill, stat calculations, or threading.
+Each patch refuses to attach to an already Harmony-patched target. Runtime exceptions disable the affected module for the remainder of that game session and fall back to upstream logic.
+**Unverified**: actual runtime compatibility with the user's Missile Girl, Performance Fish, Performance Optimizer, Common Sense - Fix or other installed mods. Those need a loaded Game + Harmony patch list and in-game profiling.
 
-## Build (user's Windows machine, no new toolchain set up here)
-Requires RimWorld 1.6 Managed assemblies, matching Harmony 0Harmony.dll, .NET Framework 4.7.2 targeting pack and dotnet SDK / MSBuild.
+## Explicitly excluded high-risk optimizations
+- Cross-tick caching of pathfinding, cleaning speeds, reservations, room membership, work settings.
+- Rewriting stat-dependent CleanFilthToil tickAction (terrain/stat changes can alter results).
+- Replacing Common Sense's global game-engine transpilers.
+- Rewriting IngredientPlaceCellsInOrder or JumpIfTargetInsideBillGiver reflection used by job construction without exact assembly-level tests.
+- Changing List.Sort tie behavior or the greedy ordering to another algorithm.
+- Multithreaded pawn work processing.
 
-PowerShell example (adjust paths):
-dotnet build ./CommonSense-Performance-1.6/Source/CommonSensePerformance.csproj -c Release -p:RimWorldManagedDir=C:/Games/RimWorld/RimWorldWin64_Data/Managed -p:HarmonyDllPath=C:/Games/RimWorld/Mods/Harmony/Current/Assemblies/0Harmony.dll
+## Test and rollback
+1. Install after Harmony + Common Sense. Do not install alongside older M1/M2 copies. Keep Missile Girl in its recommended position.
+2. Use a backed-up **test save** for first startup. Verify console messages [CS Perf] / [CS Perf M2] / [CS Perf M3-A] / [CS Perf M3-B] / [CS Perf M4-*].
+3. Test: dirty workshop cleaning before/after job, tending, giant rooms, doors, allowed zones, WorkGiver reservations, medicine and food stockpiles, spoiling preference, recipe ingredient choice, work bills, pawn carrying capacity.
+4. With Dubs Performance Analyzer compare identical save snapshots, speed, camera area and tick windows: TPS, Update/Tick time, CleanOnOpportunity/SelectAllFilth, Cleaning_Opportunity/FindPathNow, ingredient search and queue ordering, GC Alloc.
+5. Test feature toggles individually and paired with Missile Girl, Performance Fish and Performance Optimizer. Never interpret successful compilation as compatibility proof.
+6. On any unexpected behavior, uncheck individual M3/M4 features (restart) or remove this independent patch. Existing Common Sense is not modified.
 
-Output: CommonSense-Performance-1.6/1.6/Assemblies/Allen.CommonSensePerformance.dll
-
-Install the mod directory under RimWorld/Mods. Load after Common Sense, with Missile Girl last in the overall list.
-
-## Test matrix
-Compare patch on/off using same save and equal tick/sample windows with Dubs Performance Analyzer. Inspect TPS, CommonSense.Utility.SelectAllFilth allocations/calls, colony work decisions, pawn idle, cleaning jobs, no dirt, huge/outdoor rooms, doors, forbidden dirt, reservation contention, and Limit = 0/1/5. Check Player.log for patch message.
-
-The GitHub Actions job verifies successful compilation against `Krafs.Rimworld.Ref` 1.6.4871 and stages `Allen.CommonSensePerformance.dll`. This does **not** prove runtime compatibility, work-behavior equivalence, or actual TPS improvement; validate in-game before normal use.
- 
-## M2 — conservative path pruning
-- Installs an independent Harmony Prefix on private `CommonSense.OpportunisticTasks.Cleaning_Opportunity(Job, Pawn, int)`. Checks exact signatures and skips patches if the target already has Harmony modifiers.
-- Active only if Common Sense's `calculate_full_path` setting is true. Other modes use original method.
-- Preserves the initial eligibility check, first two pathfinder calls, path pooling, and original worker/job selection via a cached delegate to upstream `MakeCleaningJob`.
-- If first two paths are found and `stob > 500`, `stot < 0.65 * stob`, the original method's rejection predicate will necessarily reject the job for all non-negative third-path costs. M2 skips the third path and returns null. An unreachable third path also implies null in the original.
-- Otherwise computes third path and applies the exact original `stob > 500 && stot / (stob + btot) < 0.7f` predicate, preserving result.
-- The 0.65 safety margin is deliberate: pruning covers fewer cases in exchange for float comparison robustness.
-- No cross-tick caching, no global pathfinder patches, no multi-threading, no AI polling changes.
-- If the optimized selector fails during runtime, M2 disables itself for the session and falls back to the original Common Sense method. M1 remains independent.
-- The private method delegates are bound at initialization; if a different Common Sense build changed the signatures, M2 refuses to install.
-
-### M2 regression matrix
-1. Test `calculate_full_path` true/false, `clean_before_work` true/false.
-2. Compare M1 vs M2, first in reachable open rooms, then doors, mountain corridors and deep-water barriers.
-3. For path costs above 500, verify the near-material rejection case and reachable vs unreachable target.
-4. Confirm job insertion and completed cleaning tasks are unchanged; capture Dubs Performance Analyzer profile for `Cleaning_Opportunity` and `FindPathNow`.
-5. Test alongside Missile Girl, Performance Optimizer and Performance Fish as separate toggles; check logs for `[CS Perf M2]`.
+## Build and artifacts
+Build on existing GitHub Actions pipeline using Krafs.Rimworld.Ref 1.6.4871, Lib.Harmony and net472. On a verified compilation, the release ZIP is published at dist-artifacts/CommonSense_Performance_1.6_M5.zip.
