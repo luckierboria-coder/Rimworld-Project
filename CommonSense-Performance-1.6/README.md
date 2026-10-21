@@ -1,6 +1,6 @@
 # Common Sense Performance — RimWorld 1.6
 
-Status: **M1 source only; not compiled or gameplay-validated.**
+Status: **M1 GitHub Actions Release compilation verified (0 errors, 0 warnings), not yet gameplay-validated.** The packaged distribution ZIP is in `dist-artifacts/CommonSense_Performance_1.6_M1.zip` and includes the compiled assembly.
 
 ## Baseline
 - User-provided 1.6 CommonSense.dll Git blob SHA: 145f41329d2f69b03fac198a6132ad1bf8ad6c61
@@ -31,4 +31,4 @@ Install the mod directory under RimWorld/Mods. Load after Common Sense, with Mis
 ## Test matrix
 Compare patch on/off using same save and equal tick/sample windows with Dubs Performance Analyzer. Inspect TPS, CommonSense.Utility.SelectAllFilth allocations/calls, colony work decisions, pawn idle, cleaning jobs, no dirt, huge/outdoor rooms, doors, forbidden dirt, reservation contention, and Limit = 0/1/5. Check Player.log for patch message.
 
-Do not claim actual TPS improvement, error-free compilation, or compatibility with every installed mod until measured.
+The GitHub Actions job verifies successful compilation against `Krafs.Rimworld.Ref` 1.6.4871 and stages `Allen.CommonSensePerformance.dll`. This does **not** prove runtime compatibility, work-behavior equivalence, or actual TPS improvement; validate in-game before normal use.
