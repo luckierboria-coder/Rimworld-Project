@@ -1,0 +1,58 @@
+name: Build RimMT2 M1.1.5 (RimWorld 1.6)
+
+on:
+  push:
+    branches: [rimmt2-m1-1-4-continuation-20261017]
+    paths:
+      - 'RimMT2/**'
+      - '.github/workflows/build-rimmt2-m115.yml'
+  pull_request:
+    paths:
+      - 'RimMT2/**'
+      - '.github/workflows/build-rimmt2-m115.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify actual committed M1.1.5 source and project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f RimMT2/Source/RimMT2/RimMT2.csproj
+          test -f RimMT2/CI/RimMT2.CI.csproj
+          grep -q 'M1.1.5' RimMT2/Source/RimMT2/Diagnostics/StatusReporter.cs
+          grep -q 'unknownCallerRecentTop' RimMT2/Source/RimMT2/Diagnostics/JobSearchCensus.cs
+          grep -q '<modVersion>2.0.0-m1.1.5</modVersion>' RimMT2/About/About.xml
+      - name: Compile RimMT2 M1.1.5
+        shell: bash
+        run: dotnet build RimMT2/CI/RimMT2.CI.csproj --configuration Release --nologo
+      - name: Verify DLL and package as installable test mod
+        shell: bash
+        run: |
+          set -euo pipefail
+          dll=RimMT2/CI/bin/Release/net472/RimMT2.dll
+          test -s "$dll"
+          file "$dll"
+          sha256sum "$dll"
+          mkdir -p release/RimMT2/1.6/Assemblies release/RimMT2/About
+          cp "$dll" release/RimMT2/1.6/Assemblies/RimMT2.dll
+          cp RimMT2/About/About.xml release/RimMT2/About/About.xml
+          grep -q '<modVersion>2.0.0-m1.1.5</modVersion>' release/RimMT2/About/About.xml
+          cp RimMT2/LoadFolders.xml release/RimMT2/LoadFolders.xml
+          cd release && zip -qr RimMT2-2.0.0-M1.1.5-RollingCallerCensus-PLAYTEST.zip RimMT2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RimMT2-M1.1.5-compiled-playtest
+          path: release/RimMT2-2.0.0-M1.1.5-RollingCallerCensus-PLAYTEST.zip
+          if-no-files-found: error

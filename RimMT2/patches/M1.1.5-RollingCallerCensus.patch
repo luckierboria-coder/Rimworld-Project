@@ -1,0 +1,115 @@
+--- a/RimMT2/Source/RimMT2/Diagnostics/JobSearchCensus.cs
++++ b/RimMT2/Source/RimMT2/Diagnostics/JobSearchCensus.cs
+@@ -35,14 +35,26 @@
+             internal long ticks;
+             internal long maxTicks;
+         }
+ 
++        private struct CallerSample
++        {
++            internal string caller;
++            internal long elapsedTicks;
++        }
++
+         private static readonly Harmony harmony = new Harmony("allen.rimmt2.jobSearchCensus");
+         private static readonly Dictionary<string, GiverAggregate> giverTotals = new Dictionary<string, GiverAggregate>();
+-        private static readonly Dictionary<string, CallerAggregate> unknownCallers = new Dictionary<string, CallerAggregate>();
++        // Stack walks are opt-in. Keep only the newest 128 callsite observations, not a lifetime-growing map.
++        // The window budget resets on each existing 64-sample periodic report.
++        private const int UnknownCallerStride = 32;
++        private const int UnknownCallerWindowLimit = 16;
++        private const int UnknownCallerRecentLimit = 128;
++        private static readonly Queue<CallerSample> recentUnknownCallers = new Queue<CallerSample>();
+         private static readonly Dictionary<Type, FieldInfo[]> closureFields = new Dictionary<Type, FieldInfo[]>();
+         private static int unknownSeen;
+         private static int unknownTraces;
++        private static int unknownWindowTraces;
+         private static bool installed;
+         [ThreadStatic] private static bool active;
+         [ThreadStatic] private static string currentGiver;
+         [ThreadStatic] private static long globalTicks;
+@@ -144,9 +156,13 @@
+             if (elapsed >= ten * 5) slowOver50Ms++;
+             if (elapsed >= ten * 10) slowOver100Ms++;
+             if (elapsed > maxTicks) maxTicks = elapsed;
+             if ((samples & 63) == 0)
++            {
+                 LogNow("periodic");
++                // Period-based budget allows later slow episodes to contribute without unlimited stack walks.
++                unknownWindowTraces = 0;
++            }
+         }
+ 
+         internal static SearchCallState StartCall(Predicate<Thing> validator)
+         {
+@@ -213,11 +229,12 @@
+         {
+             if (state.giver != "unidentified")
+                 return;
+             unknownSeen++;
+-            if ((unknownSeen & 7) != 0 || unknownTraces >= 128)
++            if (unknownSeen % UnknownCallerStride != 0 || unknownWindowTraces >= UnknownCallerWindowLimit)
+                 return;
+             unknownTraces++;
++            unknownWindowTraces++;
+             string caller = "unresolved";
+             bool passedClosest = false;
+             StackFrame[] frames = new StackTrace(1, false).GetFrames();
+             if (frames != null)
+@@ -239,16 +256,11 @@
+                     caller = name + "." + method.Name;
+                     break;
+                 }
+             }
+-            if (!unknownCallers.TryGetValue(caller, out CallerAggregate aggregate))
+-            {
+-                aggregate = new CallerAggregate();
+-                unknownCallers.Add(caller, aggregate);
+-            }
+-            aggregate.calls++;
+-            aggregate.ticks += elapsed;
+-            if (elapsed > aggregate.maxTicks) aggregate.maxTicks = elapsed;
++            recentUnknownCallers.Enqueue(new CallerSample { caller = caller, elapsedTicks = elapsed });
++            if (recentUnknownCallers.Count > UnknownCallerRecentLimit)
++                recentUnknownCallers.Dequeue();
+         }
+ 
+         internal static void AddGlobal(SearchCallState state)
+         {
+@@ -296,9 +308,22 @@
+                 giverSummary.Append(top[i].Key).Append(':')
+                     .Append(value.globalCalls).Append('/').Append((value.globalTicks * factor).ToString("F1"))
+                     .Append(',').Append(value.regionCalls).Append('/').Append((value.regionTicks * factor).ToString("F1"));
+             }
+-            List<KeyValuePair<string, CallerAggregate>> callerTop = new List<KeyValuePair<string, CallerAggregate>>(unknownCallers);
++            // Build a report-only aggregate over the bounded rolling sample ring.
++            Dictionary<string, CallerAggregate> recentTotals = new Dictionary<string, CallerAggregate>();
++            foreach (CallerSample sample in recentUnknownCallers)
++            {
++                if (!recentTotals.TryGetValue(sample.caller, out CallerAggregate aggregate))
++                {
++                    aggregate = new CallerAggregate();
++                    recentTotals.Add(sample.caller, aggregate);
++                }
++                aggregate.calls++;
++                aggregate.ticks += sample.elapsedTicks;
++                if (sample.elapsedTicks > aggregate.maxTicks) aggregate.maxTicks = sample.elapsedTicks;
++            }
++            List<KeyValuePair<string, CallerAggregate>> callerTop = new List<KeyValuePair<string, CallerAggregate>>(recentTotals);
+             callerTop.Sort((a, b) => b.Value.ticks.CompareTo(a.Value.ticks));
+             StringBuilder callerSummary = new StringBuilder();
+             for (int i = 0; i < callerTop.Count && i < 8; i++)
+             {
+@@ -319,10 +344,12 @@
+                 " global[calls/ms]=" + totalGlobalCalls + "/" + (totalGlobalTicks * factor).ToString("F2") +
+                 " region[calls/ms]=" + totalRegionCalls + "/" + (totalRegionTicks * factor).ToString("F2") +
+                 " reach[calls/ms]=" + totalReachCalls + "/" + (totalReachTicks * factor).ToString("F2") +
+                 " giverTop[globalCalls/ms,regionCalls/ms]=" + giverSummary +
+-                " unknownCallerTop[calls/ms/maxMs]=" + callerSummary +
++                " unknownCallerRecentTop[calls/ms/maxMs]=" + callerSummary +
+                 " unknown[seen/traces]=" + unknownSeen + "/" + unknownTraces +
++                " unknown[windowTraces/recentSamples]=" + unknownWindowTraces + "/" + recentUnknownCallers.Count +
++                " unknownCallerPolicy=stride32-window16-recent128" +
+                 " inclusiveTimers=true sampleRate=1/8");
+         }
+     }
