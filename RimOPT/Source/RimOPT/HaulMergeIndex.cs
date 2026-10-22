@@ -53,7 +53,7 @@ namespace RimOPT
                 {
 #if RIMWORLD17
                     // Bounded per-work-package buildup. Fail open rather than creating a frame spike.
-                    if (groups.Count >= 24) return true;
+                    if (groups.Count >= 8) return true;
 #endif
                     index = Build(group);
                     groups[group] = index;
@@ -85,12 +85,23 @@ namespace RimOPT
             try
             {
 #if RIMWORLD17
+                // Cheap count reject before enumerating an oversized storage group.
+                // If HeldThings is not countable, the loop below remains bounded.
+                IEnumerable<Thing> heldThings = group.HeldThings;
+                ICollection<Thing> countable = heldThings as ICollection<Thing>;
+                if (countable != null && countable.Count > 128)
+                {
+                    result.Unsafe = true;
+                    return result;
+                }
                 int scanned = 0;
-#endif
+                foreach (Thing held in heldThings)
+#else
                 foreach (Thing held in group.HeldThings)
+#endif
                 {
 #if RIMWORLD17
-                    if (++scanned > 256) { result.Unsafe = true; return result; }
+                    if (++scanned > 128) { result.Unsafe = true; return result; }
 #endif
                     if (held == null || held.Destroyed || held.def == null || held.stackCount <= 0 || held.stackCount >= held.def.stackLimit) continue;
                     if (!SupportedStackSemantics(held)) { result.Unsafe = true; return result; }

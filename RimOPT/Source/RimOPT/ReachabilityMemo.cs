@@ -15,7 +15,12 @@ namespace RimOPT
     /// </summary>
     internal static class ReachabilityMemo
     {
+#if RIMWORLD17
+        // Never let a single pawn work search grow an 8K-entry temporary dictionary.
+        private const int Capacity = 512;
+#else
         private const int Capacity = 8192;
+#endif
         private const int WarmupMatches = 8;
         private const int VerifyMask = 63;
 
@@ -58,7 +63,8 @@ namespace RimOPT
                 ? 1000000 : chain.MaxPostfix + 1;
 
             authoritativeSafe = !chain.Unknown && chain.PriorityRoom &&
-                chain.Transpilers == 0 && chain.Finalizers == 0 && chain.RunOriginalPostfixes == 0;
+                chain.Transpilers == 0 && chain.Finalizers == 0 && chain.RunOriginalPostfixes == 0 &&
+                chain.ResultPostfixes == 0;
             chainStatus = "pre=" + chain.Prefixes + ",post=" + chain.Postfixes +
                 ",resultPost=" + chain.ResultPostfixes + ",trans=" + chain.Transpilers +
                 ",final=" + chain.Finalizers + ",runOriginal=" + chain.RunOriginalPostfixes;
@@ -67,9 +73,14 @@ namespace RimOPT
                 prefix: new HarmonyMethod(typeof(ReachabilityMemo), nameof(Prefix))
                 { priority = prefixPriority, after = chain.PrefixOwners },
                 postfix: new HarmonyMethod(typeof(ReachabilityMemo), nameof(BasePostfix))
-                { priority = postfixPriority, before = chain.PostfixOwners },
-                finalizer: new HarmonyMethod(typeof(ReachabilityMemo), nameof(Finalizer))
-                { priority = Priority.Last - 300 });
+                { priority = postfixPriority, before = chain.PostfixOwners }
+#if !RIMWORLD17
+                // In .NET 10, failed original calls have no cache-store Postfix.
+                // A high-frequency Finalizer is unnecessary for this in-package memo.
+                ,finalizer: new HarmonyMethod(typeof(ReachabilityMemo), nameof(Finalizer))
+                { priority = Priority.Last - 300 }
+#endif
+                );
 
             HarmonyMethod invalidate = new HarmonyMethod(typeof(ReachabilityMemo), nameof(Invalidate))
             { priority = Priority.Last };

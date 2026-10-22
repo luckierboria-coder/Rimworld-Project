@@ -29,5 +29,5 @@ jobs:
           cp RimOPT/PORT-1.7-STATUS.md staging/RimOPT/
       - uses: actions/upload-artifact@v4
         with:
-          name: RimOPT-1.7-0.3.0-alpha-PULSE-UNTESTED
+          name: RimOPT-1.7-0.3.1-alpha-SOURCE-TARGETED
           path: staging/RimOPT

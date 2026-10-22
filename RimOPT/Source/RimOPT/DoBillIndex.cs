@@ -47,6 +47,11 @@ namespace RimOPT
             try
             {
                 Thing[] source = Caches.GetValue(pawn.Map, _ => new MapCache()).Get(giver, pawn.Map);
+#if RIMWORLD17
+                // Yield candidates only as the caller requests them. In an early-hit
+                // work search, avoid scanning and copying the entire bill-giver list.
+                __result = FilterActiveBillGivers(source, pawn.Map);
+#else
                 List<Thing> filtered = null;
                 for (int i = 0; i < source.Length; i++)
                 {
@@ -74,12 +79,27 @@ namespace RimOPT
                     }
                 }
                 __result = filtered == null ? (IEnumerable<Thing>)source : filtered;
+#endif
             }
             catch (Exception ex)
             {
                 Warn("DoBill source filter failed open", ex);
             }
         }
+
+#if RIMWORLD17
+        private static IEnumerable<Thing> FilterActiveBillGivers(Thing[] snapshot, Map map)
+        {
+            for (int i = 0; i < snapshot.Length; i++)
+            {
+                Thing thing = snapshot[i];
+                if (thing == null || !thing.Spawned || thing.Map != map) continue;
+                IBillGiver giver = thing as IBillGiver;
+                BillStack stack = giver == null ? null : giver.BillStack;
+                if (stack == null || ShouldDoNow(stack)) yield return thing;
+            }
+        }
+#endif
 
         public static bool ShouldSkipPrefix(WorkGiver_DoBill __instance, Pawn pawn, ref bool __result)
         {
@@ -121,8 +141,14 @@ namespace RimOPT
             if (!(__instance is IBillGiver) || map == null) return;
             MapCache cache;
             if (!Caches.TryGetValue(map, out cache)) return;
+#if RIMWORLD17
+            // Coalesce bursty spawns (map generation, build completion, load).
+            // Do not reallocate one array per cached work-giver definition.
+            cache.Invalidate();
+#else
             try { cache.Add(__instance, map); }
             catch (Exception ex) { cache.Invalidate(); Warn("DoBill spawn update reset its index", ex); }
+#endif
         }
 
         public static void DeSpawnPrefix(Thing __instance)
@@ -133,8 +159,13 @@ namespace RimOPT
             if (map == null) return;
             MapCache cache;
             if (!Caches.TryGetValue(map, out cache)) return;
+#if RIMWORLD17
+            // A single lazy rebuild on next use replaces repeated array copying.
+            cache.Invalidate();
+#else
             try { cache.Remove(__instance); }
             catch (Exception ex) { cache.Invalidate(); Warn("DoBill despawn update reset its index", ex); }
+#endif
         }
 
         private static bool HasForeignPatch(MethodBase target)

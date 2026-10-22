@@ -16,11 +16,15 @@ namespace RimOPT
         private const int MinimumSource = 16;
 #if RIMWORLD17
         // A rescue that sorts a huge list can worsen the frame we are trying to save.
-        private const int MaximumSource = 256;
+        private const int MaximumSource = 128;
 #else
         private const int MaximumSource = 4096;
 #endif
+#if RIMWORLD17
+        private const int MaximumPlans = 8;
+#else
         private const int MaximumPlans = 24;
+#endif
         private static readonly long TailThreshold = Math.Max(1L, Stopwatch.Frequency * 16L / 1000L);
         private static MethodInfo target;
         private static bool installed;

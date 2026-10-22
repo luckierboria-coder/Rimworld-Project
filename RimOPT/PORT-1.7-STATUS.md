@@ -1,28 +1,23 @@
-# RimOPT 0.3.0-alpha / RimWorld 1.7 (Waylith)
+# RimOPT 0.3.1-alpha / RimWorld 1.7 source-targeted optimization
 
-## Design goal
+## Objective
+Reduce synchronous peak costs at the seven existing RimOPT optimization targets without reducing sustained TPS, deferring Pawn work across ticks, or altering game job decisions. 1.6 code paths and DLL are unchanged.
 
-Keep sustained TPS at least as high as the unmodified 1.7 baseline while decreasing infrequent long work-search and frame-time spikes. A compile-only pass is **not** evidence of this goal being achieved.
+## Based on direct code inspection
+1. **DoBillIndex**: The old SpawnSetup/DeSpawn hooks copied `Thing[]` for every workgiver entry, potentially repeatedly during bursts of map/build events. On 1.7, these callbacks now invalidate the cached index only, and a subsequent actual query reconstructs it once. The source Postfix returns a lazy `IEnumerable<Thing>` that filters bill-giver candidates as consumed; short-circuiting work searches no longer have to pre-filter/copy the entire source list. This preserves candidate iteration order, validators and conditions, but requires real-game validation for all modded enumerators.
+2. **HaulMergeIndex**: Hard budgets on 1.7: at most 8 distinct groups per work package and at most 128 held things per group. Countable oversized groups skip enumeration entirely. On overflow, the original method runs, not a guessed answer.
+3. **ReachabilityMemo**: A foreign Postfix that mutates a CanReach result now forbids authoritative memo skipping. Remove the high-frequency Finalizer hook in 1.7 (an exception prevents the normal cache-store Postfix anyway). Cap in-package memo at 512 items; overflow uses original path. No cross-pawn or cross-tick cache.
+4. **WorkSearchTailPlans**: Restrict 1.7 sorts to 128 candidate objects and at most 8 plans per work package, otherwise immediately return to original search. The geometry/region-equivalence proof for 1.7 remains outstanding, so this dangerous shortcut stays opt-in only.
+5. Existing roof, harvest and snow/sand source pruners are preserved, unchanged. Only run when individually enabled; do not assume modded plant and workgiver semantics.
+6. The optional pulse sampler is no longer a prerequisite for any optimization and defaults off; it remains available for developer diagnosis.
 
-## Changes
+## Compatibility
+- Build for .NET 10, Harmony 3.0.0-rc.3, public RimRef 1.7.4982-unstable reference assembly.
+- No Performance Fish detection or dependence in the 1.7 runtime.
+- Preserve safety checks for foreign Harmony patches and exact type owners.
+- Compilation alone does not establish no TPS regression or semantic correctness.
+- User log was RimWorld 1.7.4984; API signatures and game behavior remain to be confirmed there.
+- The original RimWorld/Waylith binaries supplied by the user are proprietary and **not** pushed to the public repository.
 
-- Target .NET 10, Harmony **3.0.0-rc.3** (matching user `Player(8).log`), and public Krafs RimRef `1.7.4982-unstable` reference assembly.
-- Performance Fish-specific language/checks are removed from the **compiled 1.7 UI** (unchanged 1.6 UI/source paths are preserved).
-- Add optional, default-OFF, low-allocation pulse sampler for frame-to-frame intervals, `Root_Play.Update` CPU time, `TickManager.DoSingleTick` CPU time and `JobGiver_Work` package durations, with in-settings histogram percentiles and manual log export. No per-frame logging and no pawn-work deferral.
-- Bound experimental tail-plan sorting to **256** candidates in 1.7, avoiding a 4,096-item sort in an already slow work package. Preserves fail-open vanilla behavior for oversized sources.
-- Bound experimental haul-merge scan to **256 things/group** and **24 groups/work package**, falling back to vanilla outside those limits rather than creating unbounded index work.
-- Seven original optimization switches remain OFF by default in 1.7. All 1.6 assembly and compilation paths stay untouched.
-
-## Limits / log evidence
-
-User `Player(8).log` (RimWorld 1.7.4984 rev1242) shows RimOPT installed but **all seven optimizations inactive**. The 4,890 warnings `Getting random element from empty collection.` stem from `SizedApparelUtility.GetRandomPubicHair` during save load. VMF patch errors involve VPE projectile handling and vehicle arrival options. These are **other-mod issues** and are not silently 'fixed' or suppressed by RimOPT. The game update is 1.7.4984, while the available compile-only RimRef is 1.7.4982; exact method behavior requires game validation.
-
-## Testing protocol
-
-1. Load a *copy* of the save. Keep all seven optimization modules disabled. Enable only optional pulse sampler and restart.
-2. Let game run with same camera/speed/work priorities for 2-5 minutes. Record in-game sampler p95/p99/max for frames, update, ticks and work packages (press manual-export button).
-3. Run the same comparison with sampler OFF; verify instrument overhead is acceptable before using samples to justify a change.
-4. Enable **one safe candidate module** at a time and repeat. Look for no lost jobs, no idle pawn regression, and no TPS drop. Tail planner stays last because it can itself cause a spike.
-5. Only after controlled tests should any optimization default be enabled. Sample tail risks are still under evaluation. No background worker scheduler or TickManager deferral is introduced.
-
-Build artifacts should be retrieved from GitHub Actions, not locally compiled. Game proprietary DLLs stay out of the public repository.
+## Validation state
+Source-level structural fixes provided without requesting user-side benchmarking first. **In-game behavior and measured stutter reduction are still unverified.** Do not enable the experimental tail planner or reachability fast bypass for critical saves until specifically validated.

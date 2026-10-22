@@ -3,7 +3,7 @@
   <name>RimOPT</name>
   <author>Allen</author>
   <packageId>allen.rimopt</packageId>
-  <modVersion>0.3.0-alpha</modVersion>
+  <modVersion>0.3.1-alpha</modVersion>
   <supportedVersions>
     <li>1.6</li>
     <li>1.7</li>
@@ -21,5 +21,5 @@
     <li>avilmask.commonsense</li>
     <li>allen.rimmt2</li>
   </loadAfter>
-  <description>RimOPT 1.7 pulse-analysis alpha: opt-in frame/tick/job-work time histograms for stutter investigation, plus conservative and independently switchable candidate pruning. No asynchronous job deferral, scheduler replacement, or TickManager behavior change. RimWorld 1.6 work-search behavior remains in its original DLL.</description>
+  <description>RimOPT 1.7 synchronous-work hot-path optimizations: lazy bill-giver candidates, coalesced index invalidations, budgeted haul-merge plans, conservative reachability memo, plus opt-in diagnostic histograms. No asynchronous job deferral, scheduler replacement, or TickManager behavior change. RimWorld 1.6 work-search behavior remains in its original DLL.</description>
 </ModMetaData>

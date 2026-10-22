@@ -20,7 +20,7 @@ namespace RimOPT
             var listing = new Listing_Standard();
             listing.Begin(view);
 #if RIMWORLD17
-            listing.Label("RimOPT 0.3.0-alpha — Waylith 1.7 帧时间稳定性 / 慢工作搜索诊断");
+            listing.Label("RimOPT 0.3.1-alpha — Waylith 1.7 同步工作搜索优化");
             listing.Label("测试版：更新配置后需完整重启。采样是观测工具，不会自动推迟任务、改变 Pawn 工作分配或抑制其他 Mod 的异常。");
             listing.CheckboxLabeled("启用低分配卡顿采样（诊断用；默认关闭）", ref Settings.PulseDiagnosticsEnabled,
                 "下次启动时记录帧间隔、主线程 Update、DoSingleTick 和 JobGiver_Work 的耗时分布。仅保存少量聚合计数，正常运行不写逐帧日志。关闭后不会安装采样 Hook。");
@@ -30,15 +30,15 @@ namespace RimOPT
             if (listing.ButtonText("清空当前采样数据")) PulseProfiler.Reset();
             if (listing.ButtonText("向 Player.log 输出一次采样汇总")) Log.Message("[RimOPT/1.7] manual pulse report\n" + PulseProfiler.Summary());
             listing.Gap();
-            listing.Label("工作优化开关（全部默认为关闭；请先记录基线，再逐个启用）：");
+            listing.Label("工作优化开关（首次默认关闭；可直接使用测试存档启用，无须先运行采样器）：");
             listing.CheckboxLabeled("搬运合堆索引（有容量上限）", ref Settings.HaulMergeIndexEnabled,
-                "每次工作搜索只索引有限数量的候选，超限回退到原版逻辑；与其他改动 CanStackWith/JobOnThing 的模组不强行接管。");
+                "每次搜索最多建立8个仓储组索引，每组最多扫描128件物品；超限直接按原版搜索，不制造大额索引重建。");
             listing.CheckboxLabeled("慢搜索尾部计划（实验性，默认关闭）", ref Settings.WorkSearchTailPlansEnabled,
                 "当前实现在一次搜索过慢后进行候选排序，可能增加尖峰；此版严格限制输入数量。仅适合单独测试，不建议长期启用。");
             listing.CheckboxLabeled("可达性结果缓存（实验性）", ref Settings.ReachabilityMemoEnabled,
                 "仅在一次 Work 包范围使用；补丁链或验证不满足时不跳过原版检查。");
             listing.CheckboxLabeled("工作台待做账单索引", ref Settings.DoBillIndexEnabled,
-                "先筛去未启用账单的工作台；保留失败回退。");
+                "按需过滤工作台候选、避免无必要的全集预筛；建造/消失批量事件只失效缓存，后续使用时统一重建。");
             listing.CheckboxLabeled("建顶候选格预筛", ref Settings.RoofPrunerEnabled,
                 "排除已有屋顶的建顶候选格，后续仍由原版进行最终判定。");
             listing.CheckboxLabeled("收获候选格预筛", ref Settings.HarvestPrunerEnabled,
