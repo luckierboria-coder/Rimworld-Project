@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-22",
+  "purpose": "RimOPT 0.1.4 compatibility migration to RimWorld 1.7.9789",
+  "game": {
+    "version": "1.7.9789",
+    "runtime": ".NET 10.0",
+    "assemblies": [
+      {
+        "uploaded_name": "Assembly-CSharp.dll",
+        "size_bytes": 15632896,
+        "sha256": "4b149ebe693bed7cd63535f69ccd5ec28d1622c43bdeae8855b158d4b958138d"
+      },
+      {
+        "uploaded_name": "Waylith.dll",
+        "size_bytes": 1551360,
+        "sha256": "c415529b91afd2ccd5bb5886686ecd00459ad0ea915519aaf9f37c759447226a"
+      },
+      {
+        "uploaded_name": "UnityStubs.dll",
+        "size_bytes": 961536,
+        "sha256": "809c66d76e64599f9244727121d9950b77e060f242138d466b3aa30f9f3d4dd2"
+      }
+    ]
+  },
+  "rimopt": {
+    "uploaded_name": "RimOPT.zip",
+    "size_bytes": 92651,
+    "sha256": "4a73820857de73385ec31f95285dec52fcf99481e09f99ff11766848714f55a5",
+    "mod_version": "0.1.4",
+    "package_id": "allen.rimopt",
+    "source_in_archive": "Source/RimOPT/",
+    "original_target_framework": "net472",
+    "current_supported_versions": [
+      "1.6"
+    ],
+    "modules": [
+      "Reachability memo",
+      "DoBill index",
+      "HaulMerge index",
+      "Work search tail plans",
+      "Roof work-source pruner",
+      "Harvest work-source pruner",
+      "Snow/sand work-source pruner"
+    ]
+  },
+  "storage": {
+    "original_dll_binaries_committed": false,
+    "original_rimopt_zip_committed": false,
+    "repository_visibility": "public",
+    "reason": "The original RimWorld and Unity/game runtime DLLs are proprietary and the accessible GitHub repositories are public. Only SHA-256, sizes, and migration notes are recorded. The original binary content remains solely in user-provided attachments, not GitHub.",
+    "followup": "Use a private, user-authorized GitHub repository with a supported binary-upload method before treating these DLLs as remote backups."
+  },
+  "limitations": [
+    "This manifest is not a substitute for binary bytes.",
+    "No runtime compatibility or successful .NET 10 build has yet been established.",
+    "Current source project also references 1.6 UnityEngine.CoreModule.dll and 0Harmony.dll; 1.7 references need validation."
+  ]
+}
