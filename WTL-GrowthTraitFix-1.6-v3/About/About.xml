@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>WTL Growth Trait Fix v3 - Candidate Snapshot Diagnostics</name>
+  <author>Allen / independent compatibility patch</author>
+  <packageId>allen.wtl.growthtraitfix.v3</packageId>
+  <description>RimWorld 1.6 / WTL 1.1.6: reuse legal TraitDef candidates within a single Biotech growth choice generation and log exact freeze phases. Does not alter research filters, traits, saves or world tech settings.</description>
+  <supportedVersions><li>1.6</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+    <li><packageId>m00nl1ght.worldtechlevel</packageId><displayName>World Tech Level</displayName></li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li><li>m00nl1ght.worldtechlevel</li></loadAfter>
+  <incompatibleWith><li>allen.wtl.growthtraitfix</li><li>allen.wtl.growthtraitfix.v2</li></incompatibleWith>
+</ModMetaData>
