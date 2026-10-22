@@ -1,11 +1,12 @@
-# RimOPT 1.7 v0.4.0-alpha — Waylith source-targeted build
+# RimOPT 1.7 0.4.0-alpha final compile
 
-The 1.7 DLL under `1.7/Assemblies/RimOPT.dll` is built from **this source branch**, not the previous 0.3 release.
+Compiled GitHub Action: https://github.com/luckierboria-coder/Rimworld-Project/actions/runs/39738427325
 
-- GitHub Actions successful: https://github.com/luckierboria-coder/Rimworld-Project/actions/runs/39738088246
-- .NET 10 / Harmony 3.0.0-rc.3 / public RimRef 1.7.4982-unstable
-- Build: **0 Warning(s), 0 Error(s)**
-- 1.7 DLL: **48,640 bytes**, SHA-256 `44d63b588415cc3694c2e0ae15d05feea5099fa7bbadde4adc1e8bb5deb9fba5`
-- 1.6 DLL untouched: **41,472 bytes**, SHA-256 `7a40e0d7f888023456d240d84721fe33512709f494bb3440fd88751a6aa30eee`
-- No user-supplied proprietary engine assemblies uploaded into this public repo.
-- **Important**: CI compilation verifies API/syntax correctness against RimRef, but cannot prove in-game job result equivalence, crash safety, or actual p99/TPS improvements.
+- Framework: .NET 10
+- Harmony compile reference: 3.0.0-rc.3
+- RimWorld compile reference: public RimRef 1.7.4982-unstable
+- Compilation: 0 warnings, 0 errors.
+- `RimOPT/1.7/Assemblies/RimOPT.dll`: 48128 bytes; SHA-256 `e9ed10a4406661d0c3a5b518a759a591e81fb9c6e554b9e8cf2dff248edc2c7c`.
+- `RimOPT/1.6/Assemblies/RimOPT.dll`: 41472 bytes; unchanged SHA-256 `7a40e0d7f888023456d240d84721fe33512709f494bb3440fd88751a6aa30eee`.
+
+Build / code inspection do not establish in-game compatibility, improved TPS or p99 outcomes. The experimental GenClosest replacement is disabled by default. Only mod-authored DLLs are in this public repo.
