@@ -26,8 +26,8 @@ namespace RimOPT
         private const int MaximumPlans = 24;
 #endif
         private static readonly long TailThreshold = Math.Max(1L, Stopwatch.Frequency * 16L / 1000L);
-        private static MethodInfo target;
-        private static bool installed;
+        private static MethodInfo target = null;
+        private static bool installed = false;
         private static bool chainChecked;
         private static bool chainSupported;
         private static long observed, admitted, planBuilds, planHits, invalidations;

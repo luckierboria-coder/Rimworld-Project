@@ -11,7 +11,7 @@ namespace RimOPT
     internal static class DoBillIndex
     {
         private static readonly ConditionalWeakTable<Map, MapCache> Caches = new ConditionalWeakTable<Map, MapCache>();
-        private static bool sourcePatched;
+        private static bool sourcePatched = false;
         private static bool shouldSkipPatched;
         private static int warnings;
 
