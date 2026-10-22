@@ -107,6 +107,17 @@ namespace RimOPT
             try
             {
                 Thing[] source = Caches.GetValue(pawn.Map, _ => new MapCache()).Get(__instance, pawn.Map);
+#if RIMWORLD17
+                // 1.7: do not replace the original ShouldSkip's per-pawn rules with
+                // an expensive scan of every bill in every workshop.
+                // Only the universally safe, empty-source case skips vanilla.
+                if (source.Length == 0)
+                {
+                    __result = true;
+                    return false;
+                }
+                return true;
+#else
                 for (int i = 0; i < source.Length; i++)
                 {
                     Thing thing = source[i];
@@ -121,6 +132,7 @@ namespace RimOPT
                 }
                 __result = true;
                 return false;
+#endif
             }
             catch
             {

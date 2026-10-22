@@ -69,6 +69,17 @@ namespace RimOPT
                 ",resultPost=" + chain.ResultPostfixes + ",trans=" + chain.Transpilers +
                 ",final=" + chain.Finalizers + ",runOriginal=" + chain.RunOriginalPostfixes;
 
+#if RIMWORLD17
+            // A foreign result-mutating postfix or IL transpiler makes authoritative
+            // reuse unprovable. Do not install a verification-only hot-path hook:
+            // it costs more than the vanilla reachability method alone.
+            if (!authoritativeSafe)
+            {
+                chainStatus += ",disabled=no-authoritative-reuse";
+                Log.Message("[RimOPT/1.7] ReachabilityMemo inactive: " + chainStatus);
+                return;
+            }
+#endif
             harmony.Patch(target,
                 prefix: new HarmonyMethod(typeof(ReachabilityMemo), nameof(Prefix))
                 { priority = prefixPriority, after = chain.PrefixOwners },
@@ -103,6 +114,11 @@ namespace RimOPT
             PackageScope.Context context = PackageScope.CurrentContext;
             if (context == null) return true;
             EnsureFinalChain();
+#if RIMWORLD17
+            // Any late foreign patch changes the original's semantics. Stay out
+            // of CanReach; no verify-only or store-only bookkeeping in hot loops.
+            if (!authoritativeSafe) return true;
+#endif
             Interlocked.Increment(ref observed);
 
             Pawn pawn = context.Pawn;

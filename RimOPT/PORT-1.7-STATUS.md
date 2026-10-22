@@ -1,23 +1,28 @@
-# RimOPT 0.3.1-alpha / RimWorld 1.7 source-targeted optimization
+# RimOPT 0.4.0-alpha — RimWorld 1.7 / Waylith work-search hot paths
 
-## Objective
-Reduce synchronous peak costs at the seven existing RimOPT optimization targets without reducing sustained TPS, deferring Pawn work across ticks, or altering game job decisions. 1.6 code paths and DLL are unchanged.
+## Engine-specific basis
+- User build: RimWorld 1.7.4984 rev1242, Waylith .NET 10.0.13, Harmony runtime 3.0.0-rc.3.
+- Public compile reference: Krafs.Rimworld.Ref 1.7.4982-unstable, Harmony 3.0.0-rc.3, .NET 10.
+- Waylith executes its own Vulkan rendering and work-tick environment. RimOPT **does not** hook its graphics job threads, modify its job queues, or run Verse job discovery asynchronously; synchronous RimWorld gameplay semantics remain relevant.
+- The supplied game `Waylith.dll` and `Assembly-CSharp.dll` are private game binaries and are not copied to the public repository. Source-based signature and semantic verification is incomplete until in-game runtime acceptance.
 
-## Based on direct code inspection
-1. **DoBillIndex**: The old SpawnSetup/DeSpawn hooks copied `Thing[]` for every workgiver entry, potentially repeatedly during bursts of map/build events. On 1.7, these callbacks now invalidate the cached index only, and a subsequent actual query reconstructs it once. The source Postfix returns a lazy `IEnumerable<Thing>` that filters bill-giver candidates as consumed; short-circuiting work searches no longer have to pre-filter/copy the entire source list. This preserves candidate iteration order, validators and conditions, but requires real-game validation for all modded enumerators.
-2. **HaulMergeIndex**: Hard budgets on 1.7: at most 8 distinct groups per work package and at most 128 held things per group. Countable oversized groups skip enumeration entirely. On overflow, the original method runs, not a guessed answer.
-3. **ReachabilityMemo**: A foreign Postfix that mutates a CanReach result now forbids authoritative memo skipping. Remove the high-frequency Finalizer hook in 1.7 (an exception prevents the normal cache-store Postfix anyway). Cap in-package memo at 512 items; overflow uses original path. No cross-pawn or cross-tick cache.
-4. **WorkSearchTailPlans**: Restrict 1.7 sorts to 128 candidate objects and at most 8 plans per work package, otherwise immediately return to original search. The geometry/region-equivalence proof for 1.7 remains outstanding, so this dangerous shortcut stays opt-in only.
-5. Existing roof, harvest and snow/sand source pruners are preserved, unchanged. Only run when individually enabled; do not assume modded plant and workgiver semantics.
-6. The optional pulse sampler is no longer a prerequisite for any optimization and defaults off; it remains available for developer diagnosis.
+## Main motivation from user diagnostics
+- JobGiver_Work: 4,438 packages, 6.28 ms mean, histogram p99 <=250 ms, max 397.3 ms.
+- Frame p99 <=75 ms, frame maximum 3116.6 ms; Tick max 2221 ms.
+- Last Player.log: ReachabilityMemo `authoritative=False`, 2 external transpilers, 1 result-mutating postfix; TailPlans `chain=False`.
+- It is **not** safe to claim the full 397ms is from reachability, GenClosest, or one named WorkGiver; these are package-level aggregates.
 
-## Compatibility
-- Build for .NET 10, Harmony 3.0.0-rc.3, public RimRef 1.7.4982-unstable reference assembly.
-- No Performance Fish detection or dependence in the 1.7 runtime.
-- Preserve safety checks for foreign Harmony patches and exact type owners.
-- Compilation alone does not establish no TPS regression or semantic correctness.
-- User log was RimWorld 1.7.4984; API signatures and game behavior remain to be confirmed there.
-- The original RimWorld/Waylith binaries supplied by the user are proprietary and **not** pushed to the public repository.
+## Directly implemented in 0.4
+1. **ReachabilityMemo**: if the installed CanReach patch chain includes foreign transpilers, finalizers or a result-mutating postfix, install **zero** CanReach hooks rather than recording verification-only cache entries. A late patch-chain change causes immediate pass-through. Prevent no-benefit .NET10/Harmony3 hot-path overhead.
+2. **WorkSearchTailPlans**: never install a no-op Prefix when foreign GenClosest patches already exist. Harmony chain preflight now checks all patch categories (not only IL transpilers/finalizers); a pristine method without any patches is supported. The experiment no longer waits until 16ms has already elapsed; candidates 32..128 may be processed on the first call, still under strict existing 1.7 gating. **Still experimental** — substitute semantics on 1.7 not proven; leave disabled in the normal profile.
+3. **DoBillIndex**: retain snapshot/lazy candidate-source optimization from 0.3.1; the 1.7 ShouldSkip Prefix no longer blindly enumerates every BillStack and replaces per-pawn vanilla work-giver rules. Only an empty indexed workshop source can skip vanilla.
+4. **HaulMergeIndex**: all storage-group builds in one work package now share a 256-item scan budget, with <=128 per group and <=8 groups. Overflow falls back to the original. A negative early-out is allowed only when there is **no second partial stack** with matching def/stuff. Earlier heuristic requiring another stack's count >= source count was too aggressive and could miss legal merges.
+5. Roof/harvest/snow candidate pruners retain conservative opt-in mode; no arbitrary change to WorkGiver/Thing definitions.
+6. The optional pulse profiler remains default OFF and is never a prerequisite.
 
-## Validation state
-Source-level structural fixes provided without requesting user-side benchmarking first. **In-game behavior and measured stutter reduction are still unverified.** Do not enable the experimental tail planner or reachability fast bypass for critical saves until specifically validated.
+## Safety / limitations
+- Preserve original 1.6 DLL and source compiled with old flags; new behavior only under `RIMWORLD17`.
+- No Performance Fish integration for 1.7.
+- A successful GitHub Actions build is an ABI/syntax check, *not* evidence that tail P99 or sustained TPS improved.
+- `RimWorld 1.7.4984` was the player's live build while `RimRef 1.7.4982` was the publicly available reference; exact runtime behavior is unverified.
+- Due to earlier 1.7 Vulkan VK_ERROR_DEVICE_LOST crash, graphics issues must remain a separate investigation and should not be attributed to job-search optimizations without evidence.

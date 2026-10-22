@@ -50,6 +50,16 @@ namespace RimOPT
                     typeof(IEnumerable<Thing>), typeof(int), typeof(int), typeof(bool),
                     typeof(RegionType), typeof(bool), typeof(bool) });
             if (target == null) return;
+#if RIMWORLD17
+            // Harmony 3's runtime patch chain is authoritative. When modded
+            // GenClosest has foreign prefixes/postfixes/IL changes, install no hook.
+            // This avoids every-call no-op overhead on a known hot method.
+            if (!ChainSupported())
+            {
+                Log.Message("[RimOPT/1.7] Tail plans inactive: modified GenClosest patch chain.");
+                return;
+            }
+#endif
             harmony.Patch(target, prefix: new HarmonyMethod(typeof(WorkSearchTailPlans), nameof(Prefix))
                 { priority = Priority.Last - 200 });
             installed = true;
@@ -84,9 +94,16 @@ namespace RimOPT
                 maxDistance <= 0f || float.IsNaN(maxDistance))
                 return true;
 
-            // The old S4 fast path was a late rescue. Cold searches stay with Vanilla.
+#if RIMWORLD17
+            // Never begin a sort because the package has already stalled.
+            // Admit only substantial, bounded global sources on the first pass.
+            // The exact-path substitute remains separately opt-in.
+            if (source.Count < 32) return true;
+#else
+            // Historical 1.6 late rescue, unchanged.
             if (Stopwatch.GetTimestamp() - context.Started < TailThreshold)
                 return true;
+#endif
 
             Plan plan;
             try
@@ -135,8 +152,16 @@ namespace RimOPT
             if (chainChecked && (observed & 4095) != 0) return chainSupported;
             chainChecked = true;
             Patches patches = Harmony.GetPatchInfo(target);
+#if RIMWORLD17
+            // Treat every non-RimOPT foreign patch as potentially semantic.
+            // The 1.7 Prefix is not a safe substitute for a patched GenClosest.
+            bool supported = patches == null ||
+                (patches.Prefixes.Count == 0 && patches.Postfixes.Count == 0 &&
+                 patches.Transpilers.Count == 0 && patches.Finalizers.Count == 0);
+#else
             bool supported = patches != null && patches.Transpilers.Count == 0 &&
                 patches.Finalizers.Count == 0;
+#endif
             if (!supported && chainSupported)
                 Log.Message("[RimOPT] work-search tail plan inactive: GenClosest has a transpiler or finalizer.");
             chainSupported = supported;

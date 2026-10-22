@@ -13,6 +13,12 @@ namespace RimOPT
         private const int RecheckMask = 4095;
         [ThreadStatic] private static long generation;
         [ThreadStatic] private static Dictionary<ISlotGroup, GroupIndex> groups;
+#if RIMWORLD17
+        // Shared across the complete synchronous work package, not per group.
+        // Even numerous small groups cannot create an unbounded cold-scan burst.
+        [ThreadStatic] private static int remainingScanBudget;
+        private const int MaxScansPerPackage = 256;
+#endif
         private static readonly object typeGate = new object();
         private static readonly Dictionary<Type, bool> supportedTypes = new Dictionary<Type, bool>();
         private static MethodInfo target, thingCanStack, compsCanStack, minifiedCanStack;
@@ -55,7 +61,13 @@ namespace RimOPT
                     // Bounded per-work-package buildup. Fail open rather than creating a frame spike.
                     if (groups.Count >= 8) return true;
 #endif
+#if RIMWORLD17
+                    if (remainingScanBudget <= 0) return true;
+                    index = Build(group, remainingScanBudget);
+                    remainingScanBudget = Math.Max(0, remainingScanBudget - (index == null ? 0 : index.Scanned));
+#else
                     index = Build(group);
+#endif
                     groups[group] = index;
                 }
                 if (index == null || index.Unsafe) return true;
@@ -77,9 +89,16 @@ namespace RimOPT
             if (generation == current) return;
             generation = current;
             groups.Clear();
+#if RIMWORLD17
+            remainingScanBudget = MaxScansPerPackage;
+#endif
         }
 
+#if RIMWORLD17
+        private static GroupIndex Build(ISlotGroup group, int budget)
+#else
         private static GroupIndex Build(ISlotGroup group)
+#endif
         {
             GroupIndex result = new GroupIndex();
             try
@@ -95,13 +114,15 @@ namespace RimOPT
                     return result;
                 }
                 int scanned = 0;
+                int maxToScan = Math.Min(128, budget);
                 foreach (Thing held in heldThings)
 #else
                 foreach (Thing held in group.HeldThings)
 #endif
                 {
 #if RIMWORLD17
-                    if (++scanned > 128) { result.Unsafe = true; return result; }
+                    result.Scanned = ++scanned;
+                    if (scanned > maxToScan) { result.Unsafe = true; return result; }
 #endif
                     if (held == null || held.Destroyed || held.def == null || held.stackCount <= 0 || held.stackCount >= held.def.stackLimit) continue;
                     if (!SupportedStackSemantics(held)) { result.Unsafe = true; return result; }
@@ -165,7 +186,11 @@ namespace RimOPT
             return false;
         }
 
-        private sealed class GroupIndex { internal readonly Dictionary<StackKey, PartnerStats> ByKey = new Dictionary<StackKey, PartnerStats>(); internal bool Unsafe; }
+        private sealed class GroupIndex { internal readonly Dictionary<StackKey, PartnerStats> ByKey = new Dictionary<StackKey, PartnerStats>(); internal bool Unsafe;
+#if RIMWORLD17
+            internal int Scanned;
+#endif
+        }
         private sealed class PartnerStats
         {
             private Thing first, second;
@@ -178,8 +203,16 @@ namespace RimOPT
             }
             internal bool HasPartnerFor(Thing source)
             {
+#if RIMWORLD17
+                // Negative decisions must be *proven*. The mere presence of another
+                // same-def/same-stuff partial stack is enough to send the original
+                // method through its complete merge validation and custom mod rules.
+                if (!ReferenceEquals(first, source)) return first != null;
+                return second != null;
+#else
                 if (!ReferenceEquals(first, source)) return first != null && firstCount >= source.stackCount;
                 return second != null && secondCount >= source.stackCount;
+#endif
             }
         }
         private struct StackKey : IEquatable<StackKey>

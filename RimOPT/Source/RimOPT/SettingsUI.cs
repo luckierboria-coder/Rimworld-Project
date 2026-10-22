@@ -20,7 +20,7 @@ namespace RimOPT
             var listing = new Listing_Standard();
             listing.Begin(view);
 #if RIMWORLD17
-            listing.Label("RimOPT 0.3.1-alpha — Waylith 1.7 同步工作搜索优化");
+            listing.Label("RimOPT 0.4.0-alpha — Waylith 1.7 同步工作搜索优化");
             listing.Label("测试版：更新配置后需完整重启。采样是观测工具，不会自动推迟任务、改变 Pawn 工作分配或抑制其他 Mod 的异常。");
             listing.CheckboxLabeled("启用低分配卡顿采样（诊断用；默认关闭）", ref Settings.PulseDiagnosticsEnabled,
                 "下次启动时记录帧间隔、主线程 Update、DoSingleTick 和 JobGiver_Work 的耗时分布。仅保存少量聚合计数，正常运行不写逐帧日志。关闭后不会安装采样 Hook。");
@@ -32,11 +32,11 @@ namespace RimOPT
             listing.Gap();
             listing.Label("工作优化开关（首次默认关闭；可直接使用测试存档启用，无须先运行采样器）：");
             listing.CheckboxLabeled("搬运合堆索引（有容量上限）", ref Settings.HaulMergeIndexEnabled,
-                "每次搜索最多建立8个仓储组索引，每组最多扫描128件物品；超限直接按原版搜索，不制造大额索引重建。");
+                "每次工作搜索所有仓储组合计最多扫描256件、单组最多128件；无法证明没有合堆伙伴时交由原版判定。");
             listing.CheckboxLabeled("慢搜索尾部计划（实验性，默认关闭）", ref Settings.WorkSearchTailPlansEnabled,
-                "当前实现在一次搜索过慢后进行候选排序，可能增加尖峰；此版严格限制输入数量。仅适合单独测试，不建议长期启用。");
+                "不再等16ms超时才处理，只有原版 GenClosest 无外部 Harmony 补丁时才安装；仍为实验性替代路径。");
             listing.CheckboxLabeled("可达性结果缓存（实验性）", ref Settings.ReachabilityMemoEnabled,
-                "仅在一次 Work 包范围使用；补丁链或验证不满足时不跳过原版检查。");
+                "仅在一次 Work 包内权威复用结果；存在外部 Transpiler/结果修改时整项不安装，避免无效热路径负担。");
             listing.CheckboxLabeled("工作台待做账单索引", ref Settings.DoBillIndexEnabled,
                 "按需过滤工作台候选、避免无必要的全集预筛；建造/消失批量事件只失效缓存，后续使用时统一重建。");
             listing.CheckboxLabeled("建顶候选格预筛", ref Settings.RoofPrunerEnabled,
