@@ -44,6 +44,13 @@ namespace RimOPT
 
         internal static void Install(Harmony harmony)
         {
+#if RIMWORLD17
+            // 0.4.1 regression guard: translating GenClosest's native search to a
+            // sorted global list can alter 1.7's priority and route semantics.
+            // Retain historical source for audit, but install NO replacement hook.
+            Log.Message("[RimOPT/1.7] GenClosest tail substitute retired pending 1.7 semantic equivalence proof.");
+            return;
+#else
             target = AccessTools.Method(typeof(GenClosest), nameof(GenClosest.ClosestThingReachable),
                 new Type[] { typeof(IntVec3), typeof(Map), typeof(ThingRequest), typeof(PathEndMode),
                     typeof(TraverseParms), typeof(float), typeof(Predicate<Thing>),
@@ -63,6 +70,7 @@ namespace RimOPT
             harmony.Patch(target, prefix: new HarmonyMethod(typeof(WorkSearchTailPlans), nameof(Prefix))
                 { priority = Priority.Last - 200 });
             installed = true;
+#endif
         }
 
         public static bool Prefix(IntVec3 root, Map map, ThingRequest thingReq, PathEndMode peMode,

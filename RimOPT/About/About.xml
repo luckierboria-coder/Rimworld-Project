@@ -3,7 +3,7 @@
   <name>RimOPT</name>
   <author>Allen</author>
   <packageId>allen.rimopt</packageId>
-  <modVersion>0.4.0-alpha</modVersion>
+  <modVersion>0.4.1-alpha</modVersion>
   <supportedVersions>
     <li>1.6</li>
     <li>1.7</li>
@@ -21,5 +21,5 @@
     <li>avilmask.commonsense</li>
     <li>allen.rimmt2</li>
   </loadAfter>
-  <description>RimOPT 0.4: Waylith/.NET10/Harmony3 work-search optimizations with fail-open safety gates: no non-authoritative reachability hooks, no foreign-patched GenClosest takeover, safe empty-workshop skips and bounded haul work. No asynchronous job deferral, scheduler replacement, or TickManager behavior change. RimWorld 1.6 work-search behavior remains in its original DLL.</description>
+  <description>RimOPT 0.4.1: safe 1.7 work-search rollback. Native bill workgiver region-search preserved; unsafe GenClosest global-sort substitute retired; haul index warms after repeated same-group visits and runs under per-package budgets. No asynchronous job deferral, scheduler replacement, or TickManager behavior change. RimWorld 1.6 work-search behavior remains in its original DLL.</description>
 </ModMetaData>

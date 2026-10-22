@@ -18,6 +18,9 @@ namespace RimOPT
         // Even numerous small groups cannot create an unbounded cold-scan burst.
         [ThreadStatic] private static int remainingScanBudget;
         private const int MaxScansPerPackage = 256;
+        private const int MinGroupCount = 16;
+        private const int MaxGroupCount = 128;
+        private const int ColdPassesBeforeBuild = 2;
 #endif
         private static readonly object typeGate = new object();
         private static readonly Dictionary<Type, bool> supportedTypes = new Dictionary<Type, bool>();
@@ -35,18 +38,27 @@ namespace RimOPT
             compsCanStack = AccessTools.Method(typeof(ThingWithComps), "CanStackWith", new Type[] { typeof(Thing) });
             minifiedCanStack = AccessTools.Method(typeof(MinifiedThing), "CanStackWith", new Type[] { typeof(Thing) });
             if (target == null || thingCanStack == null || compsCanStack == null || minifiedCanStack == null) return;
+#if RIMWORLD17
+            // No hot-path Prefix at all if the stack/merge authority is patched
+            // incompatibly. The 0.4 Prefix previously did this check at runtime.
+            if (AuthorityMode() < 0)
+            {
+                Log.Message("[RimOPT/1.7] HaulMerge index not installed: foreign merge/stack semantics.");
+                return;
+            }
+#endif
             harmony.Patch(target, prefix: new HarmonyMethod(typeof(HaulMergeIndex), nameof(Prefix)) { priority = Priority.First + 150 });
             installed = true;
         }
 
         public static bool Prefix(Thing t, bool forced, ref Job __result)
         {
-            calls++;
             if (forced || !PackageScope.Active || Current.ProgramState != ProgramState.Playing) return true;
+            if (t == null || t.Destroyed || t.def == null || t.stackCount <= 0 || t.stackCount >= t.def.stackLimit) return true;
+            calls++;
             int mode = AuthorityMode();
             if (mode < 0) return true;
             if (mode == 2 && t != null && t.def != null && t.def.IsIngestible) return true;
-            if (t == null || t.Destroyed || t.def == null || t.stackCount <= 0 || t.stackCount >= t.def.stackLimit) return true;
             if (!SupportedStackSemantics(t)) return true;
             try
             {
@@ -55,21 +67,41 @@ namespace RimOPT
                 ISlotGroup group = direct.StorageGroup as ISlotGroup ?? direct;
                 EnsureScope();
                 GroupIndex index;
+#if RIMWORLD17
+                // Don't build a cold index just to call vanilla once. Require a
+                // countable, substantial group and multiple visits in this package.
+                ICollection<Thing> countable = group.HeldThings as ICollection<Thing>;
+                if (countable == null || countable.Count < MinGroupCount || countable.Count > MaxGroupCount)
+                    return true;
+                int currentCount = countable.Count;
                 if (!groups.TryGetValue(group, out index))
                 {
-#if RIMWORLD17
-                    // Bounded per-work-package buildup. Fail open rather than creating a frame spike.
                     if (groups.Count >= 8) return true;
-#endif
-#if RIMWORLD17
-                    if (remainingScanBudget <= 0) return true;
-                    index = Build(group, remainingScanBudget);
-                    remainingScanBudget = Math.Max(0, remainingScanBudget - (index == null ? 0 : index.Scanned));
+                    groups[group] = new GroupIndex { ColdVisits = 1, OriginalCount = currentCount };
+                    return true;
+                }
+                if (index.Unsafe || index.OriginalCount != currentCount) return true;
+                if (!index.Built)
+                {
+                    if (index.ColdVisits < ColdPassesBeforeBuild)
+                    {
+                        index.ColdVisits++;
+                        return true;
+                    }
+                    if (remainingScanBudget < currentCount) return true;
+                    GroupIndex built = Build(group, remainingScanBudget);
+                    remainingScanBudget = Math.Max(0, remainingScanBudget - built.Scanned);
+                    built.Built = true;
+                    built.OriginalCount = currentCount;
+                    groups[group] = index = built;
+                }
 #else
+                if (!groups.TryGetValue(group, out index))
+                {
                     index = Build(group);
-#endif
                     groups[group] = index;
                 }
+#endif
                 if (index == null || index.Unsafe) return true;
                 PartnerStats stats;
                 if (!index.ByKey.TryGetValue(new StackKey(t.def, t.Stuff), out stats) || !stats.HasPartnerFor(t))
@@ -189,6 +221,9 @@ namespace RimOPT
         private sealed class GroupIndex { internal readonly Dictionary<StackKey, PartnerStats> ByKey = new Dictionary<StackKey, PartnerStats>(); internal bool Unsafe;
 #if RIMWORLD17
             internal int Scanned;
+            internal int OriginalCount;
+            internal int ColdVisits;
+            internal bool Built;
 #endif
         }
         private sealed class PartnerStats

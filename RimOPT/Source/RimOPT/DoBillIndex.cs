@@ -19,6 +19,10 @@ namespace RimOPT
 
         internal static void Install(Harmony harmony)
         {
+#if !RIMWORLD17
+            // Legacy snapshot/global candidate replacement remains 1.6-only.
+            // RimWorld 1.7's JobGiver_Work should keep its native source mode,
+            // region selection and ordering; a null global source is meaningful.
             MethodInfo source = AccessTools.Method(typeof(WorkGiver_Scanner), nameof(WorkGiver_Scanner.PotentialWorkThingsGlobal), new Type[] { typeof(Pawn) });
             if (source != null)
             {
@@ -26,6 +30,7 @@ namespace RimOPT
                 sourcePatched = true;
             }
 
+#endif
             MethodInfo shouldSkip = AccessTools.Method(typeof(WorkGiver_DoBill), nameof(WorkGiver_DoBill.ShouldSkip), new Type[] { typeof(Pawn), typeof(bool) });
             if (shouldSkip != null && !HasForeignPatch(shouldSkip))
             {
@@ -33,14 +38,20 @@ namespace RimOPT
                 shouldSkipPatched = true;
             }
 
+#if !RIMWORLD17
             MethodInfo spawn = AccessTools.Method(typeof(Thing), nameof(Thing.SpawnSetup), new Type[] { typeof(Map), typeof(bool) });
             MethodInfo despawn = AccessTools.Method(typeof(Thing), nameof(Thing.DeSpawn), new Type[] { typeof(DestroyMode) });
             if (spawn != null) harmony.Patch(spawn, postfix: new HarmonyMethod(typeof(DoBillIndex), nameof(SpawnPostfix)) { priority = Priority.Last });
             if (despawn != null) harmony.Patch(despawn, prefix: new HarmonyMethod(typeof(DoBillIndex), nameof(DeSpawnPrefix)) { priority = Priority.First });
+#endif
         }
 
         public static void SourcePostfix(WorkGiver_Scanner __instance, Pawn pawn, ref IEnumerable<Thing> __result)
         {
+#if RIMWORLD17
+            // Do not replace a native region-based search with a global set.
+            return;
+#else
             if (!sourcePatched || __result != null || __instance == null || pawn == null || pawn.Map == null) return;
             WorkGiver_DoBill giver = __instance as WorkGiver_DoBill;
             if (giver == null || giver.def == null) return;
@@ -85,6 +96,7 @@ namespace RimOPT
             {
                 Warn("DoBill source filter failed open", ex);
             }
+#endif
         }
 
 #if RIMWORLD17
@@ -106,18 +118,22 @@ namespace RimOPT
             if (!shouldSkipPatched || __instance == null || __instance.def == null || pawn == null || pawn.Map == null) return true;
             try
             {
-                Thing[] source = Caches.GetValue(pawn.Map, _ => new MapCache()).Get(__instance, pawn.Map);
 #if RIMWORLD17
-                // 1.7: do not replace the original ShouldSkip's per-pawn rules with
-                // an expensive scan of every bill in every workshop.
-                // Only the universally safe, empty-source case skips vanilla.
-                if (source.Length == 0)
+                // This must never enumerate bills, copy snapshots or change
+                // the original work-source selection and its region ordering.
+                // Only a definitive empty native ThingRequest is safe to reject.
+                if (__instance.GetType() != typeof(WorkGiver_DoBill)) return true;
+                ThingRequest request = __instance.PotentialWorkThingRequest;
+                if (request.IsUndefined) return true;
+                List<Thing> live = pawn.Map.listerThings.ThingsMatching(request);
+                if (live != null && live.Count == 0)
                 {
                     __result = true;
                     return false;
                 }
                 return true;
 #else
+                Thing[] source = Caches.GetValue(pawn.Map, _ => new MapCache()).Get(__instance, pawn.Map);
                 for (int i = 0; i < source.Length; i++)
                 {
                     Thing thing = source[i];

@@ -64,7 +64,14 @@ namespace RimOPT
             Diagnostics = settings.PulseDiagnosticsEnabled;
 #endif
             Reach = settings.ReachabilityMemoEnabled; Bill = settings.DoBillIndexEnabled;
-            Merge = settings.HaulMergeIndexEnabled; Tail = settings.WorkSearchTailPlansEnabled;
+            Merge = settings.HaulMergeIndexEnabled;
+#if RIMWORLD17
+            // Disabled regardless of old persisted opt-in: replaces native search
+            // ordering and can cause 1.7 job-selection regressions.
+            Tail = false;
+#else
+            Tail = settings.WorkSearchTailPlansEnabled;
+#endif
             Roof = settings.RoofPrunerEnabled; Harvest = settings.HarvestPrunerEnabled; Snow = settings.SnowPrunerEnabled;
         }
         internal bool NeedsScope
@@ -72,7 +79,8 @@ namespace RimOPT
             get
             {
 #if RIMWORLD17
-                return Reach || Bill || Merge || Tail || Diagnostics;
+                // Bill's 1.7 fast-empty source check is independent of work scope.
+                return Reach || Merge || Tail || Diagnostics;
 #else
                 return Reach || Bill || Merge || Tail;
 #endif

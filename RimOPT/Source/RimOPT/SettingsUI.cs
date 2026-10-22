@@ -20,7 +20,7 @@ namespace RimOPT
             var listing = new Listing_Standard();
             listing.Begin(view);
 #if RIMWORLD17
-            listing.Label("RimOPT 0.4.0-alpha — Waylith 1.7 同步工作搜索优化");
+            listing.Label("RimOPT 0.4.1-alpha — 1.7 工作搜索回归修复");
             listing.Label("测试版：更新配置后需完整重启。采样是观测工具，不会自动推迟任务、改变 Pawn 工作分配或抑制其他 Mod 的异常。");
             listing.CheckboxLabeled("启用低分配卡顿采样（诊断用；默认关闭）", ref Settings.PulseDiagnosticsEnabled,
                 "下次启动时记录帧间隔、主线程 Update、DoSingleTick 和 JobGiver_Work 的耗时分布。仅保存少量聚合计数，正常运行不写逐帧日志。关闭后不会安装采样 Hook。");
@@ -32,13 +32,14 @@ namespace RimOPT
             listing.Gap();
             listing.Label("工作优化开关（首次默认关闭；可直接使用测试存档启用，无须先运行采样器）：");
             listing.CheckboxLabeled("搬运合堆索引（有容量上限）", ref Settings.HaulMergeIndexEnabled,
-                "每次工作搜索所有仓储组合计最多扫描256件、单组最多128件；无法证明没有合堆伙伴时交由原版判定。");
-            listing.CheckboxLabeled("慢搜索尾部计划（实验性，默认关闭）", ref Settings.WorkSearchTailPlansEnabled,
-                "不再等16ms超时才处理，只有原版 GenClosest 无外部 Harmony 补丁时才安装；仍为实验性替代路径。");
+                "仅对一个工作包内重复访问的16–128件仓储组建立索引；首次两次搜索沿用原版。每包总扫描预算256件，改动过/不安全的组回退原版。");
+            listing.Label("慢搜索尾部替代：1.7 暂停使用（原版 GenClosest 区域/优先级语义未确认，旧开关被忽略）。");
+            // Retain rw17_workSearchTailPlans solely as a migration setting;
+            // no checkbox can enable the unsafe replacement in 0.4.1.
             listing.CheckboxLabeled("可达性结果缓存（实验性）", ref Settings.ReachabilityMemoEnabled,
                 "仅在一次 Work 包内权威复用结果；存在外部 Transpiler/结果修改时整项不安装，避免无效热路径负担。");
             listing.CheckboxLabeled("工作台待做账单索引", ref Settings.DoBillIndexEnabled,
-                "按需过滤工作台候选、避免无必要的全集预筛；建造/消失批量事件只失效缓存，后续使用时统一重建。");
+                "1.7 不再把原版区域搜索转换成全局工作台候选集；仅在原生 ThingRequest 确认空集合时快速跳过。");
             listing.CheckboxLabeled("建顶候选格预筛", ref Settings.RoofPrunerEnabled,
                 "排除已有屋顶的建顶候选格，后续仍由原版进行最终判定。");
             listing.CheckboxLabeled("收获候选格预筛", ref Settings.HarvestPrunerEnabled,
@@ -46,7 +47,7 @@ namespace RimOPT
             listing.CheckboxLabeled("清雪／清沙候选格预筛", ref Settings.SnowPrunerEnabled,
                 "排除低于阈值的候选；后续仍由原版决定是否工作。");
             listing.Gap();
-            listing.Label("本次启动读取的配置：\n" + Bootstrap.AppliedConfiguration);
+            listing.Label("本次启动读取的实际优化配置：\n" + Bootstrap.AppliedConfiguration);
             listing.Label("本次启动的实际安装状态：\n" + Bootstrap.InstallationState);
             listing.Label("重要：1.7 不考虑 Performance Fish。此页不会修复 Sized Apparel、Vehicle Map Framework 等其他 Mod 的报错。");
 #else
