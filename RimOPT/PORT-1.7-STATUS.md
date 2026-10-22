@@ -1,31 +1,28 @@
-# RimOPT 0.2.0-alpha — RimWorld 1.7 port candidate
+# RimOPT 0.3.0-alpha / RimWorld 1.7 (Waylith)
 
-This is a **compile-verified 1.7 candidate**, not an in-game-verified performance mod. The 1.7 DLL was built successfully in GitHub Actions run 39727561159 (0 warnings, 0 errors) and is stored in this branch at `1.7/Assemblies/RimOPT.dll`.
+## Design goal
 
-## Build and reference policy
+Keep sustained TPS at least as high as the unmodified 1.7 baseline while decreasing infrequent long work-search and frame-time spikes. A compile-only pass is **not** evidence of this goal being achieved.
 
-- New independent `.NET 10` project: `Source17/RimOPT.csproj`; original `Source/RimOPT/RimOPT.csproj` remains a 1.6/net472 project.
-- Uses public Ludeon-authorized `Krafs.Rimworld.Ref` version `1.7.4982-unstable` and `Lib.Harmony` version `2.4.2` at compile time. Runtime `0Harmony.dll` is provided by the Harmony mod and **must not** be bundled with RimOPT.
-- User-supplied game files have assembly file version `1.7.9789.37269`; RimRef package version follows a *different* version/build numbering scheme. Exact API behavior for this uploaded game build still needs validation. Never claim matching names prove matching IL semantics.
-- DLLs `Assembly-CSharp.dll`, `Waylith.dll`, `UnityStubs.dll` were **not** added to source or GitHub.
+## Changes
 
-## 1.7 design changes
+- Target .NET 10, Harmony **3.0.0-rc.3** (matching user `Player(8).log`), and public Krafs RimRef `1.7.4982-unstable` reference assembly.
+- Performance Fish-specific language/checks are removed from the **compiled 1.7 UI** (unchanged 1.6 UI/source paths are preserved).
+- Add optional, default-OFF, low-allocation pulse sampler for frame-to-frame intervals, `Root_Play.Update` CPU time, `TickManager.DoSingleTick` CPU time and `JobGiver_Work` package durations, with in-settings histogram percentiles and manual log export. No per-frame logging and no pawn-work deferral.
+- Bound experimental tail-plan sorting to **256** candidates in 1.7, avoiding a 4,096-item sort in an already slow work package. Preserves fail-open vanilla behavior for oversized sources.
+- Bound experimental haul-merge scan to **256 things/group** and **24 groups/work package**, falling back to vanilla outside those limits rather than creating unbounded index work.
+- Seven original optimization switches remain OFF by default in 1.7. All 1.6 assembly and compilation paths stay untouched.
 
-- `LoadFolders.xml`: separate `1.6` and `1.7` assembly selection; leaves original 1.6 DLL intact.
-- All 7 optimization toggles default **OFF in 1.7** and use separate persisted keys to prevent 1.6 settings carrying forward silently. You must explicitly enable each module in a test game after compiling.
-- The 1.7 bootstrap isolates module install exceptions and avoids scope-dependent installs if its `TryIssueJobPackage` hook cannot be established. No patch chain is silently forced around unsupported targets.
-- No algorithmic change has yet been validated. Existing 1.6 Harmony signatures may not match 1.7. Compile errors and runtime tests must guide the next edits.
+## Limits / log evidence
 
-## Required testing after GitHub build
+User `Player(8).log` (RimWorld 1.7.4984 rev1242) shows RimOPT installed but **all seven optimizations inactive**. The 4,890 warnings `Getting random element from empty collection.` stem from `SizedApparelUtility.GetRandomPubicHair` during save load. VMF patch errors involve VPE projectile handling and vehicle arrival options. These are **other-mod issues** and are not silently 'fixed' or suppressed by RimOPT. The game update is 1.7.4984, while the available compile-only RimRef is 1.7.4982; exact method behavior requires game validation.
 
-1. Verify 1.7 DLL loads with Harmony, without crashing on main menu; check `[RimOPT]` logs.
-2. Load a disposable save. Verify seven switches all default to OFF, independent of existing 1.6 preferences.
-3. Enable one module per restart, check target signatures, Harmony patch-chain behavior, and work correctness (especially bills, merging, reachability and GenClosest).
-4. Record benchmark TPS/frame times and compare identical saves, ticks, and work settings against vanilla 1.7.
-5. Do **not** label this a stable 1.7 release until the above pass.
+## Testing protocol
 
-## Build locally only if necessary (prefer the connected GitHub Actions workflow)
+1. Load a *copy* of the save. Keep all seven optimization modules disabled. Enable only optional pulse sampler and restart.
+2. Let game run with same camera/speed/work priorities for 2-5 minutes. Record in-game sampler p95/p99/max for frames, update, ticks and work packages (press manual-export button).
+3. Run the same comparison with sampler OFF; verify instrument overhead is acceptable before using samples to justify a change.
+4. Enable **one safe candidate module** at a time and repeat. Look for no lost jobs, no idle pawn regression, and no TPS drop. Tail planner stays last because it can itself cause a spike.
+5. Only after controlled tests should any optimization default be enabled. Sample tail risks are still under evaluation. No background worker scheduler or TickManager deferral is introduced.
 
-`dotnet build Source17/RimOPT.csproj -c Release`
-
-To package a compiled 1.7 DLL into the mod, copy it to `1.7/Assemblies/RimOPT.dll`. The **compiled** 1.7 DLL is present in the GitHub branch and distributed in the separate test package. The source-only ZIP remains non-installable by itself.
+Build artifacts should be retrieved from GitHub Actions, not locally compiled. Game proprietary DLLs stay out of the public repository.

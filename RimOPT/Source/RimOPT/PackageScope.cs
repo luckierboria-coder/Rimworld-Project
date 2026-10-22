@@ -51,6 +51,10 @@ namespace RimOPT
         {
             if (!__state.Entered) return __exception;
             if (depth > 0) depth--;
+#if RIMWORLD17
+            if (__state.Outermost && __state.Context != null && RimOptMod.Settings.PulseDiagnosticsEnabled)
+                PulseProfiler.RecordWork(Stopwatch.GetTimestamp() - __state.Context.Started);
+#endif
             if (__state.Outermost)
             {
                 current = null;

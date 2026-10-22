@@ -1,4 +1,4 @@
-name: Build RimOPT 1.7 .NET 10 (candidate)
+name: Build RimOPT 1.7 .NET 10 (pulse alpha)
 on:
   push:
     branches: [rimopt-1.7-port]
@@ -29,5 +29,5 @@ jobs:
           cp RimOPT/PORT-1.7-STATUS.md staging/RimOPT/
       - uses: actions/upload-artifact@v4
         with:
-          name: RimOPT-1.7-0.2.0-alpha-UNTESTED
+          name: RimOPT-1.7-0.3.0-alpha-PULSE-UNTESTED
           path: staging/RimOPT

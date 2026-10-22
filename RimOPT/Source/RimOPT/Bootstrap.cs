@@ -51,6 +51,7 @@ namespace RimOPT
 #if RIMWORLD17
                 // Independent guarded installs: scope-dependent modules need a valid work-package hook.
                 bool scoped = !plan.NeedsScope || TryInstall("PackageScope", () => PackageScope.Install(harmony));
+                if (plan.Diagnostics) TryInstall("PulseProfiler", () => PulseProfiler.Install(harmony));
                 if (scoped)
                 {
                     if (plan.Reach) TryInstall("ReachabilityMemo", () => ReachabilityMemo.Install(harmony));
@@ -71,6 +72,9 @@ namespace RimOPT
                     (roof, harvest, snow) => WorkSourcePruners.Install(harmony, roof, harvest, snow));
 #endif
                 InstallationState = ReachabilityMemo.Status + "; " + DoBillIndex.Status + "; " + HaulMergeIndex.Status + "; " + WorkSourcePruners.Status + "; " + WorkSearchTailPlans.Status;
+#if RIMWORLD17
+                if (plan.Diagnostics) InstallationState += "; pulse[" + PulseProfiler.Status + "]";
+#endif
                 Log.Message("[RimOPT] configured: " + AppliedConfiguration);
                 Log.Message("[RimOPT] installation state. " + ReachabilityMemo.Status + "; " +
                     DoBillIndex.Status + "; " +

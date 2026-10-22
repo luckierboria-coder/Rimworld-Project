@@ -14,7 +14,12 @@ namespace RimOPT
     internal static class WorkSearchTailPlans
     {
         private const int MinimumSource = 16;
+#if RIMWORLD17
+        // A rescue that sorts a huge list can worsen the frame we are trying to save.
+        private const int MaximumSource = 256;
+#else
         private const int MaximumSource = 4096;
+#endif
         private const int MaximumPlans = 24;
         private static readonly long TailThreshold = Math.Max(1L, Stopwatch.Frequency * 16L / 1000L);
         private static MethodInfo target;

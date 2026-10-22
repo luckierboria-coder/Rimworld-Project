@@ -11,16 +11,46 @@ namespace RimOPT
         public override string SettingsCategory() { return "RimOPT"; }
         public override void DoSettingsWindowContents(Rect inRect)
         {
+#if RIMWORLD17
+            Rect view = new Rect(0f, 0f, inRect.width - 20f, 1500f);
+#else
             Rect view = new Rect(0f, 0f, inRect.width - 20f, 850f);
+#endif
             Widgets.BeginScrollView(inRect, ref scroll, view);
             var listing = new Listing_Standard();
             listing.Begin(view);
-            #if RIMWORLD17
-            listing.Label("RimOPT 0.2.0-alpha — 1.7 预览 / 模块需逐项启用验证（更改后完全重启）");
-            listing.Label("注意：1.7 版本尚未经过实机功能和 TPS 验证。默认全部关闭，设置键与 1.6 隔离。建议先用测试存档，每次仅启用一项。");
+#if RIMWORLD17
+            listing.Label("RimOPT 0.3.0-alpha — Waylith 1.7 帧时间稳定性 / 慢工作搜索诊断");
+            listing.Label("测试版：更新配置后需完整重启。采样是观测工具，不会自动推迟任务、改变 Pawn 工作分配或抑制其他 Mod 的异常。");
+            listing.CheckboxLabeled("启用低分配卡顿采样（诊断用；默认关闭）", ref Settings.PulseDiagnosticsEnabled,
+                "下次启动时记录帧间隔、主线程 Update、DoSingleTick 和 JobGiver_Work 的耗时分布。仅保存少量聚合计数，正常运行不写逐帧日志。关闭后不会安装采样 Hook。");
+            listing.Gap();
+            listing.Label("统计：p95/p99 为分桶上界（非精确百分位），帧间隔包含 GPU/窗口调度时间；需要先开启采样并重启。");
+            listing.Label(PulseProfiler.Summary());
+            if (listing.ButtonText("清空当前采样数据")) PulseProfiler.Reset();
+            if (listing.ButtonText("向 Player.log 输出一次采样汇总")) Log.Message("[RimOPT/1.7] manual pulse report\n" + PulseProfiler.Summary());
+            listing.Gap();
+            listing.Label("工作优化开关（全部默认为关闭；请先记录基线，再逐个启用）：");
+            listing.CheckboxLabeled("搬运合堆索引（有容量上限）", ref Settings.HaulMergeIndexEnabled,
+                "每次工作搜索只索引有限数量的候选，超限回退到原版逻辑；与其他改动 CanStackWith/JobOnThing 的模组不强行接管。");
+            listing.CheckboxLabeled("慢搜索尾部计划（实验性，默认关闭）", ref Settings.WorkSearchTailPlansEnabled,
+                "当前实现在一次搜索过慢后进行候选排序，可能增加尖峰；此版严格限制输入数量。仅适合单独测试，不建议长期启用。");
+            listing.CheckboxLabeled("可达性结果缓存（实验性）", ref Settings.ReachabilityMemoEnabled,
+                "仅在一次 Work 包范围使用；补丁链或验证不满足时不跳过原版检查。");
+            listing.CheckboxLabeled("工作台待做账单索引", ref Settings.DoBillIndexEnabled,
+                "先筛去未启用账单的工作台；保留失败回退。");
+            listing.CheckboxLabeled("建顶候选格预筛", ref Settings.RoofPrunerEnabled,
+                "排除已有屋顶的建顶候选格，后续仍由原版进行最终判定。");
+            listing.CheckboxLabeled("收获候选格预筛", ref Settings.HarvestPrunerEnabled,
+                "减少无效收获格扫描。未验证所有第三方植物实现，请使用测试存档。");
+            listing.CheckboxLabeled("清雪／清沙候选格预筛", ref Settings.SnowPrunerEnabled,
+                "排除低于阈值的候选；后续仍由原版决定是否工作。");
+            listing.Gap();
+            listing.Label("本次启动读取的配置：\n" + Bootstrap.AppliedConfiguration);
+            listing.Label("本次启动的实际安装状态：\n" + Bootstrap.InstallationState);
+            listing.Label("重要：1.7 不考虑 Performance Fish。此页不会修复 Sized Apparel、Vehicle Map Framework 等其他 Mod 的报错。");
 #else
             listing.Label("RimOPT 0.1.4 — 模块开关（保存后需完全退出并重启游戏）");
-#endif
             listing.Label("本页只控制 RimOPT，不修改 Performance Fish。勾选表示允许安装，原有兼容性检查仍可能使模块退让。");
             listing.Gap();
             listing.CheckboxLabeled("搬运合堆索引（与 PF 合堆补丁同目标）", ref Settings.HaulMergeIndexEnabled,
@@ -43,9 +73,6 @@ namespace RimOPT
             listing.Label("本次进程启动时读取的配置：\n" + Bootstrap.AppliedConfiguration);
             listing.Label("本次进程安装状态：\n" + Bootstrap.InstallationState);
             listing.Gap();
-            #if RIMWORLD17
-            listing.Label("1.7 的七项默认均关闭；仅用于逐项兼容性验证。禁用的模块不会挂载其 Harmony 补丁。\n不能凭编译成功判定性能或逻辑兼容性。");
-#else
             listing.Label("默认值保持旧版：七项均允许安装。关闭的模块在下次启动时完全不挂接对应补丁；不会留下仅做核对的空转钩子。全关时也不安装 Work 包作用域。\n实际速度优劣需要同档对照；设置开关不代表兼容性退让已解除。");
 #endif
             listing.End();

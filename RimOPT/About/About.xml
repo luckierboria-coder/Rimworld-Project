@@ -3,7 +3,7 @@
   <name>RimOPT</name>
   <author>Allen</author>
   <packageId>allen.rimopt</packageId>
-  <modVersion>0.2.0-alpha</modVersion>
+  <modVersion>0.3.0-alpha</modVersion>
   <supportedVersions>
     <li>1.6</li>
     <li>1.7</li>
@@ -17,10 +17,9 @@
   </modDependencies>
   <loadAfter>
     <li>brrainz.harmony</li>
-    <li>bs.performance</li>
     <li>boksu.rimthreadedttr</li>
     <li>avilmask.commonsense</li>
     <li>allen.rimmt2</li>
   </loadAfter>
-  <description>Focused synchronous work-search optimization extracted from measured RimMT modules. RimOPT reduces invalid DoBill, HaulMerge, roof, harvest, and snow candidates, and adds bounded Work search tail planning inside one package. It does not patch ticking, thread ownership, path results, reservations, or Job results.</description>
+  <description>RimOPT 1.7 pulse-analysis alpha: opt-in frame/tick/job-work time histograms for stutter investigation, plus conservative and independently switchable candidate pruning. No asynchronous job deferral, scheduler replacement, or TickManager behavior change. RimWorld 1.6 work-search behavior remains in its original DLL.</description>
 </ModMetaData>

@@ -51,6 +51,10 @@ namespace RimOPT
                 GroupIndex index;
                 if (!groups.TryGetValue(group, out index))
                 {
+#if RIMWORLD17
+                    // Bounded per-work-package buildup. Fail open rather than creating a frame spike.
+                    if (groups.Count >= 24) return true;
+#endif
                     index = Build(group);
                     groups[group] = index;
                 }
@@ -80,8 +84,14 @@ namespace RimOPT
             GroupIndex result = new GroupIndex();
             try
             {
+#if RIMWORLD17
+                int scanned = 0;
+#endif
                 foreach (Thing held in group.HeldThings)
                 {
+#if RIMWORLD17
+                    if (++scanned > 256) { result.Unsafe = true; return result; }
+#endif
                     if (held == null || held.Destroyed || held.def == null || held.stackCount <= 0 || held.stackCount >= held.def.stackLimit) continue;
                     if (!SupportedStackSemantics(held)) { result.Unsafe = true; return result; }
                     StackKey key = new StackKey(held.def, held.Stuff);
