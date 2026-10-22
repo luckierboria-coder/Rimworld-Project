@@ -1,0 +1,45 @@
+name: Build StallTrace17 Waylith
+
+on:
+  push:
+    branches:
+      - diagnostics/stalltrace17-waylith
+    paths:
+      - 'StallTrace17/**'
+      - '.github/workflows/build-stalltrace17-waylith.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore StallTrace17/Source/StallTrace17/StallTrace17.csproj
+      - name: Compile
+        run: dotnet build StallTrace17/Source/StallTrace17/StallTrace17.csproj --no-restore -c Release
+      - name: Package
+        shell: pwsh
+        run: |
+          $dll = 'StallTrace17/1.7/Assemblies/Allen.StallTrace17.dll'
+          if (!(Test-Path $dll)) { throw "Missing compiled DLL: $dll" }
+          $stage = 'build/StallTrace17'
+          New-Item -ItemType Directory "$stage/1.7/Assemblies" -Force | Out-Null
+          Copy-Item 'StallTrace17/About' "$stage/About" -Recurse
+          Copy-Item 'StallTrace17/LoadFolders.xml' "$stage/LoadFolders.xml"
+          Copy-Item 'StallTrace17/README.md' "$stage/README.md"
+          Copy-Item $dll "$stage/1.7/Assemblies/Allen.StallTrace17.dll"
+          Compress-Archive -Path $stage -DestinationPath 'build/StallTrace17-Waylith-1.7.zip' -Force
+          Get-FileHash $dll -Algorithm SHA256 | Format-List
+      - name: Upload installable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: StallTrace17-Waylith-1.7
+          path: build/StallTrace17-Waylith-1.7.zip
+          if-no-files-found: error

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>StallTrace17 - Waylith Pawn Stall Diagnostics</name>
+  <author>Allen / OpenAI-assisted</author>
+  <packageId>allen.stalltrace17</packageId>
+  <supportedVersions><li>1.7</li></supportedVersions>
+  <description>Independent measurement-only diagnostic for RimWorld 1.7 Waylith (.NET 10). Captures slow frame, tick, pawn, job search, work scan, job driver and pathfinding spans. Detects 10+ same-tick StartJob loops. Exports bounded reports to the user profile. No gameplay logic is changed. This is a reconstructed 1.7 successor; the StallTrace16 original source was not accessible for a byte-for-byte port.</description>
+  <modDependencies><li>
+    <packageId>brrainz.harmony</packageId><displayName>Harmony</displayName>
+    <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+  </li></modDependencies>
+</ModMetaData>
