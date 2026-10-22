@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>RimOPT</AssemblyName>
+    <RootNamespace>RimOPT</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>..\..\1.6\Assemblies\</OutputPath>
+    <NuGetAudit>false</NuGetAudit>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.cs" /><Compile Include="Bootstrap.cs" />
+    <Compile Include="DoBillIndex.cs" /><Compile Include="HaulMergeIndex.cs" />
+    <Compile Include="PackageScope.cs" /><Compile Include="ReachabilityMemo.cs" />
+    <Compile Include="WorkSearchTailPlans.cs" /><Compile Include="WorkSourcePruners.cs" />
+    <Compile Include="ModuleSettings.cs" /><Compile Include="SettingsUI.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>D:\Rimworld\RimWorld.v1.6.4871\RimWorldWin64_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>D:\Rimworld\RimWorld.v1.6.4871\RimWorldWin64_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>D:\Rimworld\RimWorld.v1.6.4871\Mods\1446523594\1.6\Assemblies\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
