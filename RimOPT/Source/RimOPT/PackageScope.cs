@@ -14,6 +14,9 @@ namespace RimOPT
         [ThreadStatic] private static int depth;
         [ThreadStatic] private static Context current;
         private static long nextGeneration;
+#if RIMWORLD17
+        internal static bool Installed { get; private set; }
+#endif
 
         internal static bool Active { get { return depth > 0 && current != null; } }
         internal static long Generation { get { return Active ? current.Generation : 0L; } }
@@ -27,6 +30,9 @@ namespace RimOPT
             harmony.Patch(target,
                 prefix: new HarmonyMethod(typeof(PackageScope), nameof(Prefix)) { priority = Priority.First + 400 },
                 finalizer: new HarmonyMethod(typeof(PackageScope), nameof(Finalizer)) { priority = Priority.Last - 400 });
+#if RIMWORLD17
+            Installed = true;
+#endif
         }
 
         public static void Prefix(Pawn __0, ref ScopeState __state)

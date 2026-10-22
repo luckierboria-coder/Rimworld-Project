@@ -34,6 +34,10 @@ namespace RimOPT
             {
                 var plan = new ModulePlan(RimOptMod.Settings);
                 AppliedConfiguration = plan.ToString();
+#if !RIMWORLD17
+                // Legacy 1.6 guard only. 1.7 has independently gated Harmony 3
+                // modules; a historical RimMT diagnostic mod must not disable
+                // all RimOPT optimizations and the optional sampler.
                 foreach (ModContentPack mod in LoadedModManager.RunningModsListForReading)
                 {
                     string id = mod == null ? null : mod.PackageIdPlayerFacing;
@@ -47,6 +51,7 @@ namespace RimOPT
                     }
                 }
 
+#endif
                 Harmony harmony = new Harmony(HarmonyId);
 #if RIMWORLD17
                 // Independent guarded installs: scope-dependent modules need a valid work-package hook.

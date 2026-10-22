@@ -26,7 +26,7 @@ namespace RimOPT
         private static readonly double MicrosecondsPerStopwatchTick = 1000000.0 / Stopwatch.Frequency;
 
         internal static string Status => "frame=" + frameStatus + ", tick=" + tickStatus +
-            ", work=" + (PackageScope.Active ? "scoped" : "package-hook optional");
+            ", work=" + (Volatile.Read(ref installed) != 0 && PackageScope.Installed ? "attached" : "not-installed");
         internal static void Install(Harmony harmony)
         {
             if (Interlocked.Exchange(ref installed, 1) != 0) return;

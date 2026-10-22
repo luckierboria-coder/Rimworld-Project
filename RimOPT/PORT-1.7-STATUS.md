@@ -26,3 +26,7 @@
 - A successful GitHub Actions build is an ABI/syntax check, *not* evidence that tail P99 or sustained TPS improved.
 - `RimWorld 1.7.4984` was the player's live build while `RimRef 1.7.4982` was the publicly available reference; exact runtime behavior is unverified.
 - Due to earlier 1.7 Vulkan VK_ERROR_DEVICE_LOST crash, graphics issues must remain a separate investigation and should not be attributed to job-search optimizations without evidence.
+
+## v0.4 release hardening
+- The old 1.6 global RimMT coexistence guard is deliberately excluded in the 1.7 build; per-module Harmony chain checks take precedence.
+- Sampler status now reports whether the package hook was actually installed, rather than whether a package happens to be active while rendering the Mod Settings UI.
