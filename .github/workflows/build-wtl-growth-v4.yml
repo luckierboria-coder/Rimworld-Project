@@ -1,0 +1,50 @@
+name: Build WTL Growth UI Trace v4
+on:
+  push:
+    branches: [fix/wtl-growth-v4-ui-trace]
+    paths:
+      - 'WTL-GrowthTraitFix-1.6-v4/**'
+      - '.github/workflows/build-wtl-growth-v4.yml'
+  pull_request:
+    paths:
+      - 'WTL-GrowthTraitFix-1.6-v4/**'
+      - '.github/workflows/build-wtl-growth-v4.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Assert WTL patch scope
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path("WTL-GrowthTraitFix-1.6-v4/Source/GrowthTraitGuard.cs").read_text()
+          assert 'Method(db, "EnsureInitialized")' not in s
+          assert "WTLGrowthV4/UI" in s
+          assert 'WindowOnGUI' in s and 'DoWindowContents' in s
+          assert "DefTechLevels.Initialize(" not in s
+          assert 's.Candidates = __result.ToArray();' in s
+          print("v4 static checks passed")
+          PY
+      - name: Compile with RimWorld 1.6 reference APIs
+        run: dotnet build WTL-GrowthTraitFix-1.6-v4/Source/WTLGrowthTraitFixV4.csproj -c Release --nologo
+      - name: Prepare install ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/WTL-GrowthTraitFix-1.6-v4/{About,Assemblies}
+          cp WTL-GrowthTraitFix-1.6-v4/About/About.xml dist/WTL-GrowthTraitFix-1.6-v4/About/
+          cp WTL-GrowthTraitFix-1.6-v4/Source/bin/Release/net472/WTLGrowthTraitFixV4.dll dist/WTL-GrowthTraitFix-1.6-v4/Assemblies/
+          cd dist
+          zip -rq WTL-GrowthTraitFix-1.6-v4.zip WTL-GrowthTraitFix-1.6-v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WTL-GrowthTraitFix-1.6-v4-DIAGNOSTIC
+          path: dist/WTL-GrowthTraitFix-1.6-v4.zip
+          if-no-files-found: error
