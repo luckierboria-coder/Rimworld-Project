@@ -1,6 +1,6 @@
 # RimOPT 0.2.0-alpha — RimWorld 1.7 port candidate
 
-This is a **source port candidate**, not an in-game-verified performance mod. No 1.7 DLL is included until CI compilation succeeds.
+This is a **compile-verified 1.7 candidate**, not an in-game-verified performance mod. The 1.7 DLL was built successfully in GitHub Actions run 39727561159 (0 warnings, 0 errors) and is stored in this branch at `1.7/Assemblies/RimOPT.dll`.
 
 ## Build and reference policy
 
@@ -28,4 +28,4 @@ This is a **source port candidate**, not an in-game-verified performance mod. No
 
 `dotnet build Source17/RimOPT.csproj -c Release`
 
-To package a compiled 1.7 DLL into the mod, copy it to `1.7/Assemblies/RimOPT.dll`. The source ZIP alone is **not** a functioning RimWorld 1.7 mod.
+To package a compiled 1.7 DLL into the mod, copy it to `1.7/Assemblies/RimOPT.dll`. The **compiled** 1.7 DLL is present in the GitHub branch and distributed in the separate test package. The source-only ZIP remains non-installable by itself.
