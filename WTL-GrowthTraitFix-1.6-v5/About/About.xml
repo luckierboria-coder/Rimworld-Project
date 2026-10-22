@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>WTL Growth Trait Fix v5 - Window Dispatch Diagnostics</name>
+  <author>Allen / independent compatibility patch</author>
+  <packageId>allen.wtl.growthtraitfix.v5</packageId>
+  <description>Experimental RimWorld 1.6 and World Tech Level 1.1.6 diagnostics: logs growth UI window dispatch, IMGUI event type, screenshot flags and rect. Retains the original WTL-legal candidate caching, without changing research filtering or game data.</description>
+  <supportedVersions><li>1.6</li></supportedVersions>
+  <modDependencies>
+    <li><packageId>brrainz.harmony</packageId><displayName>Harmony</displayName></li>
+    <li><packageId>m00nl1ght.worldtechlevel</packageId><displayName>World Tech Level</displayName></li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li><li>m00nl1ght.worldtechlevel</li></loadAfter>
+  <incompatibleWith>
+    <li>allen.wtl.growthtraitfix</li>
+    <li>allen.wtl.growthtraitfix.v2</li>
+    <li>allen.wtl.growthtraitfix.v3</li>
+    <li>allen.wtl.growthtraitfix.v4</li>
+  </incompatibleWith>
+</ModMetaData>
