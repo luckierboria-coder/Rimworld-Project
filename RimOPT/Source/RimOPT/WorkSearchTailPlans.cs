@@ -153,11 +153,11 @@ namespace RimOPT
             chainChecked = true;
             Patches patches = Harmony.GetPatchInfo(target);
 #if RIMWORLD17
-            // Treat every non-RimOPT foreign patch as potentially semantic.
-            // The 1.7 Prefix is not a safe substitute for a patched GenClosest.
+            // Ignore our own installed Prefix; foreign Harmony patches still
+            // disable the substitute. This check runs again after installation.
             bool supported = patches == null ||
-                (patches.Prefixes.Count == 0 && patches.Postfixes.Count == 0 &&
-                 patches.Transpilers.Count == 0 && patches.Finalizers.Count == 0);
+                (!HasForeign(patches.Prefixes) && !HasForeign(patches.Postfixes) &&
+                 !HasForeign(patches.Transpilers) && !HasForeign(patches.Finalizers));
 #else
             bool supported = patches != null && patches.Transpilers.Count == 0 &&
                 patches.Finalizers.Count == 0;
@@ -167,6 +167,16 @@ namespace RimOPT
             chainSupported = supported;
             return chainSupported;
         }
+
+#if RIMWORLD17
+        private static bool HasForeign(IEnumerable<Patch> patches)
+        {
+            if (patches == null) return false;
+            foreach (Patch patch in patches)
+                if (patch != null && patch.owner != Bootstrap.HarmonyId) return true;
+            return false;
+        }
+#endif
 
         private static Plan GetPlan(long currentGeneration, IList<Thing> source, IntVec3 root, Map map)
         {
